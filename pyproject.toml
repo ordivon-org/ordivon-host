@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ordivon-host-incubator"
+version = "0.0.1"
+description = "Incubation carrier for the persistent Ordivon Host control plane."
+requires-python = ">=3.12,<3.13"
+license = { text = "Apache-2.0" }
+dependencies = ["ordivon-protocol==0.1.0"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
