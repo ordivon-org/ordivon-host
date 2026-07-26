@@ -1,0 +1,145 @@
+{
+  "capturedAt": "2026-07-27T07:49:50.432+08:00",
+  "checks": {
+    "bindingTargetsEffect": true,
+    "bindingTargetsWorkspace": true,
+    "finalRevisionFour": true,
+    "finalStateCompleted": true,
+    "fourHostEvents": true,
+    "freshStorageOpenPerStep": true,
+    "observationDigestMatchesContent": true,
+    "outcomeBindsVerification": true,
+    "providerSessionNotPersisted": true,
+    "runtimeWorkspaceClosed": true,
+    "taskProjectionRebuilds": true,
+    "verificationAccepted": true,
+    "verificationObservedMatchesObservation": true
+  },
+  "contract": {
+    "catalogDigest": "sha256:07f090d868b10d1713556197ad451e5c99614416d775424818ae1811b99df348",
+    "catalogObjectDigest": "sha256:42b6cd5c7e68abd1d2fb395b13c12097ef856acbda5f235c89a69d62daa6ef6e",
+    "catalogRevision": "mcp-catalog:07f090d868b10d1713556197ad451e5c99614416d775424818ae1811b99df348",
+    "workspaceReadContractDigest": "sha256:3cbc167cd7bc6c097d5cf4f13d3a9119a6991d8312a0f330062f0b0e7b8049d7"
+  },
+  "evidenceId": "host-live-runtime-read-10adab8c-20260727t074950p0800",
+  "execution": {
+    "finalRevision": 4,
+    "finalState": "completed",
+    "hostEventCount": 4,
+    "objectRefCount": 11,
+    "relativePath": "README.md",
+    "sourceRepo": "/root/projects/ordivon-computing",
+    "sourceRevision": "10adab8c00ce40897583d1c52c336a3d254e0b0a",
+    "stepReceipts": [
+      {
+        "completed": false,
+        "frontier": "node:live-read-1785109790432:read",
+        "revision": 2
+      },
+      {
+        "completed": false,
+        "frontier": "node:live-read-1785109790432:close",
+        "revision": 3
+      },
+      {
+        "completed": true,
+        "frontier": null,
+        "revision": 4
+      }
+    ],
+    "workspaceId": "host-live-read-1785109790432"
+  },
+  "host": {
+    "goalId": "goal:live-read-1785109790432",
+    "repository": "https://github.com/zycxfyh/ordivon-computing.git",
+    "revision": "10adab8c00ce40897583d1c52c336a3d254e0b0a",
+    "stateRootFormat": "typed-cas-plus-sqlite-host-journal-v1",
+    "taskId": "task:live-read-1785109790432"
+  },
+  "integrity": {
+    "algorithm": "sha256",
+    "canonicalization": "ordivon-canonical-json-v1",
+    "payloadDigest": "sha256:62ef2fb2bea5fd91926c2dc685ac6a9f773dd4308381ad6933efb5a77277425a"
+  },
+  "kind": "ordivon.host-live-runtime-read-evidence",
+  "objectReferences": [
+    {
+      "byteLength": 450,
+      "digest": "sha256:07b3f293499cd5a19eef3a750afe5cb43af8fe8f27cb9aa1377cbd08f7a4c89d",
+      "kind": "verification-receipt"
+    },
+    {
+      "byteLength": 766,
+      "digest": "sha256:0b9e77df6071ee22b5e3fafe7f10f4fcd44cc6840b64508e9afdfb63e39706a8",
+      "kind": "host-event-payload"
+    },
+    {
+      "byteLength": 603,
+      "digest": "sha256:1087729d696d0079764056158722846283d629b4a70a5f7e4237619486ee62d3",
+      "kind": "host-event-payload"
+    },
+    {
+      "byteLength": 959,
+      "digest": "sha256:1610b87dabca19fe440d7ce9e4eda78c930784b7bc35524d3a80a57ae6df738a",
+      "kind": "effect-binding"
+    },
+    {
+      "byteLength": 6174,
+      "digest": "sha256:2483bf930e8208056a9a683143d959a81b50aeedd30128b7402818b235ca2110",
+      "kind": "read-observation"
+    },
+    {
+      "byteLength": 432,
+      "digest": "sha256:3a729493691ee5bf2412b6650ab762c33c3531c5818902c83167872a72e70296",
+      "kind": "host-read-task-plan"
+    },
+    {
+      "byteLength": 1507,
+      "digest": "sha256:42b6cd5c7e68abd1d2fb395b13c12097ef856acbda5f235c89a69d62daa6ef6e",
+      "kind": "runtime-catalog"
+    },
+    {
+      "byteLength": 859,
+      "digest": "sha256:45925c051a38e3c131fe1a0640b5192a47e1b7fbfa53acfe3ab6275bdd131ccb",
+      "kind": "effect"
+    },
+    {
+      "byteLength": 734,
+      "digest": "sha256:8c8d0061cbf5262266259b22d1ce28da8c75727964cba03fdac4601607f068e9",
+      "kind": "task-outcome"
+    },
+    {
+      "byteLength": 927,
+      "digest": "sha256:ca7205ae293c090d356fa348f7643153783d556745e0a1e01cf66a3b2ffe5633",
+      "kind": "host-event-payload"
+    },
+    {
+      "byteLength": 459,
+      "digest": "sha256:fbe9bb3ac0ca7be3a4392566bd151d919c61fb05a6abe557dc4861fe52a372e6",
+      "kind": "host-event-payload"
+    }
+  ],
+  "purpose": "Prove that a fresh Host process can advance a deterministic read Task across three persisted frontiers against the live Ordivon Runtime and complete from independent verification without provider session state.",
+  "runtime": {
+    "binaryDigest": "sha256:eb3081013110d6c5fa0e138d9abca1037cbd1c127a87cc46c04791db367b98d8",
+    "endpoint": "http://127.0.0.1:8897/mcp",
+    "executable": "/usr/local/libexec/ordivon/ordivon-runtime",
+    "repository": "https://github.com/zycxfyh/ordivon-runtime.git",
+    "revision": "c38127bc72d160af5553fe231c65486cc6bd64a4",
+    "service": "ordivon-mcp.service",
+    "serviceState": "active",
+    "unitDigest": "sha256:a28bd7871b008a8e47995c6ffcc6b4e92e45327469f7504dcf80e8f90d03bf03"
+  },
+  "schemaVersion": 1,
+  "semanticObjects": {
+    "bindingDigest": "sha256:1610b87dabca19fe440d7ce9e4eda78c930784b7bc35524d3a80a57ae6df738a",
+    "bindingId": "binding:live-read-1785109790432:read:r1",
+    "effectDigest": "sha256:45925c051a38e3c131fe1a0640b5192a47e1b7fbfa53acfe3ab6275bdd131ccb",
+    "effectId": "effect:live-read-1785109790432:read",
+    "observationDigest": "sha256:2483bf930e8208056a9a683143d959a81b50aeedd30128b7402818b235ca2110",
+    "observedContentBytes": 5791,
+    "observedContentDigest": "sha256:38e9eaa4795d52140df4e291cae3f0f705adf7f49717b8debf52673f6458ab7a",
+    "outcomeDigest": "sha256:8c8d0061cbf5262266259b22d1ce28da8c75727964cba03fdac4601607f068e9",
+    "verificationDigest": "sha256:07b3f293499cd5a19eef3a750afe5cb43af8fe8f27cb9aa1377cbd08f7a4c89d"
+  }
+}
