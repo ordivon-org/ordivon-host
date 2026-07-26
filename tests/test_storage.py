@@ -113,6 +113,8 @@ class HostStorageTests(unittest.TestCase):
 
     def test_two_writers_racing_same_stream_only_commit_once(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
+            with HostStorage(directory):
+                pass
             barrier = threading.Barrier(2)
             results: Queue[str] = Queue()
 

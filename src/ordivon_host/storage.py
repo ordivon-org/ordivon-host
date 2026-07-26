@@ -1,14 +1,23 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from anc_canonical import JsonValue
 
 from .domain import EventAdmission, EventKind, HostEvent, StreamKind, TaskProjection
 from .journal import HostJournal, JournalCorruption
-from .objects import ContentAddressedStore, ObjectCorrupt
+from .objects import ContentAddressedStore, ObjectCorrupt, StoredObject
 
 _EVENT_PAYLOAD_KIND = "ordivon.host-task-event"
+
+
+@dataclass(frozen=True, slots=True)
+class TaskEventSnapshot:
+    event_kind: EventKind
+    data: JsonValue
+    projection: TaskProjection
+    payload_digest: str
 
 
 class HostStorage:
@@ -32,6 +41,9 @@ class HostStorage:
     def __exit__(self, exc_type, exc, traceback) -> None:
         self.close()
 
+    def put_object(self, value: JsonValue, *, kind: str) -> StoredObject:
+        return self.objects.put(value, kind=kind)
+
     def validate_references(self) -> None:
         for expected in self.journal.object_refs():
             actual = self.objects.inspect(expected.digest)
@@ -47,7 +59,7 @@ class HostStorage:
                     f"Task projection differs from event head: {task_id}"
                 )
 
-    def rebuild_task(self, task_id: str) -> TaskProjection:
+    def read_task_event(self, task_id: str) -> TaskEventSnapshot:
         head = self.journal.get_task_head(task_id)
         if head is None:
             raise JournalCorruption(f"Task has no event head: {task_id}")
@@ -78,7 +90,15 @@ class HostStorage:
             raise JournalCorruption(
                 f"Task event head identity or revision differs: {task_id}"
             )
-        return projection
+        return TaskEventSnapshot(
+            event_kind=head.event_kind,
+            data=value["data"],
+            projection=projection,
+            payload_digest=head.payload_digest,
+        )
+
+    def rebuild_task(self, task_id: str) -> TaskProjection:
+        return self.read_task_event(task_id).projection
 
     def record_task_event(
         self,
@@ -89,6 +109,7 @@ class HostStorage:
         projection: TaskProjection,
         expected_revision: int,
         caused_by_event_id: str | None = None,
+        referenced_objects: tuple[StoredObject, ...] = (),
     ) -> EventAdmission:
         event_payload: JsonValue = {
             "schemaVersion": 1,
@@ -112,4 +133,5 @@ class HostStorage:
             expected_revision=expected_revision,
             projection=projection,
             payload_object=stored,
+            referenced_objects=referenced_objects,
         )

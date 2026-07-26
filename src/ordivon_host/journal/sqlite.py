@@ -93,6 +93,7 @@ class HostJournal:
         expected_revision: int,
         projection: TaskProjection,
         payload_object: StoredObject,
+        referenced_objects: tuple[StoredObject, ...] = (),
     ) -> EventAdmission:
         if event.stream_kind is not StreamKind.TASK:
             raise ValueError("task projection requires a task stream")
@@ -138,6 +139,8 @@ class HostJournal:
                 )
 
             self._admit_object(payload_object, event.recorded_at_ms)
+            for referenced_object in referenced_objects:
+                self._admit_object(referenced_object, event.recorded_at_ms)
             if stream is None:
                 self.connection.execute(
                     "INSERT INTO streams(stream_id, stream_kind, revision, created_at_ms, updated_at_ms) "

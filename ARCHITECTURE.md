@@ -55,6 +55,34 @@ Expected consequences:
 - event-history gaps, stream-kind drift, projection drift, missing objects, and object corruption prevent startup;
 - a lease coordinates the active writer but does not replace stream revision CAS.
 
+## Deterministic Runtime read slice
+
+The first vertical slice contains no model call. It advances one durable frontier per Host step:
+
+```text
+open-or-reconcile Workspace
+→ bind and execute workspace.read
+→ verify returned content independently
+→ close-or-reconcile Workspace
+→ completed TaskOutcome
+```
+
+The lifecycle Tools (`workspace.get`, `workspace.open`, and `workspace.close`) are deterministic coordination operations. `workspace.read` is the only semantic Effect in this slice and produces separate immutable objects for the Effect, current Tool contract snapshot, EffectBinding, Observation, VerificationReceipt, and terminal TaskOutcome.
+
+The slice preserves these invariants:
+
+- every frontier transition is committed before the next Runtime action;
+- a new Host process can advance the next frontier without provider or process memory;
+- a stable Workspace identity reconciles a crash after `workspace.open` but before Host commit;
+- the Runtime Tool catalog is rediscovered and must match the bound catalog before the read;
+- returned content is hashed independently and must match the Runtime digest;
+- a failed read or failed verification leaves the Task at its prior revision;
+- closing an already absent Workspace is reconciled as complete;
+- presentation-only Tool metadata does not change catalog identity, while schemas and execution metadata do;
+- semantic objects are admitted into the Host Journal transaction as references, not copied into the projection.
+
+This slice deliberately does not use the research Authority/Attestation chain or admit a reusable Fact. A verified read completes with a `VerificationReceipt` and `TaskOutcome`; Fact promotion remains a separate cross-Task decision.
+
 ## Promotion rule
 
 Code moves from `research/experiments` into `packages` only after an invariant has deterministic conformance coverage. Host code remains under `incubation/` until a real guarded mutation and asynchronous Runtime recovery workload both succeed.
