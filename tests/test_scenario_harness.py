@@ -12,6 +12,7 @@ from anc_canonical import canonical_digest
 from ordivon_host.runtime import RuntimeErrorDetail, RuntimeToolRejected
 from ordivon_host.testing import (
     DropFirstSuccessfulExecResponse,
+    DropFirstSuccessfulToolResponse,
     RuntimeClientFactory,
     ScenarioIdentity,
     cleanup_state_root,
@@ -46,7 +47,7 @@ class FakeRuntimeClient:
         self, name: str, arguments: dict[str, object]
     ) -> dict[str, object]:
         self.calls.append((name, dict(arguments)))
-        if name == "workspace.exec":
+        if name in {"workspace.exec", "workspace.execPlan"}:
             return {"jobId": "job:1", "status": "working"}
         if name == "task.list":
             self.page += 1
@@ -126,6 +127,17 @@ class ScenarioHarnessTests(unittest.TestCase):
         result = lossy.call_tool("workspace.exec", {"schemaVersion": 1})
         self.assertEqual(result["jobId"], "job:1")
         self.assertEqual(lossy.calls.count("workspace.exec"), 2)
+
+    def test_fault_injector_can_target_exec_plan(self) -> None:
+        fake = FakeRuntimeClient()
+        lossy = DropFirstSuccessfulToolResponse(
+            fake, "workspace.execPlan"  # type: ignore[arg-type]
+        )
+        with self.assertRaisesRegex(RuntimeError, "workspace.execPlan"):
+            lossy.call_tool("workspace.execPlan", {"schemaVersion": 1})
+        result = lossy.call_tool("workspace.execPlan", {"schemaVersion": 1})
+        self.assertEqual(result["jobId"], "job:1")
+        self.assertEqual(lossy.calls.count("workspace.execPlan"), 2)
 
     def test_runtime_audit_helpers_use_exact_request_identity(self) -> None:
         fake = FakeRuntimeClient()

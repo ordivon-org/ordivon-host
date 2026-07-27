@@ -6,7 +6,10 @@ from .context import (
     scenario_clock_ms,
     scenario_state_root,
 )
-from .faults import DropFirstSuccessfulExecResponse
+from .faults import (
+    DropFirstSuccessfulExecResponse,
+    DropFirstSuccessfulToolResponse,
+)
 from .runtime import (
     RuntimeClientFactory,
     jobs_for_request,
@@ -18,6 +21,7 @@ from .runtime import (
 
 __all__ = [
     "DropFirstSuccessfulExecResponse",
+    "DropFirstSuccessfulToolResponse",
     "RuntimeClientFactory",
     "ScenarioIdentity",
     "cleanup_state_root",
