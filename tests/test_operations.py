@@ -42,6 +42,7 @@ class HostOperationsTests(unittest.TestCase):
             inspection = inspect_state(root)
             self.assertEqual(inspection["schemaVersion"], 2)
             self.assertEqual(inspection["tasks"], 1)
+            self.assertEqual(inspection["terminalTasks"], 0)
             report = doctor_state(root, now_ms=10)
             self.assertTrue(report["healthy"])
             orphan = root / "objects" / ("f" * 64 + ".json")

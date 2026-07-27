@@ -51,6 +51,7 @@ def inspect_state(root: str | Path) -> dict[str, object]:
             "events": storage.journal.event_count(),
             "objectRefs": storage.journal.object_ref_count(),
             "tasks": len(tasks),
+            "terminalTasks": sum(task.state.terminal for task in tasks),
             "tasksByState": dict(sorted(states.items())),
             "leases": int(lease_count),
             "migrations": list(migration_history(storage.journal.connection)),
