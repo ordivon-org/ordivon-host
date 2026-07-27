@@ -229,6 +229,8 @@ class HostStorageTests(unittest.TestCase):
                 first = storage.journal.acquire_lease(
                     "task:journal-test", owner_id="host:a", now_ms=10, ttl_ms=100
                 )
+                self.assertEqual(storage.journal.lease_records(), (first,))
+                self.assertEqual(storage.journal.quick_check(), ("ok",))
                 with self.assertRaises(LeaseHeld):
                     storage.journal.acquire_lease(
                         "task:journal-test", owner_id="host:b", now_ms=20, ttl_ms=100

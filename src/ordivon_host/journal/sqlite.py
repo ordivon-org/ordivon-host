@@ -286,6 +286,10 @@ class HostJournal:
         ).fetchone()
         return int(row["count"])
 
+    def quick_check(self) -> tuple[str, ...]:
+        rows = self.connection.execute("PRAGMA quick_check").fetchall()
+        return tuple(str(row[0]) for row in rows)
+
     def task_ids(self) -> tuple[str, ...]:
         rows = self.connection.execute(
             "SELECT task_id FROM task_projection ORDER BY task_id"
@@ -310,6 +314,21 @@ class HostJournal:
             )
         except (TypeError, ValueError) as error:
             raise JournalCorruption(f"Task event head is invalid: {task_id}") from error
+
+    def lease_records(self) -> tuple[LeaseRecord, ...]:
+        rows = self.connection.execute(
+            "SELECT task_id, owner_id, revision, expires_at_ms "
+            "FROM leases ORDER BY task_id"
+        ).fetchall()
+        return tuple(
+            LeaseRecord(
+                task_id=row["task_id"],
+                owner_id=row["owner_id"],
+                revision=int(row["revision"]),
+                expires_at_ms=int(row["expires_at_ms"]),
+            )
+            for row in rows
+        )
 
     def acquire_lease(
         self,

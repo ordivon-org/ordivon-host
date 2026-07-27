@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -112,6 +113,7 @@ def main() -> None:
         receipt: dict[str, JsonValue] = {
             "schemaVersion": 1,
             "kind": "ordivon.host-scale-measurement",
+            "capturedAt": datetime.now(timezone.utc).isoformat(),
             "hostRevision": host_revision,
             "fixture": {
                 **fixture,
