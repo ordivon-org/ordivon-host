@@ -11,13 +11,14 @@ This repository was extracted with Git history from `ordivon-computing/incubatio
 Current proven vertical slices:
 
 - deterministic Runtime read with independent digest verification;
-- persistent multi-candidate cognition with deterministic admission;
-- guarded mutation with durable Dispatch identity and conservative UNKNOWN reconciliation;
-- durable two-file source change through structured Runtime checks and independent diff verification;
+- persistent multi-candidate cognition with durable Model Invocation and deterministic admission;
+- guarded mutation with durable Dispatch identity, conservative UNKNOWN reconciliation, and persisted terminal failure;
+- logical RepositoryRef → Computing SourceChange Effect → CapabilityDecision → EffectBinding → Runtime Dispatch;
+- durable two-file source change through structured Runtime checks and exact structured diff verification;
 - recovery across fresh Host processes and local Runtime control-plane restarts;
 - schema-v3 operational state, backup/restore, full Doctor validation, and measured 100,000-event behavior.
 
-See `ARCHITECTURE.md`, `CLOSURE.md`, `docs/PRE_H7_CLOSURE.md`, and `evidence/` for exact boundaries and receipts.
+See `ARCHITECTURE.md`, `CLOSURE.md`, `docs/PRE_H7_CLOSURE.md`, `docs/P0_P1_ALIGNMENT.md`, and `evidence/` for exact boundaries and receipts.
 
 ## Development
 

@@ -282,3 +282,12 @@ Until the audit is complete:
 - treat new failures as audit evidence before treating them as implementation tasks.
 
 This closure intentionally leaves a small, evidence-bound Host foundation rather than converting every discovered possibility into another subsystem.
+
+
+## Post-audit P0/P1 alignment addendum
+
+The first-principles audit identified correctness and stack-boundary work that was completed after this original closure. `docs/P0_P1_ALIGNMENT.md` is authoritative for those changes.
+
+In particular, the updated tree now has unique process-instance lease owners, stricter Journal and migration invariants, persisted guarded-mutation failure, version-dispatched durable codecs, structured Runtime diff facts, logical RepositoryRef, a Computing-owned SourceChange Effect, explicit trusted-local CapabilityDecision, durable Model Invocation, a Provider Gateway port, and an explicit stateless Runtime MCP profile.
+
+This addendum does not reopen H7. It narrows and corrects the pre-H7 foundation before any reconciler or scheduling design.

@@ -2,6 +2,8 @@
 
 This architecture was falsified and reduced in the Computing incubator before the independent repository was created. The extracted repository retains the proven v0 boundary while product and operational work proceed as separately reviewable changes.
 
+`docs/P0_P1_ALIGNMENT.md` records the post-audit correctness and stack-alignment changes. Where this historical v0 document conflicts with that record, the P0/P1 document is authoritative. H7 remains frozen.
+
 ## Ownership
 
 - **Host** owns goals, task nodes, Host events and projections, context compilation, model invocation, candidate decisions, Effect proposals, Tool bindings, verification receipts, and task outcomes.
@@ -30,7 +32,7 @@ The Host state root contains exactly two durable mechanisms:
 ```text
 objects/       typed, immutable, content-addressed JSON envelopes
 host.sqlite3   event admission, stream heads, materialized projections,
-               graph indexes, Runtime links, wakeups, and leases
+               object validation, schema migrations, and short leases
 ```
 
 A Task state change follows this order:
@@ -136,8 +138,9 @@ The Cognition boundary preserves these invariants:
 - an unresolved Dispatch blocks another Effect or premature completion;
 - observing a Dispatch must target the exact unresolved Dispatch;
 - if another entry point advances the Task during model execution, the old decision is superseded;
-- Provider failure leaves the prepared Context as the durable Task head;
-- Codex runs ephemerally and read-only; Hermes runs in an isolated HOME with no Host tools, MCP servers, memory, or persistent session snapshots.
+- model invocation intent is durable before the external Gateway call;
+- Provider failure leaves the prepared Invocation as the durable WAITING Task head;
+- Codex and Hermes physical invocation live behind the Provider Gateway port; their sessions remain disposable.
 
 The Host may compare multiple Provider decisions against the same persistent Context before admitting one. Provider agreement is evidence about replaceability, not authority to bypass admission.
 
