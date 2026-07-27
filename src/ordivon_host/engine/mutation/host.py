@@ -17,7 +17,9 @@ from ...runtime import (
     RuntimeProtocolError,
     RuntimeToolRejected,
     discover_execution_runtime_catalog,
-    is_missing_workspace,
+    ensure_workspace,
+    ensure_workspace_closed,
+    find_jobs_by_client_request,
 )
 from ...storage import HostStorage, TaskEventSnapshot
 from .._serde import (
@@ -99,7 +101,12 @@ class GuardedMutationHost:
             catalog_object = self.storage.put_object(
                 catalog.to_dict(), kind="runtime-execution-catalog"
             )
-            workspace = self._ensure_workspace(plan)
+            workspace = ensure_workspace(
+                self.runtime,
+                workspace_id=plan.workspace_id,
+                source_repo=plan.source_repo,
+                source_revision=plan.source_revision,
+            )
             plan_object = self.storage.objects.inspect(
                 self._plan_digest(locked.snapshot)
             )
@@ -232,7 +239,9 @@ class GuardedMutationHost:
         if snapshot.projection.ready_frontier != (self._node(plan, "reconcile"),):
             raise MutationTaskError("Task is not at the reconciliation frontier")
         prepared = self._prepared_from_snapshot(snapshot)
-        jobs = self._find_jobs(prepared.dispatch.client_request_id)
+        jobs = find_jobs_by_client_request(
+            self.runtime, prepared.dispatch.client_request_id
+        )
         if not jobs:
             return self._step(
                 snapshot.projection,
@@ -363,7 +372,9 @@ class GuardedMutationHost:
         ) as locked:
             plan = self._load_plan(locked.snapshot)
             data = require_object(locked.snapshot.data, "mutation verification data")
-            closed = self._ensure_closed(plan.workspace_id)
+            closed = ensure_workspace_closed(
+                self.runtime, plan.workspace_id, force=True
+            )
             dispatch = self._load_dispatch(data)
             outcome: JsonValue = {
                 "schemaVersion": 1,
@@ -586,105 +597,6 @@ class GuardedMutationHost:
             raise MutationSuperseded(
                 "prepared Dispatch revision is no longer current"
             ) from error
-
-    def _find_jobs(self, client_request_id: str) -> list[dict[str, Any]]:
-        filtered = self._task_list_supports_client_request_filter()
-        cursor: dict[str, JsonValue] | None = None
-        seen_cursors: set[str] = set()
-        matches: list[dict[str, Any]] = []
-        for _ in range(100):
-            arguments: dict[str, Any] = {"limit": 100}
-            if filtered:
-                arguments["clientRequestId"] = client_request_id
-            if cursor is not None:
-                arguments["cursor"] = cursor
-            page = self.runtime.call_tool("task.list", arguments)
-            jobs = page.get("jobs")
-            if not isinstance(jobs, list):
-                raise RuntimeProtocolError("task.list omitted jobs")
-            for job in jobs:
-                if not isinstance(job, dict):
-                    raise RuntimeProtocolError("task.list returned a non-object Job")
-                observed_request_id = job.get("clientRequestId")
-                if filtered and observed_request_id != client_request_id:
-                    raise RuntimeProtocolError(
-                        "filtered task.list returned another clientRequestId"
-                    )
-                if observed_request_id == client_request_id:
-                    matches.append(job)
-            next_cursor = page.get("nextCursor")
-            if next_cursor is None:
-                return matches
-            if not isinstance(next_cursor, dict):
-                raise RuntimeProtocolError("task.list returned an invalid cursor")
-            typed_cursor = json_object(next_cursor, "Runtime Job list cursor")
-            cursor_digest = canonical_digest(typed_cursor)
-            if cursor_digest in seen_cursors:
-                raise RuntimeProtocolError("task.list repeated a pagination cursor")
-            seen_cursors.add(cursor_digest)
-            cursor = typed_cursor
-        raise RuntimeProtocolError("task.list pagination exceeded the Host bound")
-
-    def _task_list_supports_client_request_filter(self) -> bool:
-        self.runtime.initialize()
-        for tool in self.runtime.list_tools():
-            if tool.get("name") != "task.list":
-                continue
-            schema = tool.get("inputSchema")
-            if not isinstance(schema, dict):
-                raise RuntimeProtocolError("task.list input schema is not an object")
-            properties = schema.get("properties")
-            if not isinstance(properties, dict):
-                raise RuntimeProtocolError("task.list input schema omitted properties")
-            return "clientRequestId" in properties
-        raise RuntimeProtocolError("Runtime Tool catalog omitted task.list")
-
-    def _ensure_workspace(self, plan: GuardedMutationPlan) -> dict[str, JsonValue]:
-        try:
-            workspace = self.runtime.call_tool(
-                "workspace.get",
-                {"schemaVersion": 1, "workspaceId": plan.workspace_id},
-            )
-        except RuntimeToolRejected as error:
-            if not is_missing_workspace(error):
-                raise
-            workspace = self.runtime.call_tool(
-                "workspace.open",
-                {
-                    "schemaVersion": 1,
-                    "sourceRepo": plan.source_repo,
-                    "sourceRevision": plan.source_revision,
-                    "workspaceId": plan.workspace_id,
-                },
-            )
-        if workspace.get("workspaceId") != plan.workspace_id:
-            raise RuntimeProtocolError("Runtime returned another Workspace")
-        if workspace.get("sourceRevision") != plan.source_revision:
-            raise RuntimeProtocolError("Runtime returned another source revision")
-        return json_object(workspace, "Runtime Workspace")
-
-    def _ensure_closed(self, workspace_id: str) -> dict[str, JsonValue]:
-        try:
-            self.runtime.call_tool(
-                "workspace.get",
-                {"schemaVersion": 1, "workspaceId": workspace_id},
-            )
-        except RuntimeToolRejected as error:
-            if is_missing_workspace(error):
-                return {"workspaceId": workspace_id, "alreadyAbsent": True}
-            raise
-        try:
-            closed = self.runtime.call_tool(
-                "workspace.close",
-                {"schemaVersion": 1, "workspaceId": workspace_id, "force": True},
-            )
-        except RuntimeToolRejected as error:
-            if is_missing_workspace(error):
-                return {"workspaceId": workspace_id, "alreadyAbsent": True}
-            raise
-        if closed.get("workspaceId") != workspace_id:
-            raise RuntimeProtocolError("workspace.close returned another Workspace")
-        return json_object(closed, "Runtime Workspace close")
 
     def _load_plan(self, snapshot: TaskEventSnapshot) -> GuardedMutationPlan:
         value = self.storage.objects.get(

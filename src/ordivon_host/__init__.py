@@ -2,10 +2,16 @@ from .boundary import ComponentOwner, OwnershipRule, owner_of
 from .config import HostConfig, ProviderSettings, RuntimeSettings, load_config
 from .domain import EventAdmission, EventKind, TaskProjection, TaskState
 from .engine import (
+    CodeChangeHost,
+    CodeChangePlan,
+    CodeChangeStep,
+    CodeFileReplacement,
     DeterministicReadHost,
+    ExecutionCheck,
     GuardedMutationHost,
     GuardedMutationPlan,
     MutationStep,
+    PreparedCodeChange,
     PreparedMutation,
     ReadTaskPlan,
     ReadTaskStep,
@@ -33,11 +39,16 @@ from .runtime import (
 from .storage import HostStorage, TaskEventSnapshot
 
 __all__ = [
+    "CodeChangeHost",
+    "CodeChangePlan",
+    "CodeChangeStep",
+    "CodeFileReplacement",
     "ComponentOwner",
     "ContentAddressedStore",
     "DeterministicReadHost",
     "EventAdmission",
     "EventKind",
+    "ExecutionCheck",
     "ExecutionRuntimeCatalog",
     "HostConfig",
     "HostJournal",
@@ -51,6 +62,7 @@ __all__ = [
     "McpRuntimeClient",
     "MutationStep",
     "OwnershipRule",
+    "PreparedCodeChange",
     "PreparedMutation",
     "ProviderSettings",
     "ReadTaskPlan",
