@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import time
+import uuid
 
 from ordivon_host import (
     DeterministicReadHost,
@@ -45,7 +46,8 @@ def main() -> None:
         or tempfile.mkdtemp(prefix=f"ordivon-host-read-{stamp}-", dir="/tmp")
     )
     state_root.mkdir(parents=True, exist_ok=True)
-    task_token = f"live-read-{stamp}"
+    nonce = uuid.uuid4().hex[:12]
+    task_token = f"live-read-{stamp}-{nonce}"
     plan = ReadTaskPlan(
         task_id=f"task:{task_token}",
         goal_id=f"goal:{task_token}",

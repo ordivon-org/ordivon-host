@@ -173,6 +173,32 @@ The mutation boundary preserves these invariants:
 
 The v0 workload deliberately allows only one root-level file created with `O_EXCL`. This is a falsifiable recovery slice, not a general mutation DSL or shell workflow engine.
 
+## H6 empirical recovery boundary
+
+Repeated live work exposed three mechanisms that were not visible from unit tests alone:
+
+1. Reconstructing one Dispatch identity by scanning every historical Runtime Job is semantically safe but scales with total Registry history. At 5,644 production Jobs, two 57-page scans dominated one guarded mutation. Runtime therefore exposes an optional exact `clientRequestId` filter backed by its durable Job index. The Host discovers this capability from the published `task.list` input schema, consumes every filtered page, and still rejects non-object Jobs, mismatched request identities, repeated cursors, excessive pagination, and conflicting Job identities. Older Runtime schemas retain the complete-scan path rather than relying on error-message inference.
+2. `systemctl is-active` is not a readiness proof. A restarted Runtime may be active before its MCP socket accepts initialization. Restart recovery waits for both service activity and a successful MCP `initialize` before attempting reconciliation.
+3. Millisecond timestamps are ordering hints, not unique identities. Concurrent live harnesses collided when Task and Workspace IDs were derived only from wall-clock milliseconds. Live Task, Workspace, Dispatch test, and request identities therefore include an independent UUID nonce.
+
+The live fault matrix now distinguishes four recovery windows:
+
+```text
+response accepted but lost
+→ persist UNKNOWN and reconcile the original Job
+
+physical execution completed but Host response admission never happened
+→ recover from the prepared Dispatch without adding an UNKNOWN event
+
+Runtime process restarted after UNKNOWN
+→ wait for MCP readiness, then reconcile the same durable Job
+
+Runtime process restarted while the Job is working
+→ Runner and Attempt continue independently; the new Runtime projects the same Job to terminal state
+```
+
+These results prove the tested local systemd/SQLite/Workspace path only. They do not establish arbitrary host reboot recovery, remote Runtime recovery, database corruption recovery, distributed scheduling, or automatic redispatch safety for unkeyed effects.
+
 ## Promotion rule
 
 Code moves from `research/experiments` into `packages` only after an invariant has deterministic conformance coverage. Host code remains under `incubation/` until a real guarded mutation and asynchronous Runtime recovery workload both succeed.

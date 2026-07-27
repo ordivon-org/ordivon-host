@@ -10,6 +10,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import time
+import uuid
 from typing import Any
 
 from anc_canonical import JsonValue, canonical_digest
@@ -77,7 +78,8 @@ def main() -> None:
     if not token:
         raise SystemExit("ORDIVON_BEARER_TOKEN is required")
     stamp = int(time.time() * 1_000)
-    task_token = f"live-mutation-{stamp}"
+    nonce = uuid.uuid4().hex[:12]
+    task_token = f"live-mutation-{stamp}-{nonce}"
     relative_path = args.relative_path or f"host-h4-proof-{stamp}.txt"
     state_root = Path(
         args.state_root
@@ -289,11 +291,14 @@ def _jobs_for_request(
     client: McpRuntimeClient,
     client_request_id: str,
 ) -> list[dict[str, JsonValue]]:
+    filtered = _task_list_supports_client_request_filter(client)
     cursor: dict[str, JsonValue] | None = None
     seen_cursors: set[str] = set()
     matches: list[dict[str, JsonValue]] = []
     for _ in range(100):
         arguments: dict[str, Any] = {"limit": 100}
+        if filtered:
+            arguments["clientRequestId"] = client_request_id
         if cursor is not None:
             arguments["cursor"] = cursor
         page = client.call_tool("task.list", arguments)
@@ -301,7 +306,14 @@ def _jobs_for_request(
         if not isinstance(jobs, list):
             raise AssertionError("task.list omitted jobs")
         for job in jobs:
-            if isinstance(job, dict) and job.get("clientRequestId") == client_request_id:
+            if not isinstance(job, dict):
+                raise AssertionError("task.list returned a non-object Job")
+            observed_request_id = job.get("clientRequestId")
+            if filtered and observed_request_id != client_request_id:
+                raise AssertionError(
+                    "filtered task.list returned another clientRequestId"
+                )
+            if observed_request_id == client_request_id:
                 matches.append(job)
         next_cursor = page.get("nextCursor")
         if next_cursor is None:
@@ -314,6 +326,20 @@ def _jobs_for_request(
         seen_cursors.add(cursor_digest)
         cursor = next_cursor
     raise AssertionError("task.list pagination exceeded the live proof bound")
+
+
+def _task_list_supports_client_request_filter(client: McpRuntimeClient) -> bool:
+    for tool in client.list_tools():
+        if tool.get("name") != "task.list":
+            continue
+        schema = tool.get("inputSchema")
+        if not isinstance(schema, dict):
+            raise AssertionError("task.list input schema is not an object")
+        properties = schema.get("properties")
+        if not isinstance(properties, dict):
+            raise AssertionError("task.list input schema omitted properties")
+        return "clientRequestId" in properties
+    raise AssertionError("Runtime Tool catalog omitted task.list")
 
 
 def _workspace_absent(client: McpRuntimeClient, workspace_id: str) -> bool:

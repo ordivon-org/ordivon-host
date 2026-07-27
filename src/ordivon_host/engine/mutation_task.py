@@ -872,23 +872,30 @@ class GuardedMutationHost:
             ) from error
 
     def _find_jobs(self, client_request_id: str) -> list[dict[str, Any]]:
+        filtered = self._task_list_supports_client_request_filter()
         cursor: dict[str, JsonValue] | None = None
         seen_cursors: set[str] = set()
         matches: list[dict[str, Any]] = []
         for _ in range(100):
             arguments: dict[str, Any] = {"limit": 100}
+            if filtered:
+                arguments["clientRequestId"] = client_request_id
             if cursor is not None:
                 arguments["cursor"] = cursor
             page = self.runtime.call_tool("task.list", arguments)
             jobs = page.get("jobs")
             if not isinstance(jobs, list):
                 raise RuntimeProtocolError("task.list omitted jobs")
-            matches.extend(
-                job
-                for job in jobs
-                if isinstance(job, dict)
-                and job.get("clientRequestId") == client_request_id
-            )
+            for job in jobs:
+                if not isinstance(job, dict):
+                    raise RuntimeProtocolError("task.list returned a non-object Job")
+                observed_request_id = job.get("clientRequestId")
+                if filtered and observed_request_id != client_request_id:
+                    raise RuntimeProtocolError(
+                        "filtered task.list returned another clientRequestId"
+                    )
+                if observed_request_id == client_request_id:
+                    matches.append(job)
             next_cursor = page.get("nextCursor")
             if next_cursor is None:
                 return matches
@@ -901,6 +908,20 @@ class GuardedMutationHost:
             seen_cursors.add(cursor_digest)
             cursor = typed_cursor
         raise RuntimeProtocolError("task.list pagination exceeded the Host bound")
+
+    def _task_list_supports_client_request_filter(self) -> bool:
+        self.runtime.initialize()
+        for tool in self.runtime.list_tools():
+            if tool.get("name") != "task.list":
+                continue
+            schema = tool.get("inputSchema")
+            if not isinstance(schema, dict):
+                raise RuntimeProtocolError("task.list input schema is not an object")
+            properties = schema.get("properties")
+            if not isinstance(properties, dict):
+                raise RuntimeProtocolError("task.list input schema omitted properties")
+            return "clientRequestId" in properties
+        raise RuntimeProtocolError("Runtime Tool catalog omitted task.list")
 
     def _ensure_workspace(self, plan: GuardedMutationPlan) -> dict[str, JsonValue]:
         try:

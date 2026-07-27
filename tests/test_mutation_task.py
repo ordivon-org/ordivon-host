@@ -27,6 +27,14 @@ def descriptor(name: str) -> dict[str, Any]:
         "schemaVersion": {"type": "integer", "const": 1},
     }
     required = ["schemaVersion"]
+    if name == "task.list":
+        properties.update(
+            {
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                "cursor": {"type": "object"},
+                "clientRequestId": {"type": "string"},
+            }
+        )
     if name == "workspace.exec":
         properties.update(
             {
@@ -82,6 +90,9 @@ class FakeMutationRuntime:
         self.catalog_generation = 1
         self.reject_not_committed = False
         self.task_list_page_size: int | None = None
+        self.task_list_filter_supported = True
+        self.task_list_ignore_filter = False
+        self.task_list_arguments: list[dict[str, Any]] = []
 
     def initialize(self) -> dict[str, Any]:
         self.calls.append("initialize")
@@ -104,6 +115,9 @@ class FakeMutationRuntime:
         if self.catalog_generation > 1:
             exec_tool = next(tool for tool in tools if tool["name"] == "workspace.exec")
             exec_tool["inputSchema"]["properties"]["newField"] = {"type": "string"}
+        if not self.task_list_filter_supported:
+            list_tool = next(tool for tool in tools if tool["name"] == "task.list")
+            del list_tool["inputSchema"]["properties"]["clientRequestId"]
         return tuple(deepcopy(tools))
 
     def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -177,11 +191,17 @@ class FakeMutationRuntime:
                 )
             return deepcopy(existing)
         if name == "task.list":
+            self.task_list_arguments.append(deepcopy(arguments))
             jobs = sorted(
                 (deepcopy(job) for job in self.jobs.values()),
                 key=lambda job: (job["createdAtMs"], job["jobId"]),
                 reverse=True,
             )
+            requested = arguments.get("clientRequestId")
+            if isinstance(requested, str) and not self.task_list_ignore_filter:
+                jobs = [
+                    job for job in jobs if job.get("clientRequestId") == requested
+                ]
             cursor = arguments.get("cursor")
             start = 0
             if isinstance(cursor, dict):
@@ -288,6 +308,13 @@ class GuardedMutationHostTests(unittest.TestCase):
         self.assertEqual(runtime.physical_deliveries, 1)
         self.assertEqual(runtime.calls.count("workspace.exec"), 1)
         self.assertGreaterEqual(runtime.calls.count("task.list"), 1)
+        self.assertTrue(runtime.task_list_arguments)
+        self.assertTrue(
+            all(
+                item.get("clientRequestId") == prepared.dispatch.client_request_id
+                for item in runtime.task_list_arguments
+            )
+        )
         self.assertEqual(runtime.calls.count("task.observe"), 1)
         self.assertNotIn(task_plan.workspace_id, runtime.workspaces)
 
@@ -385,6 +412,68 @@ class GuardedMutationHostTests(unittest.TestCase):
         self.assertEqual(runtime.calls.count("task.list"), 2)
         self.assertEqual(runtime.calls.count("task.observe"), 0)
         self.assertEqual(runtime.calls.count("workspace.exec"), 0)
+
+    def test_old_task_list_schema_falls_back_to_full_pagination(self) -> None:
+        runtime = FakeMutationRuntime()
+        runtime.task_list_filter_supported = False
+        runtime.task_list_page_size = 1
+        runtime.drop_first_success = True
+        task_plan = plan("legacy-task-list")
+        with tempfile.TemporaryDirectory() as directory:
+            with HostStorage(directory) as storage:
+                runner = host(storage, runtime)
+                runner.create(task_plan)
+                runner.open_workspace(task_plan.task_id)
+                prepared = runner.prepare(task_plan.task_id)
+                runner.deliver(prepared)
+            runtime.jobs["job-unrelated-newer"] = {
+                "jobId": "job-unrelated-newer",
+                "attemptId": "attempt-unrelated-newer",
+                "clientRequestId": "request:unrelated",
+                "workspaceId": task_plan.workspace_id,
+                "status": "succeeded",
+                "createdAtMs": 500,
+                "artifacts": [],
+            }
+            with HostStorage(directory) as storage:
+                result = host(storage, runtime).reconcile(task_plan.task_id)
+                self.assertEqual(result.state, TaskState.VERIFYING)
+                self.assertEqual(result.job_id, "job-1")
+        self.assertEqual(runtime.calls.count("task.list"), 2)
+        self.assertTrue(
+            all("clientRequestId" not in item for item in runtime.task_list_arguments)
+        )
+
+    def test_filtered_task_list_mismatch_fails_closed(self) -> None:
+        runtime = FakeMutationRuntime()
+        runtime.task_list_ignore_filter = True
+        task_plan = plan("filtered-mismatch")
+        with tempfile.TemporaryDirectory() as directory:
+            with HostStorage(directory) as storage:
+                runner = host(storage, runtime)
+                runner.create(task_plan)
+                runner.open_workspace(task_plan.task_id)
+                prepared = runner.prepare(task_plan.task_id)
+            runtime.jobs["job-wrong-request"] = {
+                "jobId": "job-wrong-request",
+                "attemptId": "attempt-wrong-request",
+                "clientRequestId": "request:wrong",
+                "workspaceId": task_plan.workspace_id,
+                "status": "succeeded",
+                "createdAtMs": 500,
+                "artifacts": [],
+            }
+            with HostStorage(directory) as storage:
+                with self.assertRaisesRegex(
+                    RuntimeProtocolError,
+                    "another clientRequestId",
+                ):
+                    host(storage, runtime).reconcile(task_plan.task_id)
+                current = storage.journal.get_task(task_plan.task_id)
+                assert current is not None
+                self.assertEqual(current.revision, prepared.task_revision)
+                self.assertEqual(current.state, TaskState.WAITING)
+        self.assertEqual(runtime.calls.count("task.observe"), 0)
 
     def test_catalog_drift_stops_before_dispatch_is_prepared(self) -> None:
         runtime = FakeMutationRuntime()

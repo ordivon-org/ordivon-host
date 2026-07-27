@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import uuid
 
 from anc_canonical import JsonValue, canonical_digest
 from ordivon_host import EventKind, HostStorage, TaskProjection, TaskState
@@ -50,7 +51,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     stamp = int(time.time() * 1_000)
-    task_token = f"live-cognition-{stamp}"
+    nonce = uuid.uuid4().hex[:12]
+    task_token = f"live-cognition-{stamp}-{nonce}"
     task_id = f"task:{task_token}"
     goal_id = f"goal:{task_token}"
     decision_node_id = f"node:{task_token}:decide"
