@@ -28,7 +28,7 @@ def create_task(directory: str) -> None:
 
 
 class HostSchemaTests(unittest.TestCase):
-    def test_graph_and_recovery_tables_exist_without_second_journal(self) -> None:
+    def test_owned_tables_exist_without_second_journal(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             with HostStorage(directory) as storage:
                 names = {
@@ -42,13 +42,13 @@ class HostSchemaTests(unittest.TestCase):
                         "events",
                         "streams",
                         "task_projection",
-                        "task_nodes",
-                        "task_edges",
-                        "runtime_links",
-                        "wakeups",
                         "leases",
                         "object_refs",
+                        "schema_migrations",
                     }.issubset(names)
+                )
+                self.assertTrue(
+                    {"task_nodes", "task_edges", "runtime_links", "wakeups"}.isdisjoint(names)
                 )
                 self.assertNotIn("semantic_journal", names)
 

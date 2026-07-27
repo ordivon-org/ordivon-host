@@ -7,7 +7,7 @@ from pathlib import Path
 import sqlite3
 from typing import Iterator
 
-from . import _schema
+from .migrations import SchemaMigrationError, initialize_schema
 from ..domain import (
     EventAdmission,
     EventKind,
@@ -70,8 +70,10 @@ class HostJournal:
             self.connection.execute("PRAGMA busy_timeout = 5000")
             self.connection.execute("PRAGMA journal_mode = WAL")
             self.connection.execute("PRAGMA synchronous = FULL")
-            self.connection.executescript(_schema.SCHEMA)
-            self._validate_schema_version()
+            try:
+                initialize_schema(self.connection, self.path)
+            except SchemaMigrationError as error:
+                raise JournalCorruption(str(error)) from error
             self.validate_invariants()
         except BaseException:
             self.connection.close()
@@ -364,13 +366,6 @@ class HostJournal:
             "SELECT task_id FROM task_projection ORDER BY task_id"
         ):
             self.get_task(row["task_id"])
-
-    def _validate_schema_version(self) -> None:
-        row = self.connection.execute(
-            "SELECT value FROM host_metadata WHERE key = 'schema_version'"
-        ).fetchone()
-        if row is None or row["value"] != "1":
-            raise JournalCorruption("unsupported Host Journal schema version")
 
     def _admit_object(self, value: StoredObject, first_seen_at_ms: int) -> None:
         existing = self.connection.execute(

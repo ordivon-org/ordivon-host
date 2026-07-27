@@ -30,6 +30,18 @@ python -m unittest discover -s tests
 
 Live scripts require a reachable Ordivon Runtime and are not part of default CI.
 
+## Operations
+
+After installation, the `ordivon-host` command provides state initialization, inspection, Task queries, Doctor checks, backup verification and restore, and read-only CAS garbage-collection planning:
+
+```bash
+ordivon-host --state-root /var/lib/ordivon/host init
+ordivon-host --state-root /var/lib/ordivon/host doctor
+ordivon-host --state-root /var/lib/ordivon/host inspect
+```
+
+See `docs/OPERATIONS.md` for the schema migration, configuration, secret-loading, backup, and restore contracts.
+
 ## Repository layout
 
 ```text

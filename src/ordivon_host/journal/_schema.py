@@ -1,9 +1,20 @@
+SCHEMA_VERSION = 2
+LEGACY_UNUSED_TABLES = ("wakeups", "runtime_links", "task_edges", "task_nodes")
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS host_metadata(
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-INSERT OR IGNORE INTO host_metadata(key, value) VALUES ('schema_version', '1');
+INSERT OR IGNORE INTO host_metadata(key, value) VALUES ('schema_version', '2');
+
+CREATE TABLE IF NOT EXISTS schema_migrations(
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_version INTEGER NOT NULL CHECK(from_version >= 1),
+    to_version INTEGER NOT NULL UNIQUE CHECK(to_version > from_version),
+    name TEXT NOT NULL,
+    backup_path TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS object_refs(
     digest TEXT PRIMARY KEY,
@@ -41,44 +52,6 @@ CREATE TABLE IF NOT EXISTS task_projection(
     ready_frontier_json TEXT NOT NULL,
     revision INTEGER NOT NULL CHECK(revision >= 1),
     updated_at_ms INTEGER NOT NULL CHECK(updated_at_ms >= 0)
-);
-
-CREATE TABLE IF NOT EXISTS task_nodes(
-    node_id TEXT PRIMARY KEY,
-    task_id TEXT NOT NULL REFERENCES task_projection(task_id) ON DELETE CASCADE,
-    node_kind TEXT NOT NULL,
-    node_state TEXT NOT NULL,
-    payload_digest TEXT REFERENCES object_refs(digest),
-    revision INTEGER NOT NULL CHECK(revision >= 1)
-);
-
-CREATE TABLE IF NOT EXISTS task_edges(
-    task_id TEXT NOT NULL REFERENCES task_projection(task_id) ON DELETE CASCADE,
-    from_node_id TEXT NOT NULL REFERENCES task_nodes(node_id) ON DELETE CASCADE,
-    to_node_id TEXT NOT NULL REFERENCES task_nodes(node_id) ON DELETE CASCADE,
-    edge_kind TEXT NOT NULL,
-    PRIMARY KEY(task_id, from_node_id, to_node_id, edge_kind),
-    CHECK(from_node_id != to_node_id)
-);
-
-CREATE TABLE IF NOT EXISTS runtime_links(
-    dispatch_id TEXT PRIMARY KEY,
-    task_id TEXT NOT NULL REFERENCES task_projection(task_id),
-    effect_id TEXT NOT NULL,
-    binding_id TEXT NOT NULL,
-    workspace_id TEXT,
-    runtime_job_id TEXT,
-    client_request_id TEXT,
-    commit_state TEXT NOT NULL,
-    updated_at_ms INTEGER NOT NULL CHECK(updated_at_ms >= 0)
-);
-
-CREATE TABLE IF NOT EXISTS wakeups(
-    wakeup_id TEXT PRIMARY KEY,
-    task_id TEXT NOT NULL REFERENCES task_projection(task_id),
-    wake_at_ms INTEGER NOT NULL CHECK(wake_at_ms >= 0),
-    reason TEXT NOT NULL,
-    state TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS leases(

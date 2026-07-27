@@ -1,4 +1,5 @@
 from .boundary import ComponentOwner, OwnershipRule, owner_of
+from .config import HostConfig, ProviderSettings, RuntimeSettings, load_config
 from .domain import EventAdmission, EventKind, TaskProjection, TaskState
 from .engine import (
     DeterministicReadHost,
@@ -38,6 +39,7 @@ __all__ = [
     "EventAdmission",
     "EventKind",
     "ExecutionRuntimeCatalog",
+    "HostConfig",
     "HostJournal",
     "HostKernel",
     "HostKernelError",
@@ -50,10 +52,12 @@ __all__ = [
     "MutationStep",
     "OwnershipRule",
     "PreparedMutation",
+    "ProviderSettings",
     "ReadTaskPlan",
     "ReadTaskStep",
     "RevisionConflict",
     "RuntimeCatalog",
+    "RuntimeSettings",
     "TaskEventSnapshot",
     "TaskFrontierMismatch",
     "TaskMissing",
@@ -65,5 +69,6 @@ __all__ = [
     "TransitionReceipt",
     "discover_runtime_catalog",
     "discover_execution_runtime_catalog",
+    "load_config",
     "owner_of",
 ]

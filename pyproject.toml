@@ -13,6 +13,9 @@ dependencies = [
   "ordivon-protocol @ git+https://github.com/zycxfyh/ordivon-computing.git@b2b9bb0ca0ea9a56ce600014f2b642a55e4f7461#subdirectory=packages/ordivon-protocol",
 ]
 
+[project.scripts]
+ordivon-host = "ordivon_host.cli:entrypoint"
+
 [project.urls]
 Repository = "https://github.com/zycxfyh/ordivon-host"
 Issues = "https://github.com/zycxfyh/ordivon-host/issues"
