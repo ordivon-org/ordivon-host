@@ -1,0 +1,73 @@
+{
+  "capturedAt": "2026-07-27T14:06:47.652487+00:00",
+  "computing": {
+    "baseMainRevision": "00b3e67465d0d0473bfd74083bb812496e2f64d2",
+    "h6RecoveryEvidence": {
+      "fileDigest": "sha256:0dbe60140b17d3f542d1120f1fe58396fef1ce1ba0c4dada6d5ff54c34fd3db1",
+      "path": "incubation/host-v0/evidence/live-h6-recovery-e4e8e6b9-20260727T103843Z.json"
+    },
+    "hostEvidenceRevision": "e0b91341627b0d7072d6ec6aec009d3f2353a418",
+    "hostFunctionalRevision": "e4e8e6b90b39677ec7582e0f66fdcc3789904918",
+    "hostKernelRevision": "c371da48cea950a75a4f72b4492770979dfcf55f",
+    "repository": "zycxfyh/ordivon-computing"
+  },
+  "integrity": {
+    "algorithm": "sha256",
+    "canonicalization": "sorted-compact-json-v1",
+    "payloadDigest": "sha256:4b2c3175b00bb7a93be8735496e543f774262165395780f83d3dfecefb0dee16"
+  },
+  "kind": "ordivon.host-h6-production-closure",
+  "notProven": [
+    "whole-machine reboot recovery",
+    "power-loss recovery",
+    "SQLite corruption recovery",
+    "remote Runtime partition recovery",
+    "multiple Host writers across machines",
+    "general unkeyed external-effect retry",
+    "general workflow DAG or multi-Agent scheduling"
+  ],
+  "productionResults": {
+    "baselineGuardedMutationMs": 22009,
+    "filteredAbsentMedianMs": 15,
+    "filteredExistingMedianMs": 18,
+    "guardedMutationAllChecks": true,
+    "guardedMutationElapsedMs": [
+      671,
+      659,
+      652,
+      638,
+      658
+    ],
+    "guardedMutationMedianMs": 658,
+    "guardedMutationRuns": 5
+  },
+  "promotionDecision": {
+    "asynchronousRuntimeRecoverySucceeded": true,
+    "extractionRule": "Close in Computing main first, then extract incubation/host-v0 with Git history preserved.",
+    "guardedMutationSucceeded": true,
+    "incubationGatesSatisfied": true,
+    "license": "Apache-2.0",
+    "nextRepository": "zycxfyh/ordivon-host",
+    "productionPerformanceRealized": true
+  },
+  "runtime": {
+    "ciRunId": 30267867183,
+    "deploymentReceipt": "/var/lib/ordivon/runtime/deployments/20260727T125725Z-2d4141b30eba",
+    "productionAcceptance": {
+      "fileDigest": "sha256:0c2c6aa69ad50e2382784efd9ec388dfdf907e1dd543f9f9c3164fcc5d0d65c7",
+      "path": "/var/lib/ordivon/runtime/deployments/20260727T125725Z-2d4141b30eba/production-acceptance.json",
+      "payloadDigest": "sha256:31a3f6956db9d67ccc8a5f3bc01b79882ebd1fbbecc84c7f6deae1c1a3a37dfb"
+    },
+    "registry": {
+      "jobCountAtAcceptance": 5906,
+      "lookupIndex": "idx_jobs_client_request_id_created",
+      "queryPlan": [
+        "SEARCH jobs USING INDEX idx_jobs_client_request_id_created (client_request_id=?)"
+      ],
+      "schemaVersion": 4
+    },
+    "repository": "zycxfyh/ordivon-runtime",
+    "revision": "2d4141b30ebabd9119ed4e9547c36759cb5b7b77"
+  },
+  "schemaVersion": 1
+}

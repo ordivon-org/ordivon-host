@@ -201,4 +201,4 @@ These results prove the tested local systemd/SQLite/Workspace path only. They do
 
 ## Promotion rule
 
-Code moves from `research/experiments` into `packages` only after an invariant has deterministic conformance coverage. Host code remains under `incubation/` until a real guarded mutation and asynchronous Runtime recovery workload both succeed.
+Code moves from `research/experiments` into `packages` only after an invariant has deterministic conformance coverage. The Host incubation gates were satisfied by the H4-H6 guarded-mutation and asynchronous Runtime-recovery evidence. This directory is retained as the exact Computing closeout source for history-preserving extraction into `ordivon-host`; subsequent Host product work belongs in that repository rather than extending the incubator in place.
