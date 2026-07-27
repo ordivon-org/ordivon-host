@@ -176,3 +176,8 @@ The implementation is accepted locally only when:
 - Host compileall, Ruff, complete unittest suite, wheel build, and `git diff --check` pass;
 - all three workspaces are clean at explicit local commits;
 - no push, merge, deploy, or H7 implementation occurs.
+
+
+## P2 successor note
+
+`docs/P2_P3_EXPLORATION.md` records the subsequent implementation. P2 migrated deterministic Read to `RepositoryRef` and trusted-local Authority, added a conservative one-shot Task Reconciler, and added explicit full-history Doctor validation. The P1 deferred list above remains the historical decision at revision `29b409f`; the P2 document is authoritative for these completed items.

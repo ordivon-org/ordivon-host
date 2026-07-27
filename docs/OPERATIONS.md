@@ -48,6 +48,10 @@ max_response_bytes = 2097152
 codex_executable = "codex"
 hermes_executable = "hermes"
 timeout_seconds = 180
+
+[repositories]
+"repository:ordivon-host" = "/root/projects/ordivon-host"
+"repository:ordivon-computing" = "/root/projects/ordivon-computing"
 ```
 
 `ORDIVON_HOST_STATE_ROOT`, `ORDIVON_HOST_RECEIPT_ROOT`, `ORDIVON_MCP_ENDPOINT`, and `ORDIVON_BEARER_TOKEN_FILE` may override non-secret configuration. The bearer token itself is read from `token_file`; the CLI exposes no token argument.
@@ -60,7 +64,9 @@ ordivon-host inspect
 ordivon-host config show
 ordivon-host task list [--state STATE] [--limit N]
 ordivon-host task show TASK_ID
-ordivon-host doctor [--runtime]
+ordivon-host task assess TASK_ID
+ordivon-host task reconcile TASK_ID [--wait-ms N]
+ordivon-host doctor [--runtime] [--history]
 ordivon-host backup DESTINATION
 ordivon-host verify-backup BACKUP
 ordivon-host restore BACKUP [--replace]
@@ -82,3 +88,7 @@ Backup verification is full and read-only: it disables validation-cache writes s
 ## Doctor
 
 The local doctor checks SQLite integrity, schema compatibility, Journal invariants, full CAS content integrity, orphan objects, and lease state. `--runtime` additionally loads the token from its file and performs MCP initialization.
+
+`--history` decodes every historical Event payload and verifies its row identity, projection revision, known CAS references, and retained Effect/Binding/Authority links. It is intentionally explicit: at 100,000 Events it increased measured Doctor latency from 10.3 seconds to 18.5 seconds, while normal startup and normal Doctor remain unchanged.
+
+`task assess` is local and read-only. `task reconcile` performs at most one conservative step: replayable deterministic Read progress or observation of an already-persisted keyed Runtime Dispatch. It never creates or redispatches an Effect and never invokes a Provider. Non-automatic Tasks return a no-op without loading Runtime credentials.

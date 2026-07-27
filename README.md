@@ -10,15 +10,16 @@ This repository was extracted with Git history from `ordivon-computing/incubatio
 
 Current proven vertical slices:
 
-- deterministic Runtime read with independent digest verification;
+- logical RepositoryRef-based Runtime read with Authority and independent digest verification;
 - persistent multi-candidate cognition with durable Model Invocation and deterministic admission;
 - guarded mutation with durable Dispatch identity, conservative UNKNOWN reconciliation, and persisted terminal failure;
 - logical RepositoryRef → Computing SourceChange Effect → CapabilityDecision → EffectBinding → Runtime Dispatch;
 - durable two-file source change through structured Runtime checks and exact structured diff verification;
+- conservative one-shot recovery assessment that never redispatches an uncertain Effect;
 - recovery across fresh Host processes and local Runtime control-plane restarts;
-- schema-v3 operational state, backup/restore, full Doctor validation, and measured 100,000-event behavior.
+- schema-v3 operational state, backup/restore, optional full-history Doctor, and measured 100,000-event behavior.
 
-See `ARCHITECTURE.md`, `CLOSURE.md`, `docs/PRE_H7_CLOSURE.md`, `docs/P0_P1_ALIGNMENT.md`, and `evidence/` for exact boundaries and receipts.
+See `ARCHITECTURE.md`, `CLOSURE.md`, `docs/PRE_H7_CLOSURE.md`, `docs/P0_P1_ALIGNMENT.md`, `docs/P2_P3_EXPLORATION.md`, and `evidence/` for exact boundaries and receipts.
 
 ## Development
 
@@ -40,6 +41,9 @@ After installation, the `ordivon-host` command provides state initialization, in
 ```bash
 ordivon-host --state-root /var/lib/ordivon/host init
 ordivon-host --state-root /var/lib/ordivon/host doctor
+ordivon-host --state-root /var/lib/ordivon/host doctor --history
+ordivon-host --state-root /var/lib/ordivon/host task assess TASK_ID
+ordivon-host --state-root /var/lib/ordivon/host task reconcile TASK_ID
 ordivon-host --state-root /var/lib/ordivon/host inspect
 ```
 
