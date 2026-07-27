@@ -6,6 +6,7 @@ import tempfile
 import textwrap
 import unittest
 
+from anc_canonical import canonical_digest
 from ordivon_host.cognition import (
     CandidateAction,
     CodexCliModelAdapter,
@@ -185,6 +186,8 @@ class CognitionAdapterTests(unittest.TestCase):
         assert evidence is not None
         self.assertEqual(evidence["apiCalls"], 1)
         self.assertEqual(evidence["totalTokens"], 145)
+        self.assertEqual(evidence["estimatedCostUsd"], "0.001")
+        canonical_digest(evidence)
         self.assertTrue(evidence["isolatedHome"])
         self.assertFalse(evidence["persistentSessionRetained"])
         self.assertEqual(evidence["enabledToolsets"], [])

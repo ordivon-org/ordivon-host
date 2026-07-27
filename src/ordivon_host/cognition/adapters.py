@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 import json
 import os
 from pathlib import Path
@@ -243,7 +244,9 @@ class HermesCliModelAdapter:
                 "outputTokens": _usage_integer(usage, "output_tokens"),
                 "reasoningTokens": _usage_integer(usage, "reasoning_tokens"),
                 "totalTokens": _usage_integer(usage, "total_tokens"),
-                "estimatedCostUsd": usage.get("estimated_cost_usd"),
+                "estimatedCostUsd": _usage_decimal_string(
+                    usage, "estimated_cost_usd"
+                ),
                 "isolatedHome": True,
                 "persistentSessionRetained": False,
                 "enabledToolsets": [],
@@ -348,6 +351,29 @@ def _usage_integer(usage: dict[str, Any], field: str) -> int:
     if type(value) is not int or value < 0:
         raise ValueError(f"Hermes usage field {field} is not a non-negative integer")
     return value
+
+
+def _usage_decimal_string(
+    usage: dict[str, Any],
+    field: str,
+) -> str | None:
+    value = usage.get(field)
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError(f"Hermes usage field {field} is not a decimal value")
+    try:
+        decimal = Decimal(str(value))
+    except (InvalidOperation, ValueError) as error:
+        raise ValueError(
+            f"Hermes usage field {field} is not a decimal value"
+        ) from error
+    if not decimal.is_finite() or decimal < 0:
+        raise ValueError(
+            f"Hermes usage field {field} is not a non-negative finite decimal"
+        )
+    text = format(decimal.normalize(), "f")
+    return text.rstrip("0").rstrip(".") if "." in text else text
 
 
 def _decision_from_action(
