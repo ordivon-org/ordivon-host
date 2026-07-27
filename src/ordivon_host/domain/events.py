@@ -31,6 +31,8 @@ class EventKind(StrEnum):
     TASK_CREATED = "task.created"
     TASK_STATE_CHANGED = "task.state-changed"
     TASK_FRONTIER_CHANGED = "task.frontier-changed"
+    COGNITION_CONTEXT_COMPILED = "cognition.context-compiled"
+    COGNITION_DECISION_ADMITTED = "cognition.decision-admitted"
     RUNTIME_LINKED = "runtime.linked"
     WAKEUP_SCHEDULED = "wakeup.scheduled"
 

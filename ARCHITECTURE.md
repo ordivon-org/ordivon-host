@@ -83,6 +83,39 @@ The slice preserves these invariants:
 
 This slice deliberately does not use the research Authority/Attestation chain or admit a reusable Fact. A verified read completes with a `VerificationReceipt` and `TaskOutcome`; Fact promotion remains a separate cross-Task decision.
 
+## Persistent multi-candidate cognition
+
+Cognition is split across two durable boundaries:
+
+```text
+compile bounded Context
+→ persist Context and release the Task lease
+→ invoke any replaceable Provider outside the lease
+→ reacquire the Task lease
+→ reread current world, completed Effects, and unresolved Dispatches
+→ deterministically admit or reject the exact ModelDecision
+→ persist the decision, admission, and selected frontier together
+```
+
+A `ContextBlock` binds its typed payload to a source digest, priority, freshness class, and required/optional status. The compiler always includes required blocks or fails; optional blocks are selected deterministically under a token budget. The resulting `CompiledContext` carries two to eight exact candidate actions, forbidden completed Effects, unresolved Dispatches, and a content digest.
+
+The Cognition boundary preserves these invariants:
+
+- Provider sessions, transcripts, tools, and hidden reasoning are not Task state;
+- the Provider receives one immutable `CompiledContext` and returns one structured `ModelDecision`;
+- a Context can be recovered by a fresh Host process before Provider invocation;
+- the Task lease is not held while an external model call runs;
+- a decision for another Context or an invented action is rejected;
+- action, Effect, Binding, Dispatch, and world identities must be copied exactly;
+- current world drift and newly completed Effects are rechecked at admission time;
+- an unresolved Dispatch blocks another Effect or premature completion;
+- observing a Dispatch must target the exact unresolved Dispatch;
+- if another entry point advances the Task during model execution, the old decision is superseded;
+- Provider failure leaves the prepared Context as the durable Task head;
+- Codex runs ephemerally and read-only; Hermes runs in an isolated HOME with no Host tools, MCP servers, memory, or persistent session snapshots.
+
+The Host may compare multiple Provider decisions against the same persistent Context before admitting one. Provider agreement is evidence about replaceability, not authority to bypass admission.
+
 ## Promotion rule
 
 Code moves from `research/experiments` into `packages` only after an invariant has deterministic conformance coverage. Host code remains under `incubation/` until a real guarded mutation and asynchronous Runtime recovery workload both succeed.
