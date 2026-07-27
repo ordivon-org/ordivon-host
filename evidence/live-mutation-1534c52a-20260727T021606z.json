@@ -1,0 +1,273 @@
+{
+  "capturedAt": "2026-07-27T02:16:06.147597+00:00",
+  "checks": {
+    "effectBindingDispatchIdentityExact": true,
+    "effectVerificationRequiresObservation": true,
+    "eventTimelineContiguousAndExact": true,
+    "exactContentVerified": true,
+    "exactHostExecutionRevision": true,
+    "freshStorageOpenPerStage": true,
+    "independentContentVerificationExact": true,
+    "noProviderSessionPersisted": true,
+    "noRedispatchAfterUnknown": true,
+    "oneRuntimeJobForClientRequestId": true,
+    "oneRuntimeJobForStableKey": true,
+    "oneUncertainDeliveryObject": true,
+    "oneWorkspaceExecInvocation": true,
+    "originalRuntimeJobObserved": true,
+    "responseDroppedAfterExecAdmission": true,
+    "runtimeBinaryAndUnitDigestsBound": true,
+    "runtimeCatalogBoundBeforeDelivery": true,
+    "runtimeJobSourceMatchesHostRevision": true,
+    "runtimeRepositoryCleanAtBoundRevision": true,
+    "runtimeWorkspaceClosed": true,
+    "taskCompleted": true,
+    "taskOutcomeAndProjectionExact": true,
+    "uncertaintyTargetsExactDispatch": true,
+    "unknownStatePersisted": true
+  },
+  "environment": {
+    "hostStorageOpenedFreshPerStage": true,
+    "providerSessionPersisted": false,
+    "python": "3.12.13"
+  },
+  "evidenceId": "host-live-mutation-1534c52a-20260727t021606z",
+  "host": {
+    "eventTimeline": [
+      {
+        "eventId": "event:live-mutation-1785118546314:r1",
+        "eventKind": "task.created",
+        "payloadDigest": "sha256:0139ec3afef482c629b7b12458965d246ef9718f86472997839b8e2701e69994",
+        "recordedAtMs": 1785118546316,
+        "revision": 1
+      },
+      {
+        "eventId": "event:live-mutation-1785118546314:r2",
+        "eventKind": "runtime.linked",
+        "payloadDigest": "sha256:db8a1dbdbeb3115cdb53bd4914c4556b7e2722e3d72b73f1844c02e2f18bb387",
+        "recordedAtMs": 1785118546404,
+        "revision": 2
+      },
+      {
+        "eventId": "event:live-mutation-1785118546314:r3",
+        "eventKind": "runtime.dispatch-prepared",
+        "payloadDigest": "sha256:05b55cd60d7262631688dd278004635dc5c4263c73962f397c6d23b00d0027be",
+        "recordedAtMs": 1785118546412,
+        "revision": 3
+      },
+      {
+        "eventId": "event:live-mutation-1785118546314:r4",
+        "eventKind": "runtime.outcome-unknown",
+        "payloadDigest": "sha256:63fc9731c588aa10443d98c0eff2ad50a48acea9d18dca784cb1f2a358a14614",
+        "recordedAtMs": 1785118546632,
+        "revision": 4
+      },
+      {
+        "eventId": "event:live-mutation-1785118546314:r5",
+        "eventKind": "runtime.dispatch-observed",
+        "payloadDigest": "sha256:d09511efea82bc6e5a3d8a3a642ff32667a72cd35823d2f70b06e47338a5598a",
+        "recordedAtMs": 1785118556155,
+        "revision": 5
+      },
+      {
+        "eventId": "event:live-mutation-1785118546314:r6",
+        "eventKind": "verification.accepted",
+        "payloadDigest": "sha256:819087d10f54680b8010763257eaa62a5f2b24d86239a9340cd8769e0140a01a",
+        "recordedAtMs": 1785118556166,
+        "revision": 6
+      },
+      {
+        "eventId": "event:live-mutation-1785118546314:r7",
+        "eventKind": "task.state-changed",
+        "payloadDigest": "sha256:f1c691fdc4800e98eb525e851a788683913d768ae0780e9c49e1090419d2d37d",
+        "recordedAtMs": 1785118556260,
+        "revision": 7
+      }
+    ],
+    "executionRevision": "1534c52a159a1c99e90ac2d361a864e2b15e1fad",
+    "finalProjection": {
+      "activeNodeId": null,
+      "goalId": "goal:live-mutation-1785118546314",
+      "readyFrontier": [],
+      "revision": 7,
+      "state": "completed",
+      "taskId": "task:live-mutation-1785118546314",
+      "updatedAtMs": 1785118556260
+    },
+    "goalId": "goal:live-mutation-1785118546314",
+    "repository": "https://github.com/zycxfyh/ordivon-computing.git",
+    "stateRootFormat": "typed-cas-plus-sqlite-host-journal-v1",
+    "taskId": "task:live-mutation-1785118546314"
+  },
+  "integrity": {
+    "algorithm": "sha256",
+    "canonicalization": "ordivon-canonical-json-v1",
+    "payloadDigest": "sha256:c1ab705e74b32841cab67dfacdb858218ec692a5435e074de62a03a3057422b5"
+  },
+  "kind": "ordivon.host-live-guarded-mutation-evidence",
+  "mutation": {
+    "bindingId": "binding:live-mutation-1785118546314:exec:r1",
+    "clientRequestId": "anc-effect-a2d6ab6628edca90d38b3a2860bf9e22",
+    "dispatchId": "dispatch:live-mutation-1785118546314:exec:r1",
+    "effectId": "effect:live-mutation-1785118546314:exec",
+    "expectedContentDigest": "sha256:eac25ae1407fc0cdca5cf035f027f9c6fcd4ceef230476b48947634859d2e6ab",
+    "relativePath": "host-h4-proof-1785118546314.txt",
+    "requestDigest": "sha256:8fe0627e33225b5b8a4e75a6a8fdee3b8b52a42bce8f1a005763a4016f602886",
+    "revisions": {
+      "completedRevision": 7,
+      "openedRevision": 2,
+      "preparedRevision": 3,
+      "reconciliation": [
+        {
+          "frontier": "node:live-mutation-1785118546314:verify",
+          "jobId": "job-019fa15b-5a0b-7432-a5e6-6be1deccbfae",
+          "revision": 5,
+          "state": "verifying"
+        }
+      ],
+      "unknownRevision": 4,
+      "verifiedRevision": 6
+    },
+    "runtimeAttemptId": "attempt-019fa15b-5a0b-7432-a5e6-6bf717821224",
+    "runtimeJobId": "job-019fa15b-5a0b-7432-a5e6-6be1deccbfae",
+    "workspaceId": "host-live-mutation-1785118546314"
+  },
+  "persistence": {
+    "hostEventCount": 7,
+    "objectRefCount": 17,
+    "objectReferences": [
+      {
+        "byteLength": 1423,
+        "digest": "sha256:584536a9683832ad195b0e7c4f59884bb5c3a6a0222ad767a85b6285f2eaaae4",
+        "kind": "effect"
+      },
+      {
+        "byteLength": 1539,
+        "digest": "sha256:f36a408e03e85ac2c2fab4830fe44e54582da6ba724240e724b83b2aeffbb456",
+        "kind": "effect-binding"
+      },
+      {
+        "byteLength": 471,
+        "digest": "sha256:0139ec3afef482c629b7b12458965d246ef9718f86472997839b8e2701e69994",
+        "kind": "host-event-payload"
+      },
+      {
+        "byteLength": 1011,
+        "digest": "sha256:05b55cd60d7262631688dd278004635dc5c4263c73962f397c6d23b00d0027be",
+        "kind": "host-event-payload"
+      },
+      {
+        "byteLength": 1103,
+        "digest": "sha256:63fc9731c588aa10443d98c0eff2ad50a48acea9d18dca784cb1f2a358a14614",
+        "kind": "host-event-payload"
+      },
+      {
+        "byteLength": 1422,
+        "digest": "sha256:819087d10f54680b8010763257eaa62a5f2b24d86239a9340cd8769e0140a01a",
+        "kind": "host-event-payload"
+      },
+      {
+        "byteLength": 1256,
+        "digest": "sha256:d09511efea82bc6e5a3d8a3a642ff32667a72cd35823d2f70b06e47338a5598a",
+        "kind": "host-event-payload"
+      },
+      {
+        "byteLength": 786,
+        "digest": "sha256:db8a1dbdbeb3115cdb53bd4914c4556b7e2722e3d72b73f1844c02e2f18bb387",
+        "kind": "host-event-payload"
+      },
+      {
+        "byteLength": 1556,
+        "digest": "sha256:f1c691fdc4800e98eb525e851a788683913d768ae0780e9c49e1090419d2d37d",
+        "kind": "host-event-payload"
+      },
+      {
+        "byteLength": 549,
+        "digest": "sha256:0f0b664e5f55ce5b7ae95a80d36a2d7ae87abf075743eada4ace57b0e5efa544",
+        "kind": "host-mutation-task-plan"
+      },
+      {
+        "byteLength": 381,
+        "digest": "sha256:9fa0e61cb882f3ff66ff51f24baa1be0af24daa3fdd2487aa10b8035af6301c0",
+        "kind": "mutation-read-observation"
+      },
+      {
+        "byteLength": 526,
+        "digest": "sha256:7d853fa63a904eb21c0a5012dd287f8e18f3468c8bd8ee0a6a0bc50934fbbb1e",
+        "kind": "runtime-dispatch-intent"
+      },
+      {
+        "byteLength": 3253,
+        "digest": "sha256:2b3fc866f5a08e65d43f773c2797f1c670233f626bcdd9ee9989b9b9ad576d8f",
+        "kind": "runtime-execution-catalog"
+      },
+      {
+        "byteLength": 1331,
+        "digest": "sha256:38d9129f529b15b5ec808d9ad77a060a996d9cab10fd578d5bd0a136ad28c55f",
+        "kind": "runtime-job-observation"
+      },
+      {
+        "byteLength": 298,
+        "digest": "sha256:7838215e476241765e56b36f38e7243257891db388c8804b2778a6c09357960b",
+        "kind": "runtime-uncertain-delivery"
+      },
+      {
+        "byteLength": 700,
+        "digest": "sha256:8a4f7d590dbaa9951ee10cae789e7a3fafc3ea7012184ad973d7ffff3de5084b",
+        "kind": "task-outcome"
+      },
+      {
+        "byteLength": 558,
+        "digest": "sha256:85bdb468f9ef566007bca7c043867f538bcf4436b81d06c341e21a3140a8f980",
+        "kind": "verification-receipt"
+      }
+    ],
+    "semanticObjects": {
+      "binding": "sha256:f36a408e03e85ac2c2fab4830fe44e54582da6ba724240e724b83b2aeffbb456",
+      "dispatch": "sha256:7d853fa63a904eb21c0a5012dd287f8e18f3468c8bd8ee0a6a0bc50934fbbb1e",
+      "effect": "sha256:584536a9683832ad195b0e7c4f59884bb5c3a6a0222ad767a85b6285f2eaaae4",
+      "plan": "sha256:0f0b664e5f55ce5b7ae95a80d36a2d7ae87abf075743eada4ace57b0e5efa544",
+      "readObservation": "sha256:9fa0e61cb882f3ff66ff51f24baa1be0af24daa3fdd2487aa10b8035af6301c0",
+      "runtimeCatalog": "sha256:2b3fc866f5a08e65d43f773c2797f1c670233f626bcdd9ee9989b9b9ad576d8f",
+      "runtimeJobObservation": "sha256:38d9129f529b15b5ec808d9ad77a060a996d9cab10fd578d5bd0a136ad28c55f",
+      "taskOutcome": "sha256:8a4f7d590dbaa9951ee10cae789e7a3fafc3ea7012184ad973d7ffff3de5084b",
+      "uncertainDelivery": "sha256:7838215e476241765e56b36f38e7243257891db388c8804b2778a6c09357960b",
+      "verificationReceipt": "sha256:85bdb468f9ef566007bca7c043867f538bcf4436b81d06c341e21a3140a8f980"
+    }
+  },
+  "purpose": "Prove that the Host can durably prepare one changing Effect, lose the successful Runtime response, classify delivery as UNKNOWN, recover the original keyed Runtime Job without redispatch, independently verify the physical mutation, and complete the Task across fresh Host processes.",
+  "runtime": {
+    "binaryDigest": "sha256:eb3081013110d6c5fa0e138d9abca1037cbd1c127a87cc46c04791db367b98d8",
+    "binaryPath": "/usr/local/libexec/ordivon/ordivon-runtime",
+    "catalogDigest": "sha256:dc39011c2327d193ab464931810a656a455d6a2f2dc7fd24f388d1d2195f16c6",
+    "catalogObjectDigest": "sha256:2b3fc866f5a08e65d43f773c2797f1c670233f626bcdd9ee9989b9b9ad576d8f",
+    "execContractDigest": "sha256:6f194f68bd9487fe177f90e752f9a6ced0a16f539769189b41b779f36a163f71",
+    "job": {
+      "artifactCount": 3,
+      "attemptId": "attempt-019fa15b-5a0b-7432-a5e6-6bf717821224",
+      "clientRequestId": "anc-effect-a2d6ab6628edca90d38b3a2860bf9e22",
+      "createdAtMs": 1785118546443,
+      "durationMs": 111,
+      "exitCode": 0,
+      "finishedAtMs": 1785118546672,
+      "jobId": "job-019fa15b-5a0b-7432-a5e6-6be1deccbfae",
+      "sourceRevision": "1534c52a159a1c99e90ac2d361a864e2b15e1fad",
+      "startedAtMs": 1785118546561,
+      "status": "succeeded",
+      "workspaceId": "host-live-mutation-1785118546314"
+    },
+    "mcpEndpoint": "http://127.0.0.1:8897/mcp",
+    "repository": "https://github.com/zycxfyh/ordivon-runtime.git",
+    "repositoryClean": true,
+    "revision": "c38127bc72d160af5553fe231c65486cc6bd64a4",
+    "serviceState": "active",
+    "serviceSubState": "running",
+    "serviceUnitDigest": "sha256:25c5c420ed2210a49260522d185d65492bbd7bc1e0c3235209f11f79af2a6ee9",
+    "serviceUnitPath": "/etc/systemd/system/ordivon-runtime.service"
+  },
+  "schemaVersion": 1,
+  "sourceReceipt": {
+    "kind": "ordivon.host-live-guarded-mutation",
+    "payloadDigest": "sha256:7c7a48de5dbff3f6125590065c83b33cc57aaf0b033028673f8b06d09b6cc53d"
+  }
+}
