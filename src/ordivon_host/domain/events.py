@@ -34,6 +34,10 @@ class EventKind(StrEnum):
     COGNITION_CONTEXT_COMPILED = "cognition.context-compiled"
     COGNITION_DECISION_ADMITTED = "cognition.decision-admitted"
     RUNTIME_LINKED = "runtime.linked"
+    RUNTIME_DISPATCH_PREPARED = "runtime.dispatch-prepared"
+    RUNTIME_OUTCOME_UNKNOWN = "runtime.outcome-unknown"
+    RUNTIME_DISPATCH_OBSERVED = "runtime.dispatch-observed"
+    VERIFICATION_ACCEPTED = "verification.accepted"
     WAKEUP_SCHEDULED = "wakeup.scheduled"
 
 

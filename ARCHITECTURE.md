@@ -116,6 +116,38 @@ The Cognition boundary preserves these invariants:
 
 The Host may compare multiple Provider decisions against the same persistent Context before admitting one. Provider agreement is evidence about replaceability, not authority to bypass admission.
 
+## Guarded mutation and uncertain delivery
+
+The first changing vertical slice uses one keyed `workspace.exec` Dispatch to create one exact proof file in a disposable Runtime Workspace. The Host persists the Effect, current `workspace.exec` Tool contract, EffectBinding, stable `clientRequestId`, and Dispatch intent before crossing the Runtime boundary.
+
+```text
+open-or-reconcile Workspace
+→ persist Effect + Binding + Dispatch intent
+→ release the Task lease
+→ deliver workspace.exec once
+→ classify a lost response as UNKNOWN
+→ find the original Job by clientRequestId
+→ observe that exact Job to terminal state
+→ verify the changed file independently with workspace.read
+→ force-close the dirty disposable Workspace
+→ completed TaskOutcome
+```
+
+The mutation boundary preserves these invariants:
+
+- the external call never occurs before its exact Dispatch identity and request digest are durable;
+- the Task lease is not held during `workspace.exec` or asynchronous Job observation;
+- a transport or protocol failure with uncertain commit state becomes UNKNOWN;
+- an explicit `not_committed` Tool rejection remains distinguishable from UNKNOWN;
+- a fresh Host process only searches for and observes the original keyed Runtime Job;
+- failure to find that Job never authorizes automatic redispatch;
+- one `clientRequestId` resolving to conflicting Job identities fails closed;
+- Runtime success alone does not complete the Task;
+- exact content and digest verification must succeed before TaskOutcome;
+- the dirty test Workspace is force-closed only after evidence is retained.
+
+The v0 workload deliberately allows only one root-level file created with `O_EXCL`. This is a falsifiable recovery slice, not a general mutation DSL or shell workflow engine.
+
 ## Promotion rule
 
 Code moves from `research/experiments` into `packages` only after an invariant has deterministic conformance coverage. Host code remains under `incubation/` until a real guarded mutation and asynchronous Runtime recovery workload both succeed.

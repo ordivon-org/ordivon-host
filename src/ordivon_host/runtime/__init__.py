@@ -1,4 +1,9 @@
-from .catalog import RuntimeCatalog, discover_runtime_catalog
+from .catalog import (
+    ExecutionRuntimeCatalog,
+    RuntimeCatalog,
+    discover_execution_runtime_catalog,
+    discover_runtime_catalog,
+)
 from .errors import (
     RuntimeClientError,
     RuntimeErrorDetail,
@@ -9,6 +14,7 @@ from .errors import (
 from .mcp import McpRuntimeClient, PROTOCOL_VERSION, parse_http_response
 
 __all__ = [
+    "ExecutionRuntimeCatalog",
     "McpRuntimeClient",
     "PROTOCOL_VERSION",
     "RuntimeCatalog",
@@ -17,6 +23,7 @@ __all__ = [
     "RuntimeProtocolError",
     "RuntimeToolRejected",
     "RuntimeTransportError",
+    "discover_execution_runtime_catalog",
     "discover_runtime_catalog",
     "parse_http_response",
 ]

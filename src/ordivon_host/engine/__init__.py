@@ -1,3 +1,13 @@
+from .mutation_task import (
+    DispatchIntent,
+    GuardedMutationHost,
+    GuardedMutationPlan,
+    MutationStep,
+    MutationSuperseded,
+    MutationTaskError,
+    MutationVerificationError,
+    PreparedMutation,
+)
 from .read_task import (
     DeterministicReadHost,
     ReadObservation,
@@ -8,6 +18,14 @@ from .read_task import (
 )
 
 __all__ = [
+    "DispatchIntent",
+    "GuardedMutationHost",
+    "GuardedMutationPlan",
+    "MutationStep",
+    "MutationSuperseded",
+    "MutationTaskError",
+    "MutationVerificationError",
+    "PreparedMutation",
     "DeterministicReadHost",
     "ReadObservation",
     "ReadTaskPlan",
