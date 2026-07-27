@@ -294,9 +294,13 @@ class HostStorageTests(unittest.TestCase):
                     expected_revision=0,
                 )
             root = Path(__file__).resolve().parents[1]
-            protocol = root.parents[1] / "packages" / "ordivon-protocol" / "src"
             env = dict(os.environ)
-            env["PYTHONPATH"] = os.pathsep.join((str(root / "src"), str(protocol)))
+            inherited_pythonpath = env.get("PYTHONPATH")
+            env["PYTHONPATH"] = os.pathsep.join(
+                path
+                for path in (str(root / "src"), inherited_pythonpath)
+                if path
+            )
             script = """
 from ordivon_host import HostStorage
 import sys

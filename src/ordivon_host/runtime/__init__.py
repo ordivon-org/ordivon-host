@@ -1,3 +1,4 @@
+from .client import RuntimeClient
 from .catalog import (
     ExecutionRuntimeCatalog,
     RuntimeCatalog,
@@ -12,12 +13,14 @@ from .errors import (
     RuntimeTransportError,
 )
 from .mcp import McpRuntimeClient, PROTOCOL_VERSION, parse_http_response
+from .workspaces import is_missing_workspace
 
 __all__ = [
     "ExecutionRuntimeCatalog",
     "McpRuntimeClient",
     "PROTOCOL_VERSION",
     "RuntimeCatalog",
+    "RuntimeClient",
     "RuntimeClientError",
     "RuntimeErrorDetail",
     "RuntimeProtocolError",
@@ -25,5 +28,6 @@ __all__ = [
     "RuntimeTransportError",
     "discover_execution_runtime_catalog",
     "discover_runtime_catalog",
+    "is_missing_workspace",
     "parse_http_response",
 ]
