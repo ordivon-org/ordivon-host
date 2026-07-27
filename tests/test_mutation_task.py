@@ -93,6 +93,7 @@ class FakeMutationRuntime:
         self.task_list_filter_supported = True
         self.task_list_ignore_filter = False
         self.task_list_arguments: list[dict[str, Any]] = []
+        self.terminal_status = "succeeded"
 
     def initialize(self) -> dict[str, Any]:
         self.calls.append("initialize")
@@ -179,7 +180,7 @@ class FakeMutationRuntime:
                     "attemptId": f"attempt-{self.physical_deliveries}",
                     "clientRequestId": client_request_id,
                     "workspaceId": workspace_id,
-                    "status": "succeeded",
+                    "status": self.terminal_status,
                     "createdAtMs": 100 + self.physical_deliveries,
                     "artifacts": [],
                 }
@@ -258,6 +259,26 @@ def host(storage: HostStorage, runtime: FakeMutationRuntime) -> GuardedMutationH
 
 
 class GuardedMutationHostTests(unittest.TestCase):
+    def test_terminal_runtime_failure_is_persisted_and_workspace_is_closed(self) -> None:
+        runtime = FakeMutationRuntime()
+        runtime.terminal_status = "failed"
+        task_plan = plan("terminal-failure")
+        with tempfile.TemporaryDirectory() as directory:
+            with HostStorage(directory) as storage:
+                runner = host(storage, runtime)
+                runner.create(task_plan)
+                runner.open_workspace(task_plan.task_id)
+                prepared = runner.prepare(task_plan.task_id)
+                blocked = runner.deliver(prepared)
+                self.assertEqual(blocked.state, TaskState.BLOCKED)
+                self.assertTrue(blocked.frontier.endswith(":close"))
+                closed = runner.close(task_plan.task_id)
+                self.assertEqual(closed.state, TaskState.FAILED)
+                self.assertNotIn(task_plan.workspace_id, runtime.workspaces)
+                snapshot = storage.read_task_event(task_plan.task_id)
+                self.assertEqual(snapshot.projection.state, TaskState.FAILED)
+                self.assertEqual(snapshot.data["jobStatus"], "failed")
+
     def test_response_loss_reconciles_original_job_across_fresh_hosts(self) -> None:
         runtime = FakeMutationRuntime()
         runtime.drop_first_success = True

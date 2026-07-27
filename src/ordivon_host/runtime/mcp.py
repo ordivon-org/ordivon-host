@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 import threading
 from typing import Any
@@ -15,6 +16,26 @@ from .errors import (
 )
 
 PROTOCOL_VERSION = "2025-06-18"
+
+
+@dataclass(frozen=True, slots=True)
+class McpTransportProfile:
+    profile_id: str
+    protocol_version: str
+    stateful_sessions: bool
+    server_initiated_requests: bool
+    multi_message_sse: bool
+    resumable_sse: bool
+
+
+ORDIVON_STATELESS_MCP_PROFILE = McpTransportProfile(
+    profile_id="ordivon.mcp-stateless-http.v1",
+    protocol_version=PROTOCOL_VERSION,
+    stateful_sessions=False,
+    server_initiated_requests=False,
+    multi_message_sse=False,
+    resumable_sse=False,
+)
 
 
 def parse_http_response(content_type: str, body: bytes) -> dict[str, Any]:
@@ -39,7 +60,11 @@ def parse_http_response(content_type: str, body: bytes) -> dict[str, Any]:
             events.append("\n".join(current))
         if not events:
             raise RuntimeProtocolError("SSE response contained no data event")
-        text = events[-1]
+        if len(events) != 1:
+            raise RuntimeProtocolError(
+                "Ordivon stateless MCP profile requires exactly one SSE data event"
+            )
+        text = events[0]
     try:
         value = json.loads(text)
     except json.JSONDecodeError as error:
@@ -59,6 +84,7 @@ class McpRuntimeClient:
         max_response_bytes: int = 2_097_152,
         client_name: str = "ordivon-host",
         client_version: str = "0.0.1",
+        profile: McpTransportProfile = ORDIVON_STATELESS_MCP_PROFILE,
     ) -> None:
         parsed = urllib.parse.urlparse(endpoint)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -73,16 +99,22 @@ class McpRuntimeClient:
         self._token = token
         self.timeout_seconds = timeout_seconds
         self.max_response_bytes = max_response_bytes
+        if profile.stateful_sessions or profile.server_initiated_requests:
+            raise ValueError("McpRuntimeClient supports only the Ordivon stateless profile")
         self.client_name = client_name
         self.client_version = client_version
+        self.profile = profile
+        self._initialized: dict[str, Any] | None = None
         self._request_id = 0
         self._request_id_lock = threading.Lock()
 
     def initialize(self) -> dict[str, Any]:
+        if self._initialized is not None:
+            return dict(self._initialized)
         result = self.request(
             "initialize",
             {
-                "protocolVersion": PROTOCOL_VERSION,
+                "protocolVersion": self.profile.protocol_version,
                 "capabilities": {},
                 "clientInfo": {
                     "name": self.client_name,
@@ -93,7 +125,12 @@ class McpRuntimeClient:
         server_info = result.get("serverInfo")
         if not isinstance(server_info, dict):
             raise RuntimeProtocolError("initialize omitted serverInfo")
-        return result
+        if result.get("protocolVersion") != self.profile.protocol_version:
+            raise RuntimeProtocolError(
+                "Runtime negotiated another MCP protocol version"
+            )
+        self._initialized = dict(result)
+        return dict(result)
 
     def list_tools(self) -> tuple[dict[str, Any], ...]:
         result = self.request("tools/list", {})
@@ -154,7 +191,7 @@ class McpRuntimeClient:
                 "Authorization": f"Bearer {self._token}",
                 "Content-Type": "application/json",
                 "Accept": "application/json, text/event-stream",
-                "MCP-Protocol-Version": PROTOCOL_VERSION,
+                "MCP-Protocol-Version": self.profile.protocol_version,
             },
         )
         try:

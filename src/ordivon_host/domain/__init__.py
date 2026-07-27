@@ -8,4 +8,9 @@ __all__ = [
     "StreamKind",
     "TaskProjection",
     "TaskState",
+    "RepositoryRef",
+    "RepositoryResolver",
+    "StaticRepositoryResolver",
 ]
+
+from .repositories import RepositoryRef, RepositoryResolver, StaticRepositoryResolver

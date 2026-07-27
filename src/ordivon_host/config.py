@@ -47,6 +47,7 @@ class HostConfig:
     receipt_root: Path | None = None
     runtime: RuntimeSettings = RuntimeSettings()
     providers: ProviderSettings = ProviderSettings()
+    repositories: tuple[tuple[str, Path], ...] = ()
 
     def __post_init__(self) -> None:
         if not self.state_root.is_absolute():
@@ -55,6 +56,13 @@ class HostConfig:
         if not receipt_root.is_absolute():
             raise ValueError("Host receipt root must be absolute")
         object.__setattr__(self, "receipt_root", receipt_root)
+        if len(dict(self.repositories)) != len(self.repositories):
+            raise ValueError("Host repository identities must be unique")
+        for identity, path in self.repositories:
+            if not identity.startswith("repository:"):
+                raise ValueError("Host repository identity must start with repository:")
+            if not path.is_absolute():
+                raise ValueError("Host repository path must be absolute")
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -70,6 +78,9 @@ class HostConfig:
                 "codexExecutable": self.providers.codex_executable,
                 "hermesExecutable": self.providers.hermes_executable,
                 "timeoutSeconds": self.providers.timeout_seconds,
+            },
+            "repositories": {
+                identity: str(path) for identity, path in self.repositories
             },
         }
 
@@ -89,10 +100,11 @@ def load_config(
         raw = value
     elif path is not None:
         raise FileNotFoundError(config_path)
-    _check_keys(raw, {"state", "runtime", "providers"}, "Host config")
+    _check_keys(raw, {"state", "runtime", "providers", "repositories"}, "Host config")
     state = _table(raw.get("state"), "state")
     runtime = _table(raw.get("runtime"), "runtime")
     providers = _table(raw.get("providers"), "providers")
+    repositories = _table(raw.get("repositories"), "repositories")
     _check_keys(state, {"root", "receipt_root"}, "state")
     _check_keys(
         runtime,
@@ -136,6 +148,15 @@ def load_config(
                 providers.get("timeout_seconds", 180),
                 "providers.timeout_seconds",
             ),
+        ),
+        repositories=tuple(
+            sorted(
+                (
+                    identity,
+                    Path(str(path)),
+                )
+                for identity, path in repositories.items()
+            )
         ),
     )
 

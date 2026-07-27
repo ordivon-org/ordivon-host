@@ -39,4 +39,6 @@ __all__ = [
     "is_missing_workspace",
     "parse_http_response",
     "tool_accepts_property",
+    "McpTransportProfile",
+    "ORDIVON_STATELESS_MCP_PROFILE",
 ]

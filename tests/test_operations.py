@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from ordivon_host import EventKind, HostStorage, TaskProjection, TaskState
 from ordivon_host.ops import (
@@ -35,6 +36,17 @@ def populate(root: Path) -> None:
 
 
 class HostOperationsTests(unittest.TestCase):
+    def test_inspect_counts_directly_without_bounded_task_listing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            populate(root)
+            with patch(
+                "ordivon_host.ops.inspect.list_tasks",
+                side_effect=AssertionError("inspect must not use bounded listing"),
+            ):
+                inspection = inspect_state(root)
+            self.assertEqual(inspection["tasks"], 1)
+
     def test_inspect_doctor_and_gc_plan(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "state"

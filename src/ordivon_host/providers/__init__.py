@@ -1,5 +1,4 @@
-# Compatibility surface. Physical provider execution lives behind providers.gateway.
-from ..providers.gateway import (
+from .gateway import (
     CodexCliModelAdapter,
     CodexCliModelGateway,
     HermesCliModelAdapter,
@@ -19,4 +18,13 @@ __all__ = [
     "ModelAdapterError",
     "ModelGateway",
     "ScriptedPreferenceAdapter",
+    "ModelInvocationIntent",
+    "ModelInvocationObservation",
+    "ModelInvocationReceipt",
 ]
+
+from .invocation import (
+    ModelInvocationIntent,
+    ModelInvocationObservation,
+    ModelInvocationReceipt,
+)

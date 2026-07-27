@@ -9,6 +9,8 @@ from typing import Any
 import unittest
 
 from ordivon_host import HostStorage, TaskState
+from ordivon_host.authority import CapabilityDenied, TrustedLocalAuthorizer
+from ordivon_host.domain import RepositoryRef, StaticRepositoryResolver
 from ordivon_host.engine.code_change import (
     CodeChangeHost,
     CodeChangePlan,
@@ -142,7 +144,16 @@ class FakeCodeChangeRuntime:
                 f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n"
                 for path in paths
             )
-            return {"diff": diff, "untrackedPaths": []}
+            return {
+                "diff": diff,
+                "truncated": False,
+                "changedPaths": paths,
+                "addedPaths": [],
+                "modifiedPaths": paths,
+                "deletedPaths": [],
+                "renamedPaths": [],
+                "untrackedPaths": [],
+            }
         if name == "workspace.close":
             workspace_id = arguments["workspaceId"]
             if workspace_id not in self.workspaces:
@@ -205,8 +216,7 @@ def plan() -> CodeChangePlan:
         task_id="task:code-change-test",
         goal_id="goal:code-change-test",
         workspace_id="workspace-code-change-test",
-        source_repo="/root/projects/ordivon-host",
-        source_revision="a" * 40,
+        repository=RepositoryRef("repository:ordivon-host", "a" * 40),
         files=(
             CodeFileReplacement(
                 "src/example.py",
@@ -235,6 +245,17 @@ def plan() -> CodeChangePlan:
     )
 
 
+def code_change_host(storage: HostStorage, runtime: FakeCodeChangeRuntime, clock) -> CodeChangeHost:
+    return CodeChangeHost(
+        storage,
+        runtime,
+        clock_ms=clock,
+        repository_resolver=StaticRepositoryResolver(
+            {"repository:ordivon-host": "/root/projects/ordivon-host"}
+        ),
+    )
+
+
 class CodeChangeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.clock = itertools.count(1).__next__
@@ -244,34 +265,92 @@ class CodeChangeTests(unittest.TestCase):
         self.assertEqual(CodeChangePlan.from_dict(value.to_dict()), value)
         self.assertNotEqual(value.files[0].expected_digest, value.files[0].result_digest)
 
+    def test_plan_v2_serializes_logical_repository_only(self) -> None:
+        value = plan().to_dict()
+        self.assertEqual(value["schemaVersion"], 2)
+        self.assertEqual(
+            value["repository"],
+            {"repositoryId": "repository:ordivon-host", "revision": "a" * 40},
+        )
+        self.assertNotIn("sourceRepo", value)
+
+    def test_legacy_v1_plan_upcasts_without_republishing_physical_path(self) -> None:
+        current = plan().to_dict()
+        legacy = {
+            "schemaVersion": 1,
+            "kind": current["kind"],
+            "taskId": current["taskId"],
+            "goalId": current["goalId"],
+            "workspaceId": current["workspaceId"],
+            "sourceRepo": "/root/projects/ordivon-host",
+            "sourceRevision": "a" * 40,
+            "files": current["files"],
+            "checks": current["checks"],
+            "patchExecutable": current["patchExecutable"],
+            "principalId": current["principalId"],
+        }
+        decoded = CodeChangePlan.from_dict(legacy)
+        self.assertTrue(decoded.repository.repository_id.startswith("repository:legacy-"))
+        self.assertEqual(decoded.repository.legacy_path, legacy["sourceRepo"])
+        self.assertNotIn("sourceRepo", decoded.to_dict())
+
+    def test_trusted_local_authority_denies_another_principal(self) -> None:
+        from anc_effect_ir import CapabilityRequirement
+
+        with self.assertRaises(CapabilityDenied):
+            TrustedLocalAuthorizer().authorize(
+                CapabilityRequirement(
+                    "principal:other",
+                    "anc.source.change.v1",
+                    "world_object:repository:ordivon-host",
+                )
+            )
+
+    def test_execution_check_rejects_durable_secret_environment(self) -> None:
+        with self.assertRaisesRegex(ValueError, "SecretRef"):
+            ExecutionCheck(
+                "unsafe",
+                "/usr/bin/true",
+                (),
+                env=(("API_KEY", "should-not-enter-cas"),),
+            )
+
     def test_realistic_code_change_completes_across_fresh_host_instances(self) -> None:
         runtime = FakeCodeChangeRuntime()
         with tempfile.TemporaryDirectory() as directory:
             with HostStorage(directory) as storage:
-                created = CodeChangeHost(storage, runtime, clock_ms=self.clock).create(plan())
+                created = code_change_host(storage, runtime, self.clock).create(plan())
                 self.assertEqual(created.revision, 1)
             with HostStorage(directory) as storage:
-                opened = CodeChangeHost(storage, runtime, clock_ms=self.clock).open_workspace(
+                opened = code_change_host(storage, runtime, self.clock).open_workspace(
                     plan().task_id
                 )
                 self.assertEqual(opened.revision, 2)
             with HostStorage(directory) as storage:
-                prepared = CodeChangeHost(storage, runtime, clock_ms=self.clock).prepare(
+                prepared = code_change_host(storage, runtime, self.clock).prepare(
                     plan().task_id
                 )
                 self.assertEqual(prepared.task_revision, 3)
+                kinds = {item.kind for item in storage.journal.object_refs()}
+                self.assertTrue(
+                    {"effect", "effect-binding", "capability-decision"}.issubset(kinds)
+                )
+                self.assertEqual(
+                    prepared.dispatch.effect_id,
+                    "effect:code-change-test:source-change:r1",
+                )
             with HostStorage(directory) as storage:
-                observed = CodeChangeHost(storage, runtime, clock_ms=self.clock).deliver(
+                observed = code_change_host(storage, runtime, self.clock).deliver(
                     prepared
                 )
                 self.assertEqual(observed.state, TaskState.VERIFYING)
             with HostStorage(directory) as storage:
-                verified = CodeChangeHost(storage, runtime, clock_ms=self.clock).verify(
+                verified = code_change_host(storage, runtime, self.clock).verify(
                     plan().task_id
                 )
                 self.assertEqual(verified.state, TaskState.READY)
             with HostStorage(directory) as storage:
-                closed = CodeChangeHost(storage, runtime, clock_ms=self.clock).close(
+                closed = code_change_host(storage, runtime, self.clock).close(
                     plan().task_id
                 )
                 self.assertTrue(closed.completed)
@@ -292,32 +371,30 @@ class CodeChangeTests(unittest.TestCase):
         runtime.drop_first_response = True
         with tempfile.TemporaryDirectory() as directory:
             with HostStorage(directory) as storage:
-                host = CodeChangeHost(storage, runtime, clock_ms=self.clock)
+                host = code_change_host(storage, runtime, self.clock)
                 host.create(plan())
             with HostStorage(directory) as storage:
-                CodeChangeHost(storage, runtime, clock_ms=self.clock).open_workspace(
+                code_change_host(storage, runtime, self.clock).open_workspace(
                     plan().task_id
                 )
             with HostStorage(directory) as storage:
-                prepared = CodeChangeHost(storage, runtime, clock_ms=self.clock).prepare(
+                prepared = code_change_host(storage, runtime, self.clock).prepare(
                     plan().task_id
                 )
             with HostStorage(directory) as storage:
-                unknown = CodeChangeHost(storage, runtime, clock_ms=self.clock).deliver(
+                unknown = code_change_host(storage, runtime, self.clock).deliver(
                     prepared
                 )
                 self.assertEqual(unknown.state, TaskState.WAITING)
                 self.assertTrue(runtime.response_dropped)
             with HostStorage(directory) as storage:
-                reconciled = CodeChangeHost(
-                    storage, runtime, clock_ms=self.clock
-                ).reconcile(plan().task_id)
+                reconciled = code_change_host(storage, runtime, self.clock).reconcile(plan().task_id)
                 self.assertEqual(reconciled.state, TaskState.VERIFYING)
                 self.assertTrue(reconciled.reconciled)
             with HostStorage(directory) as storage:
-                CodeChangeHost(storage, runtime, clock_ms=self.clock).verify(plan().task_id)
+                code_change_host(storage, runtime, self.clock).verify(plan().task_id)
             with HostStorage(directory) as storage:
-                closed = CodeChangeHost(storage, runtime, clock_ms=self.clock).close(
+                closed = code_change_host(storage, runtime, self.clock).close(
                     plan().task_id
                 )
                 self.assertEqual(closed.revision, 7)
@@ -328,22 +405,22 @@ class CodeChangeTests(unittest.TestCase):
         runtime.fail_check = True
         with tempfile.TemporaryDirectory() as directory:
             with HostStorage(directory) as storage:
-                CodeChangeHost(storage, runtime, clock_ms=self.clock).create(plan())
+                code_change_host(storage, runtime, self.clock).create(plan())
             with HostStorage(directory) as storage:
-                CodeChangeHost(storage, runtime, clock_ms=self.clock).open_workspace(
+                code_change_host(storage, runtime, self.clock).open_workspace(
                     plan().task_id
                 )
             with HostStorage(directory) as storage:
-                prepared = CodeChangeHost(storage, runtime, clock_ms=self.clock).prepare(
+                prepared = code_change_host(storage, runtime, self.clock).prepare(
                     plan().task_id
                 )
             with HostStorage(directory) as storage:
-                blocked = CodeChangeHost(storage, runtime, clock_ms=self.clock).deliver(
+                blocked = code_change_host(storage, runtime, self.clock).deliver(
                     prepared
                 )
                 self.assertEqual(blocked.state, TaskState.BLOCKED)
             with HostStorage(directory) as storage:
-                closed = CodeChangeHost(storage, runtime, clock_ms=self.clock).close(
+                closed = code_change_host(storage, runtime, self.clock).close(
                     plan().task_id
                 )
                 self.assertFalse(closed.completed)
@@ -353,14 +430,14 @@ class CodeChangeTests(unittest.TestCase):
         runtime = FakeCodeChangeRuntime()
         with tempfile.TemporaryDirectory() as directory:
             with HostStorage(directory) as storage:
-                CodeChangeHost(storage, runtime, clock_ms=self.clock).create(plan())
+                code_change_host(storage, runtime, self.clock).create(plan())
             with HostStorage(directory) as storage:
-                CodeChangeHost(storage, runtime, clock_ms=self.clock).open_workspace(
+                code_change_host(storage, runtime, self.clock).open_workspace(
                     plan().task_id
                 )
             runtime.catalog_generation = 2
             with HostStorage(directory) as storage:
                 with self.assertRaisesRegex(RuntimeError, "catalog changed"):
-                    CodeChangeHost(storage, runtime, clock_ms=self.clock).prepare(
+                    code_change_host(storage, runtime, self.clock).prepare(
                         plan().task_id
                     )

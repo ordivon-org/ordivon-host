@@ -290,6 +290,18 @@ class HostJournal:
         rows = self.connection.execute("PRAGMA quick_check").fetchall()
         return tuple(str(row[0]) for row in rows)
 
+    def task_count(self) -> int:
+        row = self.connection.execute(
+            "SELECT COUNT(*) AS count FROM task_projection"
+        ).fetchone()
+        return int(row["count"])
+
+    def task_counts_by_state(self) -> dict[str, int]:
+        rows = self.connection.execute(
+            "SELECT state, COUNT(*) AS count FROM task_projection GROUP BY state ORDER BY state"
+        ).fetchall()
+        return {str(row["state"]): int(row["count"]) for row in rows}
+
     def task_ids(self) -> tuple[str, ...]:
         rows = self.connection.execute(
             "SELECT task_id FROM task_projection ORDER BY task_id"
@@ -407,6 +419,16 @@ class HostJournal:
         if kind_mismatch is not None:
             raise JournalCorruption(
                 f"event stream kind differs from stream: {kind_mismatch['event_id']}"
+            )
+
+        missing_projection = self.connection.execute(
+            "SELECT s.stream_id FROM streams s LEFT JOIN task_projection p "
+            "ON p.task_id = s.stream_id "
+            "WHERE s.stream_kind = 'task' AND p.task_id IS NULL LIMIT 1"
+        ).fetchone()
+        if missing_projection is not None:
+            raise JournalCorruption(
+                f"Task stream has no projection: {missing_projection['stream_id']}"
             )
 
         projection_mismatch = self.connection.execute(

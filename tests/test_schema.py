@@ -53,6 +53,17 @@ class HostSchemaTests(unittest.TestCase):
                 )
                 self.assertNotIn("semantic_journal", names)
 
+    def test_task_stream_without_projection_is_detected_on_reopen(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            create_task(directory)
+            connection = sqlite3.connect(f"{directory}/host.sqlite3")
+            connection.execute("PRAGMA foreign_keys = OFF")
+            connection.execute("DELETE FROM task_projection")
+            connection.commit()
+            connection.close()
+            with self.assertRaisesRegex(JournalCorruption, "no projection"):
+                HostStorage(directory)
+
     def test_projection_tampering_is_detected_on_reopen(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             create_task(directory)

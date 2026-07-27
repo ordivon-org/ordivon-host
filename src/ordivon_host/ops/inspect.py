@@ -38,10 +38,13 @@ def inspect_state(root: str | Path) -> dict[str, object]:
     if not (state_root / "host.sqlite3").is_file():
         raise FileNotFoundError(state_root / "host.sqlite3")
     with HostStorage(state_root) as storage:
-        tasks = list_tasks(storage, limit=10_000)
-        states: dict[str, int] = {}
-        for task in tasks:
-            states[task.state.value] = states.get(task.state.value, 0) + 1
+        states = storage.journal.task_counts_by_state()
+        task_count = storage.journal.task_count()
+        terminal_count = sum(
+            count
+            for state, count in states.items()
+            if TaskState(state).terminal
+        )
         lease_count = storage.journal.connection.execute(
             "SELECT COUNT(*) FROM leases"
         ).fetchone()[0]
@@ -57,9 +60,9 @@ def inspect_state(root: str | Path) -> dict[str, object]:
                 "taskHeads": storage.validation_summary.task_heads,
                 "full": storage.validation_summary.full,
             },
-            "tasks": len(tasks),
-            "terminalTasks": sum(task.state.terminal for task in tasks),
-            "tasksByState": dict(sorted(states.items())),
+            "tasks": task_count,
+            "terminalTasks": terminal_count,
+            "tasksByState": states,
             "leases": int(lease_count),
             "migrations": list(migration_history(storage.journal.connection)),
         }

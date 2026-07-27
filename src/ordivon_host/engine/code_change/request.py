@@ -6,7 +6,7 @@ import json
 from anc_canonical import JsonValue
 
 from .._serde import task_token
-from .models import CodeChangeDispatch, CodeChangePlan, request_digest
+from .models import CodeChangePlan
 
 _PATCH_SCRIPT = r'''
 import base64, hashlib, json, os, pathlib, sys, uuid
@@ -63,9 +63,7 @@ print(json.dumps({"changedFiles": [item["relativePath"] for item in spec["files"
 '''.strip()
 
 
-def build_exec_plan_request(
-    plan: CodeChangePlan,
-) -> tuple[CodeChangeDispatch, dict[str, JsonValue]]:
+def build_exec_plan_request(plan: CodeChangePlan) -> dict[str, JsonValue]:
     token = task_token(plan.task_id)
     client_request_id = f"request:code-change:{token}:r1"
     files = [
@@ -104,11 +102,4 @@ def build_exec_plan_request(
         "stdoutTailBytes": 8_192,
         "stderrTailBytes": 8_192,
     }
-    dispatch = CodeChangeDispatch(
-        dispatch_id=f"dispatch:{token}:exec-plan:r1",
-        client_request_id=client_request_id,
-        workspace_id=plan.workspace_id,
-        operation="workspace.execPlan",
-        request_digest=request_digest(arguments),
-    )
-    return dispatch, arguments
+    return arguments

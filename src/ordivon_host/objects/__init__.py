@@ -1,3 +1,8 @@
+from .codecs import (
+    ObjectCodecError,
+    UnsupportedObjectVersion,
+    decode_versioned_object,
+)
 from .store import (
     ContentAddressedStore,
     ObjectCorrupt,
@@ -7,6 +12,9 @@ from .store import (
 )
 
 __all__ = [
+    "ObjectCodecError",
+    "UnsupportedObjectVersion",
+    "decode_versioned_object",
     "ContentAddressedStore",
     "ObjectCorrupt",
     "ObjectFileIdentity",

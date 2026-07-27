@@ -115,6 +115,31 @@ class HostSchemaMigrationTests(unittest.TestCase):
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM wakeups").fetchone()[0], 1)
             connection.close()
 
+    def test_nonempty_database_without_host_metadata_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "host.sqlite3"
+            connection = sqlite3.connect(database)
+            connection.execute("CREATE TABLE unrelated(value TEXT)")
+            connection.commit()
+            connection.close()
+            with self.assertRaisesRegex(JournalCorruption, "metadata is missing"):
+                HostStorage(directory)
+
+    def test_existing_migration_backup_must_match_current_database(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "host.sqlite3"
+            connection = sqlite3.connect(database)
+            connection.executescript(_V2)
+            connection.close()
+            stale = Path(f"{database}.pre-schema-v3.sqlite3")
+            other = sqlite3.connect(stale)
+            other.executescript(_V2)
+            other.execute("INSERT INTO host_metadata VALUES ('stale-marker', 'other')")
+            other.commit()
+            other.close()
+            with self.assertRaisesRegex(JournalCorruption, "does not match"):
+                HostStorage(directory)
+
     def test_unsupported_future_schema_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "host.sqlite3"

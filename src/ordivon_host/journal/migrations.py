@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 import sqlite3
+import tempfile
 
 from . import _schema
 
@@ -13,6 +15,18 @@ class SchemaMigrationError(RuntimeError):
 
 def initialize_schema(connection: sqlite3.Connection, path: Path) -> None:
     if not _table_exists(connection, "host_metadata"):
+        existing = tuple(
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+            )
+        )
+        if existing:
+            raise SchemaMigrationError(
+                "Host Journal metadata is missing from a non-empty database: "
+                + ", ".join(existing)
+            )
         connection.executescript(_schema.SCHEMA)
         return
     while True:
@@ -145,22 +159,30 @@ def _ensure_backup(
     *,
     expected_version: int,
 ) -> None:
-    if path.exists():
-        backup = sqlite3.connect(path)
-        try:
-            quick = backup.execute("PRAGMA quick_check").fetchall()
-            row = backup.execute(
-                "SELECT value FROM host_metadata WHERE key = 'schema_version'"
-            ).fetchone()
-        finally:
-            backup.close()
-        if (
-            quick != [("ok",)]
-            or row is None
-            or row[0] != str(expected_version)
-        ):
-            raise SchemaMigrationError("existing schema migration backup is invalid")
-        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.current-", suffix=".sqlite3", dir=path.parent
+    )
+    os.close(descriptor)
+    temporary = Path(temporary_name)
+    temporary.unlink(missing_ok=True)
+    try:
+        _write_backup(connection, temporary)
+        _validate_backup(temporary, expected_version=expected_version)
+        if path.exists():
+            _validate_backup(path, expected_version=expected_version)
+            if _sha256_file(path) != _sha256_file(temporary):
+                raise SchemaMigrationError(
+                    "existing schema migration backup does not match the current database"
+                )
+            return
+        os.replace(temporary, path)
+        _fsync(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _write_backup(connection: sqlite3.Connection, path: Path) -> None:
     backup = sqlite3.connect(path)
     try:
         connection.backup(backup)
@@ -173,6 +195,29 @@ def _ensure_backup(
     else:
         backup.close()
     _fsync(path)
+
+
+def _validate_backup(path: Path, *, expected_version: int) -> None:
+    backup = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        quick = backup.execute("PRAGMA quick_check").fetchall()
+        row = backup.execute(
+            "SELECT value FROM host_metadata WHERE key = 'schema_version'"
+        ).fetchone()
+    except sqlite3.Error as error:
+        raise SchemaMigrationError("schema migration backup cannot be read") from error
+    finally:
+        backup.close()
+    if quick != [("ok",)] or row is None or row[0] != str(expected_version):
+        raise SchemaMigrationError("existing schema migration backup is invalid")
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _table_exists(connection: sqlite3.Connection, name: str) -> bool:

@@ -14,6 +14,7 @@ from ordivon_host import (
     HostStorage,
     TaskState,
 )
+from ordivon_host.domain import RepositoryRef, StaticRepositoryResolver
 from ordivon_host.engine._serde import digest_text
 from ordivon_host.runtime import RuntimeToolRejected, RuntimeTransportError
 from ordivon_host.testing import (
@@ -56,10 +57,30 @@ def parse_args() -> argparse.Namespace:
         "--endpoint", default="http://127.0.0.1:8897/mcp"
     )
     parser.add_argument("--source-repo", required=True)
+    parser.add_argument(
+        "--repository-id", default="repository:ordivon-host"
+    )
     parser.add_argument("--source-revision", required=True)
     parser.add_argument("--state-root")
     parser.add_argument("--keep-state", action="store_true")
     return parser.parse_args()
+
+
+def code_change_host(
+    storage: HostStorage,
+    runtime,
+    *,
+    source_repo: str,
+    repository_id: str,
+) -> CodeChangeHost:
+    return CodeChangeHost(
+        storage,
+        runtime,
+        clock_ms=scenario_clock_ms,
+        repository_resolver=StaticRepositoryResolver(
+            {repository_id: source_repo}
+        ),
+    )
 
 
 def main() -> None:
@@ -78,8 +99,7 @@ def main() -> None:
         task_id=identity.task_id,
         goal_id=identity.goal_id,
         workspace_id=identity.workspace_id,
-        source_repo=args.source_repo,
-        source_revision=args.source_revision,
+        repository=RepositoryRef(args.repository_id, args.source_revision),
         files=(
             CodeFileReplacement(
                 _SOURCE_PATH, digest_text(source_before), source_after
@@ -111,16 +131,25 @@ def main() -> None:
     lossy: DropFirstSuccessfulToolResponse | None = None
     try:
         with HostStorage(state_root) as storage:
-            CodeChangeHost(storage, client("create"), clock_ms=scenario_clock_ms).create(
-                plan
-            )
+            code_change_host(
+                storage,
+                client("create"),
+                source_repo=args.source_repo,
+                repository_id=args.repository_id,
+            ).create(plan)
         with HostStorage(state_root) as storage:
-            opened = CodeChangeHost(
-                storage, client("open"), clock_ms=scenario_clock_ms
+            opened = code_change_host(
+                storage,
+                client("open"),
+                source_repo=args.source_repo,
+                repository_id=args.repository_id,
             ).open_workspace(plan.task_id)
         with HostStorage(state_root) as storage:
-            prepared = CodeChangeHost(
-                storage, client("prepare"), clock_ms=scenario_clock_ms
+            prepared = code_change_host(
+                storage,
+                client("prepare"),
+                source_repo=args.source_repo,
+                repository_id=args.repository_id,
             ).prepare(plan.task_id)
             dispatch_id = prepared.dispatch.dispatch_id
             client_request_id = prepared.dispatch.client_request_id
@@ -128,11 +157,17 @@ def main() -> None:
             client("deliver"), "workspace.execPlan"
         )
         with HostStorage(state_root) as storage:
-            recovered = CodeChangeHost(
-                storage, lossy, clock_ms=scenario_clock_ms
+            recovered = code_change_host(
+                storage,
+                lossy,
+                source_repo=args.source_repo,
+                repository_id=args.repository_id,
             ).load_prepared(plan.task_id)
-            unknown = CodeChangeHost(
-                storage, lossy, clock_ms=scenario_clock_ms
+            unknown = code_change_host(
+                storage,
+                lossy,
+                source_repo=args.source_repo,
+                repository_id=args.repository_id,
             ).deliver(recovered)
         if unknown.state is not TaskState.WAITING or not lossy.response_dropped:
             raise AssertionError("code change did not persist UNKNOWN after response loss")
@@ -140,10 +175,11 @@ def main() -> None:
         reconciliation: list[dict[str, JsonValue]] = []
         for index in range(10):
             with HostStorage(state_root) as storage:
-                result = CodeChangeHost(
+                result = code_change_host(
                     storage,
                     client(f"reconcile-{index}"),
-                    clock_ms=scenario_clock_ms,
+                    source_repo=args.source_repo,
+                    repository_id=args.repository_id,
                 ).reconcile(plan.task_id, wait_ms=30_000)
             reconciliation.append(
                 {
@@ -158,8 +194,11 @@ def main() -> None:
         if reconciled is None or not reconciled.job_id:
             raise AssertionError("original code-change Runtime Job was not recovered")
         with HostStorage(state_root) as storage:
-            verified = CodeChangeHost(
-                storage, client("verify"), clock_ms=scenario_clock_ms
+            verified = code_change_host(
+                storage,
+                client("verify"),
+                source_repo=args.source_repo,
+                repository_id=args.repository_id,
             ).verify(plan.task_id)
             verification_snapshot = storage.read_task_event(plan.task_id)
             if not isinstance(verification_snapshot.data, dict):
@@ -178,8 +217,11 @@ def main() -> None:
                 expected_kind="code-change-verification-receipt",
             )
         with HostStorage(state_root) as storage:
-            closed = CodeChangeHost(
-                storage, client("close"), clock_ms=scenario_clock_ms
+            closed = code_change_host(
+                storage,
+                client("close"),
+                source_repo=args.source_repo,
+                repository_id=args.repository_id,
             ).close(plan.task_id)
             projection = storage.journal.get_task(plan.task_id)
             snapshot = storage.read_task_event(plan.task_id)
@@ -196,7 +238,6 @@ def main() -> None:
         audit = client("audit")
         jobs = jobs_for_request(audit, client_request_id)
         workspace_closed = workspace_absent(audit, plan.workspace_id)
-        diff_text = diff_value.get("diff") if isinstance(diff_value, dict) else None
         checks = {
             "responseDroppedAfterExecPlanAdmission": lossy.response_dropped,
             "unknownPersisted": unknown.revision == 4,
@@ -218,10 +259,17 @@ def main() -> None:
                     if isinstance(item, dict)
                 )
             ),
-            "diffContainsSourceAndTest": (
-                isinstance(diff_text, str)
-                and _SOURCE_PATH in diff_text
-                and _TEST_PATH in diff_text
+            "structuredDiffMatchesExactPlan": (
+                isinstance(diff_value, dict)
+                and set(diff_value.get("changedPaths", []))
+                == {_SOURCE_PATH, _TEST_PATH}
+                and set(diff_value.get("modifiedPaths", []))
+                == {_SOURCE_PATH, _TEST_PATH}
+                and not diff_value.get("addedPaths")
+                and not diff_value.get("deletedPaths")
+                and not diff_value.get("renamedPaths")
+                and not diff_value.get("untrackedPaths")
+                and diff_value.get("truncated") is False
             ),
             "taskCompleted": (
                 closed.completed
@@ -237,7 +285,8 @@ def main() -> None:
             "kind": "ordivon.host-live-code-change",
             "capturedAt": datetime.now(timezone.utc).isoformat(),
             "hostRevision": "5076e6b42bcb65ddd9a3615e9215ebae18279ec9",
-            "sourceRepo": args.source_repo,
+            "repositoryId": args.repository_id,
+            "sourceRepoLocator": args.source_repo,
             "sourceRevision": args.source_revision,
             "taskId": plan.task_id,
             "goalId": plan.goal_id,

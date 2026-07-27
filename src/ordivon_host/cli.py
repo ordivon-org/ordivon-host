@@ -80,6 +80,7 @@ def _config(args: argparse.Namespace) -> HostConfig:
         receipt_root=args.state_root / "receipts",
         runtime=config.runtime,
         providers=config.providers,
+        repositories=config.repositories,
     )
 
 

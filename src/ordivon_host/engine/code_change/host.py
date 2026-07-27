@@ -4,10 +4,19 @@ from collections.abc import Callable
 from typing import Any
 
 from anc_canonical import JsonValue, canonical_digest, validate_json_value
+from anc_effect_binding import EffectBinding, bind_effect
+from anc_effect_ir import (
+    EffectEnvelope,
+    SourceChangeSpec,
+    SourceFileChange,
+    source_change_effect,
+)
+from anc_tool_contract import ToolContract, normalize_mcp_tool_contract
 
-from ...domain import EventKind, TaskProjection, TaskState
+from ...authority import CapabilityAuthorizer, TrustedLocalAuthorizer
+from ...domain import EventKind, RepositoryResolver, StaticRepositoryResolver, TaskProjection, TaskState
 from ...journal import JournalCorruption
-from ...kernel import HostKernel
+from ...kernel import HostKernel, worker_owner_id
 from ...objects import ObjectCorrupt, StoredObject
 from ...runtime import (
     RuntimeClient,
@@ -62,17 +71,23 @@ class CodeChangeHost:
         runtime: RuntimeClient,
         *,
         clock_ms: Callable[[], int],
-        owner_id: str = "host:code-change-v1",
+        repository_resolver: RepositoryResolver | None = None,
+        authorizer: CapabilityAuthorizer | None = None,
+        owner_id: str | None = None,
         lease_ttl_ms: int = 30_000,
     ) -> None:
-        if not owner_id or lease_ttl_ms < 1:
-            raise ValueError("code change Host owner and lease TTL are required")
+        if owner_id is not None and (not owner_id or owner_id != owner_id.strip()):
+            raise ValueError("explicit Host owner identity must be trimmed")
+        if lease_ttl_ms < 1:
+            raise ValueError("code change Host lease TTL must be positive")
         self.storage = storage
         self.runtime = runtime
+        self.repository_resolver = repository_resolver or StaticRepositoryResolver({})
+        self.authorizer = authorizer or TrustedLocalAuthorizer()
         self.kernel = HostKernel(
             storage,
             clock_ms=clock_ms,
-            owner_id=owner_id,
+            owner_id=owner_id or worker_owner_id("host:code-change-v2"),
             lease_ttl_ms=lease_ttl_ms,
         )
 
@@ -99,15 +114,16 @@ class CodeChangeHost:
     def open_workspace(self, task_id: str) -> CodeChangeStep:
         snapshot = self._current(task_id, "open")
         plan = self._load_plan(snapshot)
-        catalog_value, catalog_digest = self._runtime_catalog()
+        catalog_value, catalog_digest, _ = self._runtime_catalog()
         catalog_object = self.storage.put_object(
             catalog_value, kind="runtime-code-change-catalog"
         )
+        source_repo = self.repository_resolver.resolve(plan.repository)
         workspace = ensure_workspace(
             self.runtime,
             workspace_id=plan.workspace_id,
-            source_repo=plan.source_repo,
-            source_revision=plan.source_revision,
+            source_repo=str(source_repo),
+            source_revision=plan.repository.revision,
         )
         with self.kernel.locked_task(
             task_id,
@@ -139,14 +155,62 @@ class CodeChangeHost:
         snapshot = self._current(task_id, "dispatch")
         plan = self._load_plan(snapshot)
         data = require_object(snapshot.data, "code change open data")
-        _, catalog_digest = self._runtime_catalog()
+        _, catalog_digest, contract = self._runtime_catalog()
         if catalog_digest != require_string(data, "catalogDigest"):
             raise RuntimeProtocolError(
                 "Runtime code-change catalog changed before Dispatch preparation"
             )
-        dispatch, arguments = build_exec_plan_request(plan)
+        spec = SourceChangeSpec(
+            repository_id=plan.repository.repository_id,
+            base_revision=plan.repository.revision,
+            files=tuple(
+                SourceFileChange(
+                    relative_path=item.relative_path,
+                    expected_digest=item.expected_digest,
+                    result_digest=item.result_digest,
+                    content=item.content,
+                )
+                for item in plan.files
+            ),
+            verification_ids=tuple(item.check_id for item in plan.checks),
+        )
+        effect = source_change_effect(
+            effect_id=f"effect:{task_token(plan.task_id)}:source-change:r1",
+            principal_id=plan.principal_id,
+            spec=spec,
+        )
+        authority_decision = self.authorizer.authorize(effect.capability)
+        authority_object = self.storage.put_object(
+            authority_decision.to_dict(), kind="capability-decision"
+        )
+        arguments = build_exec_plan_request(plan)
+        binding = bind_effect(
+            effect,
+            contract,
+            encoder_id="anc.binding.ordivon.workspace-exec-plan-source-change",
+            binding_id=f"binding:{task_token(plan.task_id)}:source-change:r1",
+            revision=1,
+            arguments=arguments,
+        )
+        effect_object = self.storage.put_object(effect.to_dict(), kind="effect")
+        binding_object = self.storage.put_object(
+            binding.to_dict(), kind="effect-binding"
+        )
         request_object = self.storage.put_object(
             arguments, kind="runtime-code-change-request"
+        )
+        client_request_id = arguments.get("clientRequestId")
+        if not isinstance(client_request_id, str) or not client_request_id:
+            raise RuntimeProtocolError("workspace.execPlan request omitted clientRequestId")
+        dispatch = CodeChangeDispatch(
+            dispatch_id=f"dispatch:{task_token(plan.task_id)}:exec-plan:r1",
+            effect_id=effect.effect_id,
+            binding_id=binding.binding_id,
+            authority_decision_digest=authority_object.digest,
+            client_request_id=client_request_id,
+            workspace_id=plan.workspace_id,
+            operation="workspace.execPlan",
+            request_digest=canonical_digest(arguments),
         )
         dispatch_object = self.storage.put_object(
             dispatch.to_dict(), kind="runtime-code-change-dispatch"
@@ -170,6 +234,9 @@ class CodeChangeHost:
             references = (
                 plan_object,
                 catalog_object,
+                effect_object,
+                binding_object,
+                authority_object,
                 request_object,
                 dispatch_object,
             )
@@ -180,6 +247,9 @@ class CodeChangeHost:
                     "planDigest": plan_object.digest,
                     "catalogDigest": catalog_digest,
                     "catalogObjectDigest": catalog_object.digest,
+                    "effectDigest": effect_object.digest,
+                    "bindingDigest": binding_object.digest,
+                    "authorityDecisionDigest": authority_object.digest,
                     "requestObjectDigest": request_object.digest,
                     "dispatchDigest": dispatch_object.digest,
                     "clientRequestId": dispatch.client_request_id,
@@ -193,6 +263,9 @@ class CodeChangeHost:
             task_id=plan.task_id,
             task_revision=projection.revision,
             plan=plan,
+            effect_object=effect_object,
+            binding_object=binding_object,
+            authority_object=authority_object,
             dispatch_object=dispatch_object,
             request_object=request_object,
             dispatch=dispatch,
@@ -314,20 +387,45 @@ class CodeChangeHost:
             },
         )
         diff_text = diff_payload.get("diff")
+        truncated = diff_payload.get("truncated", False)
+        changed = diff_payload.get("changedPaths")
+        modified = diff_payload.get("modifiedPaths")
+        added = diff_payload.get("addedPaths")
+        deleted = diff_payload.get("deletedPaths")
+        renamed = diff_payload.get("renamedPaths")
         untracked = diff_payload.get("untrackedPaths")
+        path_lists = (changed, modified, added, deleted, untracked)
         if (
             not isinstance(diff_text, str)
-            or not isinstance(untracked, list)
-            or any(not isinstance(path, str) for path in untracked)
+            or type(truncated) is not bool
+            or any(
+                not isinstance(values, list)
+                or any(not isinstance(path, str) for path in values)
+                for values in path_lists
+            )
+            or not isinstance(renamed, list)
+            or any(
+                not isinstance(item, dict)
+                or set(item) != {"fromPath", "toPath"}
+                or any(not isinstance(item[key], str) for key in item)
+                for item in renamed
+            )
         ):
-            raise RuntimeProtocolError("workspace.diff returned invalid fields")
-        diff_accepted = bool(diff_text) and all(
-            item.relative_path in diff_text or item.relative_path in untracked
-            for item in plan.files
+            raise RuntimeProtocolError("workspace.diff returned invalid structured fields")
+        planned_paths = {item.relative_path for item in plan.files}
+        diff_accepted = (
+            bool(diff_text)
+            and not truncated
+            and set(changed) == planned_paths
+            and set(modified) == planned_paths
+            and not added
+            and not deleted
+            and not renamed
+            and not untracked
         )
         if not diff_accepted:
             raise CodeChangeVerificationError(
-                "Workspace diff is empty or omits a planned code file"
+                "Workspace structured diff differs from the exact planned file set"
             )
         diff_value = json_object(diff_payload, "Workspace diff")
         diff_object = self.storage.put_object(diff_value, kind="workspace-diff")
@@ -338,8 +436,10 @@ class CodeChangeHost:
             completed_steps=completed_steps,
             total_steps=total_steps,
             file_results=tuple(file_results),
+            changed_paths=tuple(changed),
             diff_digest=canonical_digest(diff_value),
-            accepted=accepted,
+            diff_accepted=diff_accepted,
+            accepted=accepted and diff_accepted,
         )
         if not receipt.accepted:
             raise CodeChangeVerificationError("code file verification failed")
@@ -577,11 +677,23 @@ class CodeChangeHost:
     def _prepared_from_snapshot(self, snapshot: TaskEventSnapshot) -> PreparedCodeChange:
         data = require_object(snapshot.data, "prepared code-change data")
         plan = self._load_plan(snapshot)
+        effect_object = self.storage.objects.inspect(require_string(data, "effectDigest"))
+        binding_object = self.storage.objects.inspect(require_string(data, "bindingDigest"))
+        authority_object = self.storage.objects.inspect(
+            require_string(data, "authorityDecisionDigest")
+        )
         request_object = self.storage.objects.inspect(
             require_string(data, "requestObjectDigest")
         )
         dispatch_object = self.storage.objects.inspect(
             require_string(data, "dispatchDigest")
+        )
+        effect_value = self.storage.objects.get(effect_object.digest, expected_kind="effect")
+        binding_value = self.storage.objects.get(
+            binding_object.digest, expected_kind="effect-binding"
+        )
+        authority_value = self.storage.objects.get(
+            authority_object.digest, expected_kind="capability-decision"
         )
         arguments = self.storage.objects.get(
             request_object.digest, expected_kind="runtime-code-change-request"
@@ -589,19 +701,38 @@ class CodeChangeHost:
         dispatch_value = self.storage.objects.get(
             dispatch_object.digest, expected_kind="runtime-code-change-dispatch"
         )
-        if not isinstance(arguments, dict) or not isinstance(dispatch_value, dict):
+        if not all(
+            isinstance(value, dict)
+            for value in (effect_value, binding_value, authority_value, arguments, dispatch_value)
+        ):
             raise ObjectCorrupt("prepared code-change semantic objects must be objects")
         try:
+            effect = EffectEnvelope.from_dict(effect_value)
+            binding = EffectBinding.from_dict(binding_value)
             dispatch = CodeChangeDispatch.from_dict(dispatch_value)
         except ValueError as error:
-            raise ObjectCorrupt("prepared code-change Dispatch is invalid") from error
+            raise ObjectCorrupt("prepared code-change semantic object is invalid") from error
         typed_arguments = json_object(arguments, "code-change Runtime request")
-        if canonical_digest(typed_arguments) != dispatch.request_digest:
-            raise JournalCorruption("prepared code-change request digest differs")
+        if (
+            dispatch.effect_id != effect.effect_id
+            or dispatch.binding_id != binding.binding_id
+            or binding.effect_id != effect.effect_id
+            or binding.arguments != typed_arguments
+            or canonical_digest(typed_arguments) != dispatch.request_digest
+            or dispatch.authority_decision_digest != authority_object.digest
+            or authority_value.get("allowed") is not True
+            or authority_value.get("principalId") != effect.capability.principal_id
+            or authority_value.get("actionId") != effect.capability.action_id
+            or authority_value.get("objectScope") != effect.capability.object_scope
+        ):
+            raise JournalCorruption("prepared code-change semantic identities differ")
         return PreparedCodeChange(
             task_id=plan.task_id,
             task_revision=snapshot.projection.revision,
             plan=plan,
+            effect_object=effect_object,
+            binding_object=binding_object,
+            authority_object=authority_object,
             dispatch_object=dispatch_object,
             request_object=request_object,
             dispatch=dispatch,
@@ -623,7 +754,7 @@ class CodeChangeHost:
                 "prepared code-change Dispatch is no longer current"
             ) from error
 
-    def _runtime_catalog(self) -> tuple[dict[str, JsonValue], str]:
+    def _runtime_catalog(self) -> tuple[dict[str, JsonValue], str, ToolContract]:
         self.runtime.initialize()
         catalog: dict[str, dict[str, Any]] = {}
         for raw in self.runtime.list_tools():
@@ -649,15 +780,33 @@ class CodeChangeHost:
         ]
         validate_json_value(selected)
         digest = canonical_digest(selected)
+        revision = f"mcp-catalog:{digest[7:]}"
+        contract = normalize_mcp_tool_contract(
+            catalog["workspace.execPlan"],
+            provider_id="ordivon-runtime",
+            revision=revision,
+            semantics={
+                "semanticAction": "anc.source.change.v1",
+                "execution": "asynchronous",
+                "completion": "accepted-verification",
+                "effectClass": "change",
+                "idempotencySupport": "keyed",
+                "correlation": "stable-key",
+                "cancellation": "supported",
+                "evidence": ["observation", "artifact"],
+                "capabilityClass": "repository-source-change",
+            },
+        )
         value: dict[str, JsonValue] = {
             "schemaVersion": 1,
             "providerId": "ordivon-runtime",
-            "revision": f"mcp-catalog:{digest[7:]}",
+            "revision": revision,
             "digest": digest,
             "operations": list(_REQUIRED_TOOLS),
             "tools": selected,
+            "sourceChangeContract": contract.to_dict(),
         }
-        return value, digest
+        return value, digest, contract
 
     def _load_plan(self, snapshot: TaskEventSnapshot) -> CodeChangePlan:
         value = self.storage.objects.get(
@@ -688,6 +837,9 @@ class CodeChangeHost:
             "planDigest": require_string(data, "planDigest"),
             "catalogDigest": require_string(data, "catalogDigest"),
             "catalogObjectDigest": require_string(data, "catalogObjectDigest"),
+            "effectDigest": require_string(data, "effectDigest"),
+            "bindingDigest": require_string(data, "bindingDigest"),
+            "authorityDecisionDigest": require_string(data, "authorityDecisionDigest"),
             "requestObjectDigest": require_string(data, "requestObjectDigest"),
             "dispatchDigest": require_string(data, "dispatchDigest"),
             "clientRequestId": require_string(data, "clientRequestId"),

@@ -25,7 +25,8 @@ from anc_effect_ir import (
 
 from ..domain import EventKind, TaskProjection, TaskState
 from ..journal import JournalCorruption
-from ..kernel import HostKernel, LockedTask
+from ..kernel import HostKernel, LockedTask, worker_owner_id
+from ..objects.codecs import decode_versioned_object
 from ..objects import ObjectCorrupt
 from ..runtime import (
     RuntimeClient,
@@ -109,6 +110,15 @@ class ReadTaskPlan:
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> ReadTaskPlan:
+        return decode_versioned_object(
+            value,
+            expected_kind=_PLAN_KIND,
+            decoders={1: cls._from_dict_v1},
+            label="ReadTaskPlan",
+        )
+
+    @classmethod
+    def _from_dict_v1(cls, value: dict[str, Any]) -> ReadTaskPlan:
         expected = {
             "schemaVersion",
             "kind",
@@ -221,17 +231,19 @@ class DeterministicReadHost:
         runtime: RuntimeClient,
         *,
         clock_ms: Callable[[], int],
-        owner_id: str = "host:read-v0",
+        owner_id: str | None = None,
         lease_ttl_ms: int = 30_000,
     ) -> None:
-        if not owner_id or lease_ttl_ms < 1:
-            raise ValueError("Host owner and lease TTL are required")
+        if owner_id is not None and (not owner_id or owner_id != owner_id.strip()):
+            raise ValueError("explicit Host owner identity must be trimmed")
+        if lease_ttl_ms < 1:
+            raise ValueError("Host lease TTL must be positive")
         self.storage = storage
         self.runtime = runtime
         self.kernel = HostKernel(
             storage,
             clock_ms=clock_ms,
-            owner_id=owner_id,
+            owner_id=owner_id or worker_owner_id("host:read-v1"),
             lease_ttl_ms=lease_ttl_ms,
         )
 

@@ -3,7 +3,9 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+import os
 from typing import TypeAlias
+import uuid
 
 from anc_canonical import JsonValue
 
@@ -12,6 +14,13 @@ from .objects import StoredObject
 from .storage import HostStorage, TaskEventSnapshot
 
 ErrorFactory: TypeAlias = Callable[[str, str], Exception]
+
+
+def worker_owner_id(component_id: str) -> str:
+    """Return one process-instance lease owner, not a reusable component label."""
+    if not component_id or component_id != component_id.strip():
+        raise ValueError("Host component identity is required")
+    return f"{component_id}:pid-{os.getpid()}:{uuid.uuid4().hex}"
 
 
 class HostKernelError(RuntimeError):
