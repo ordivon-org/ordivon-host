@@ -1,332 +1,48 @@
 from __future__ import annotations
 
-import base64
 from collections.abc import Callable
-from dataclasses import dataclass
-import hashlib
-from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
-from anc_canonical import JsonValue, canonical_digest, validate_json_value
+from anc_canonical import JsonValue, canonical_digest
 from anc_effect_binding import EffectBinding, lower_to_ordivon
-from anc_effect_ir import (
-    CanonicalInput,
-    CapabilityRequirement,
-    CompletionKind,
-    DeliverySemantics,
-    EffectEnvelope,
-    EffectMode,
-    EvidenceKind,
-    ExecutionKind,
-    IdempotencyKind,
-    ResultSemantics,
-    SemanticAction,
-    TargetRef,
-    VerificationPlan,
-)
+from anc_effect_ir import EffectEnvelope
 
-from ..domain import EventKind, TaskProjection, TaskState
-from ..journal import JournalCorruption
-from ..kernel import HostKernel
-from ..objects import ObjectCorrupt, StoredObject
-from ..runtime import (
+from ...domain import EventKind, TaskProjection, TaskState
+from ...journal import JournalCorruption
+from ...kernel import HostKernel
+from ...objects import ObjectCorrupt, StoredObject
+from ...runtime import (
+    RuntimeClient,
     RuntimeClientError,
     RuntimeProtocolError,
     RuntimeToolRejected,
     discover_execution_runtime_catalog,
+    is_missing_workspace,
 )
-from ..storage import HostStorage, TaskEventSnapshot
+from ...storage import HostStorage, TaskEventSnapshot
+from .._serde import (
+    digest_text,
+    json_object,
+    require_object,
+    require_string,
+    task_token,
+    validate_digest,
+)
+from .effect import mutation_effect
+from .models import (
+    _FAILED_JOB_STATES,
+    DispatchIntent,
+    GuardedMutationPlan,
+    MutationStep,
+    MutationSuperseded,
+    MutationTaskError,
+    MutationVerificationError,
+    MutationVerificationReceipt,
+    PreparedMutation,
+    RuntimeJobObservation,
+)
 
-_PLAN_KIND = "ordivon.host-guarded-mutation-plan"
-_DISPATCH_KIND = "ordivon.runtime-dispatch-intent"
-_OBSERVATION_KIND = "ordivon.runtime-job-observation"
-_VERIFICATION_KIND = "ordivon.mutation-verification-receipt"
 _OUTCOME_KIND = "ordivon.task-outcome"
-_CREATE_SCRIPT = (
-    "import base64,os,sys;"
-    "path=sys.argv[1];data=base64.b64decode(sys.argv[2],validate=True);"
-    "fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600);"
-    "stream=os.fdopen(fd,'wb');stream.write(data);stream.flush();"
-    "os.fsync(stream.fileno());stream.close()"
-)
-_ACTIVE_JOB_STATES = {"queued", "working"}
-_FAILED_JOB_STATES = {"failed", "timed_out", "cancelled"}
-_UNKNOWN_JOB_STATES = {"lost", "orphaned", "unknown"}
-_ALLOWED_JOB_STATES = (
-    _ACTIVE_JOB_STATES | _FAILED_JOB_STATES | _UNKNOWN_JOB_STATES | {"succeeded"}
-)
-
-
-class RuntimeClient(Protocol):
-    def initialize(self) -> dict[str, Any]: ...
-
-    def list_tools(self) -> tuple[dict[str, Any], ...]: ...
-
-    def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]: ...
-
-
-class MutationTaskError(RuntimeError):
-    pass
-
-
-class MutationSuperseded(MutationTaskError):
-    pass
-
-
-class MutationVerificationError(MutationTaskError):
-    pass
-
-
-@dataclass(frozen=True, slots=True)
-class GuardedMutationPlan:
-    task_id: str
-    goal_id: str
-    workspace_id: str
-    source_repo: str
-    source_revision: str
-    relative_path: str
-    content: str
-    timeout_ms: int = 30_000
-    principal_id: str = "principal:local-owner"
-
-    def __post_init__(self) -> None:
-        if not self.task_id.startswith("task:") or self.task_id != self.task_id.strip():
-            raise ValueError("mutation Task identity must start with task:")
-        if not self.goal_id.startswith("goal:") or self.goal_id != self.goal_id.strip():
-            raise ValueError("mutation Goal identity must start with goal:")
-        if not self.workspace_id or self.workspace_id != self.workspace_id.strip():
-            raise ValueError("Runtime Workspace identity is required")
-        if not Path(self.source_repo).is_absolute():
-            raise ValueError("mutation source repository must be absolute")
-        if (
-            len(self.source_revision) != 40
-            or any(character not in "0123456789abcdef" for character in self.source_revision)
-        ):
-            raise ValueError("mutation source revision must be a lowercase Git object id")
-        relative = Path(self.relative_path)
-        if (
-            not self.relative_path
-            or relative.is_absolute()
-            or len(relative.parts) != 1
-            or relative.parts[0] in {".", ".."}
-            or self.relative_path != self.relative_path.strip()
-        ):
-            raise ValueError("v0 guarded mutation requires one root-level relative file")
-        if len(self.content.encode("utf-8")) > 65_536:
-            raise ValueError("mutation content exceeds the v0 byte bound")
-        if self.timeout_ms < 1 or self.timeout_ms > 300_000:
-            raise ValueError("mutation timeout is outside v0 bounds")
-        if not self.principal_id.startswith("principal:"):
-            raise ValueError("mutation principal identity must start with principal:")
-
-    def to_dict(self) -> dict[str, JsonValue]:
-        return {
-            "schemaVersion": 1,
-            "kind": _PLAN_KIND,
-            "taskId": self.task_id,
-            "goalId": self.goal_id,
-            "workspaceId": self.workspace_id,
-            "sourceRepo": self.source_repo,
-            "sourceRevision": self.source_revision,
-            "relativePath": self.relative_path,
-            "content": self.content,
-            "timeoutMs": self.timeout_ms,
-            "principalId": self.principal_id,
-        }
-
-    @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> GuardedMutationPlan:
-        expected = {
-            "schemaVersion",
-            "kind",
-            "taskId",
-            "goalId",
-            "workspaceId",
-            "sourceRepo",
-            "sourceRevision",
-            "relativePath",
-            "content",
-            "timeoutMs",
-            "principalId",
-        }
-        if set(value) != expected:
-            raise ValueError("GuardedMutationPlan fields differ")
-        if value["schemaVersion"] != 1 or value["kind"] != _PLAN_KIND:
-            raise ValueError("GuardedMutationPlan version or kind is invalid")
-        string_fields = expected - {"schemaVersion", "timeoutMs"}
-        if any(not isinstance(value[field], str) for field in string_fields):
-            raise ValueError("GuardedMutationPlan string fields are invalid")
-        if type(value["timeoutMs"]) is not int:
-            raise ValueError("GuardedMutationPlan timeout must be an integer")
-        return cls(
-            task_id=value["taskId"],
-            goal_id=value["goalId"],
-            workspace_id=value["workspaceId"],
-            source_repo=value["sourceRepo"],
-            source_revision=value["sourceRevision"],
-            relative_path=value["relativePath"],
-            content=value["content"],
-            timeout_ms=value["timeoutMs"],
-            principal_id=value["principalId"],
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class DispatchIntent:
-    dispatch_id: str
-    effect_id: str
-    binding_id: str
-    client_request_id: str
-    workspace_id: str
-    operation: str
-    request_digest: str
-
-    def __post_init__(self) -> None:
-        for value, prefix in (
-            (self.dispatch_id, "dispatch:"),
-            (self.effect_id, "effect:"),
-            (self.binding_id, "binding:"),
-        ):
-            if not value.startswith(prefix) or value != value.strip():
-                raise ValueError(f"Dispatch identity must start with {prefix}")
-        if not self.client_request_id or not self.workspace_id:
-            raise ValueError("Dispatch correlation and Workspace are required")
-        if self.operation != "workspace.exec":
-            raise ValueError("guarded mutation Dispatch must target workspace.exec")
-        _validate_digest(self.request_digest)
-
-    def to_dict(self) -> dict[str, JsonValue]:
-        return {
-            "schemaVersion": 1,
-            "kind": _DISPATCH_KIND,
-            "dispatchId": self.dispatch_id,
-            "effectId": self.effect_id,
-            "bindingId": self.binding_id,
-            "clientRequestId": self.client_request_id,
-            "workspaceId": self.workspace_id,
-            "operation": self.operation,
-            "requestDigest": self.request_digest,
-        }
-
-    @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> DispatchIntent:
-        expected = {
-            "schemaVersion",
-            "kind",
-            "dispatchId",
-            "effectId",
-            "bindingId",
-            "clientRequestId",
-            "workspaceId",
-            "operation",
-            "requestDigest",
-        }
-        if set(value) != expected:
-            raise ValueError("DispatchIntent fields differ")
-        if value["schemaVersion"] != 1 or value["kind"] != _DISPATCH_KIND:
-            raise ValueError("DispatchIntent version or kind is invalid")
-        fields = expected - {"schemaVersion"}
-        if any(not isinstance(value[field], str) for field in fields):
-            raise ValueError("DispatchIntent fields must be strings")
-        return cls(
-            dispatch_id=value["dispatchId"],
-            effect_id=value["effectId"],
-            binding_id=value["bindingId"],
-            client_request_id=value["clientRequestId"],
-            workspace_id=value["workspaceId"],
-            operation=value["operation"],
-            request_digest=value["requestDigest"],
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class RuntimeJobObservation:
-    dispatch_id: str
-    job_id: str
-    attempt_id: str | None
-    status: str
-    payload_digest: str
-    payload: dict[str, JsonValue]
-
-    def __post_init__(self) -> None:
-        if not self.dispatch_id.startswith("dispatch:") or not self.job_id:
-            raise ValueError("Runtime observation identities are required")
-        if self.attempt_id is not None and not self.attempt_id:
-            raise ValueError("Runtime Attempt identity cannot be empty")
-        if self.status not in _ALLOWED_JOB_STATES:
-            raise ValueError(f"unsupported Runtime Job status: {self.status}")
-        validate_json_value(self.payload)
-        if canonical_digest(self.payload) != self.payload_digest:
-            raise ValueError("Runtime observation payload digest differs")
-
-    def to_dict(self) -> dict[str, JsonValue]:
-        return {
-            "schemaVersion": 1,
-            "kind": _OBSERVATION_KIND,
-            "dispatchId": self.dispatch_id,
-            "jobId": self.job_id,
-            "attemptId": self.attempt_id,
-            "status": self.status,
-            "payloadDigest": self.payload_digest,
-            "payload": self.payload,
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class MutationVerificationReceipt:
-    dispatch_id: str
-    method: str
-    relative_path: str
-    expected_digest: str
-    runtime_digest: str
-    observed_digest: str
-    accepted: bool
-
-    def __post_init__(self) -> None:
-        if not self.dispatch_id.startswith("dispatch:") or not self.method.endswith(".v1"):
-            raise ValueError("verification identity or method is invalid")
-        for digest in (self.expected_digest, self.runtime_digest, self.observed_digest):
-            _validate_digest(digest)
-        expected = self.expected_digest == self.runtime_digest == self.observed_digest
-        if self.accepted != expected:
-            raise ValueError("verification decision differs from compared digests")
-
-    def to_dict(self) -> dict[str, JsonValue]:
-        return {
-            "schemaVersion": 1,
-            "kind": _VERIFICATION_KIND,
-            "dispatchId": self.dispatch_id,
-            "method": self.method,
-            "relativePath": self.relative_path,
-            "expectedDigest": self.expected_digest,
-            "runtimeDigest": self.runtime_digest,
-            "observedDigest": self.observed_digest,
-            "accepted": self.accepted,
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class PreparedMutation:
-    task_id: str
-    task_revision: int
-    plan: GuardedMutationPlan
-    effect_object: StoredObject
-    binding_object: StoredObject
-    dispatch_object: StoredObject
-    dispatch: DispatchIntent
-    arguments: dict[str, JsonValue]
-
-
-@dataclass(frozen=True, slots=True)
-class MutationStep:
-    task_id: str
-    revision: int
-    state: TaskState
-    frontier: str | None
-    dispatch_id: str | None = None
-    job_id: str | None = None
-    reconciled: bool = False
-    completed: bool = False
 
 
 class GuardedMutationHost:
@@ -412,19 +128,19 @@ class GuardedMutationHost:
             error_factory=self._kernel_error,
         ) as locked:
             plan = self._load_plan(locked.snapshot)
-            data = _object(locked.snapshot.data, "mutation open data")
-            expected_catalog = _string(data, "catalogDigest")
+            data = require_object(locked.snapshot.data, "mutation open data")
+            expected_catalog = require_string(data, "catalogDigest")
             self.runtime.initialize()
             catalog = discover_execution_runtime_catalog(self.runtime)
             if catalog.digest != expected_catalog:
                 raise RuntimeProtocolError(
                     "Runtime execution catalog changed before Dispatch preparation"
                 )
-            effect = _mutation_effect(plan)
+            effect = mutation_effect(plan)
             binding = lower_to_ordivon(
                 effect,
                 catalog.exec_contract,
-                binding_id=f"binding:{_task_token(plan.task_id)}:exec:r1",
+                binding_id=f"binding:{task_token(plan.task_id)}:exec:r1",
                 workspace_id=plan.workspace_id,
             )
             if not isinstance(binding.arguments, dict):
@@ -433,7 +149,7 @@ class GuardedMutationHost:
             if not isinstance(client_request_id, str) or not client_request_id:
                 raise RuntimeProtocolError("workspace.exec Binding omitted clientRequestId")
             dispatch = DispatchIntent(
-                dispatch_id=f"dispatch:{_task_token(plan.task_id)}:exec:r1",
+                dispatch_id=f"dispatch:{task_token(plan.task_id)}:exec:r1",
                 effect_id=effect.effect_id,
                 binding_id=binding.binding_id,
                 client_request_id=client_request_id,
@@ -452,7 +168,7 @@ class GuardedMutationHost:
                 self._plan_digest(locked.snapshot)
             )
             catalog_object = self.storage.objects.inspect(
-                _string(data, "catalogObjectDigest")
+                require_string(data, "catalogObjectDigest")
             )
             projection = locked.commit(
                 event_id=self._event_id(plan, locked.projection.revision + 1),
@@ -554,10 +270,10 @@ class GuardedMutationHost:
             error_factory=self._kernel_error,
         ) as locked:
             plan = self._load_plan(locked.snapshot)
-            data = _object(locked.snapshot.data, "mutation observation data")
+            data = require_object(locked.snapshot.data, "mutation observation data")
             self.runtime.initialize()
             catalog = discover_execution_runtime_catalog(self.runtime)
-            if catalog.digest != _string(data, "catalogDigest"):
+            if catalog.digest != require_string(data, "catalogDigest"):
                 raise RuntimeProtocolError(
                     "Runtime execution catalog changed before verification"
                 )
@@ -576,8 +292,8 @@ class GuardedMutationHost:
             runtime_digest = payload.get("digest")
             if not isinstance(content, str) or not isinstance(runtime_digest, str):
                 raise RuntimeProtocolError("workspace.read omitted content or digest")
-            expected_digest = _digest_text(plan.content)
-            observed_digest = _digest_text(content)
+            expected_digest = digest_text(plan.content)
+            observed_digest = digest_text(content)
             accepted = (
                 plan.content == content
                 and expected_digest == runtime_digest == observed_digest
@@ -618,10 +334,10 @@ class GuardedMutationHost:
                 kind=EventKind.VERIFICATION_ACCEPTED,
                 payload={
                     **self._state_fields(data),
-                    "jobId": _string(data, "jobId"),
+                    "jobId": require_string(data, "jobId"),
                     "attemptId": data.get("attemptId"),
-                    "jobStatus": _string(data, "jobStatus"),
-                    "observationDigest": _string(data, "observationDigest"),
+                    "jobStatus": require_string(data, "jobStatus"),
+                    "observationDigest": require_string(data, "observationDigest"),
                     "readObservationDigest": read_object.digest,
                     "verificationDigest": verification_object.digest,
                 },
@@ -632,7 +348,7 @@ class GuardedMutationHost:
             return self._step(
                 projection,
                 dispatch_id=receipt.dispatch_id,
-                job_id=_string(data, "jobId"),
+                job_id=require_string(data, "jobId"),
             )
 
     def close(self, task_id: str) -> MutationStep:
@@ -646,7 +362,7 @@ class GuardedMutationHost:
             error_factory=self._kernel_error,
         ) as locked:
             plan = self._load_plan(locked.snapshot)
-            data = _object(locked.snapshot.data, "mutation verification data")
+            data = require_object(locked.snapshot.data, "mutation verification data")
             closed = self._ensure_closed(plan.workspace_id)
             dispatch = self._load_dispatch(data)
             outcome: JsonValue = {
@@ -658,16 +374,16 @@ class GuardedMutationHost:
                 "relativePath": plan.relative_path,
                 "dispatchId": dispatch.dispatch_id,
                 "clientRequestId": dispatch.client_request_id,
-                "jobId": _string(data, "jobId"),
-                "observationDigest": _string(data, "observationDigest"),
-                "verificationDigest": _string(data, "verificationDigest"),
+                "jobId": require_string(data, "jobId"),
+                "observationDigest": require_string(data, "observationDigest"),
+                "verificationDigest": require_string(data, "verificationDigest"),
                 "workspaceClosed": True,
                 "deliveryReconciled": True,
             }
             outcome_object = self.storage.put_object(outcome, kind="task-outcome")
             references = self._state_references(data) + (
-                self.storage.objects.inspect(_string(data, "readObservationDigest")),
-                self.storage.objects.inspect(_string(data, "verificationDigest")),
+                self.storage.objects.inspect(require_string(data, "readObservationDigest")),
+                self.storage.objects.inspect(require_string(data, "verificationDigest")),
                 outcome_object,
             )
             projection = locked.commit(
@@ -675,12 +391,12 @@ class GuardedMutationHost:
                 kind=EventKind.TASK_STATE_CHANGED,
                 payload={
                     **self._state_fields(data),
-                    "jobId": _string(data, "jobId"),
+                    "jobId": require_string(data, "jobId"),
                     "attemptId": data.get("attemptId"),
-                    "jobStatus": _string(data, "jobStatus"),
-                    "observationDigest": _string(data, "observationDigest"),
-                    "readObservationDigest": _string(data, "readObservationDigest"),
-                    "verificationDigest": _string(data, "verificationDigest"),
+                    "jobStatus": require_string(data, "jobStatus"),
+                    "observationDigest": require_string(data, "observationDigest"),
+                    "readObservationDigest": require_string(data, "readObservationDigest"),
+                    "verificationDigest": require_string(data, "verificationDigest"),
                     "outcomeDigest": outcome_object.digest,
                     "workspaceClose": closed,
                 },
@@ -691,7 +407,7 @@ class GuardedMutationHost:
             return self._step(
                 projection,
                 dispatch_id=dispatch.dispatch_id,
-                job_id=_string(data, "jobId"),
+                job_id=require_string(data, "jobId"),
                 reconciled=True,
                 completed=True,
             )
@@ -722,7 +438,7 @@ class GuardedMutationHost:
             uncertainty_object = self.storage.put_object(
                 uncertainty, kind="runtime-uncertain-delivery"
             )
-            data = _object(locked.snapshot.data, "prepared Dispatch data")
+            data = require_object(locked.snapshot.data, "prepared Dispatch data")
             references = self._state_references(data) + (uncertainty_object,)
             projection = locked.commit(
                 event_id=self._event_id(
@@ -749,7 +465,7 @@ class GuardedMutationHost:
         *,
         reconciled: bool,
     ) -> MutationStep:
-        typed_payload = _json_object(payload, "Runtime Job observation")
+        typed_payload = json_object(payload, "Runtime Job observation")
         job_id = payload.get("jobId")
         status = payload.get("status")
         attempt_id = payload.get("attemptId")
@@ -780,7 +496,7 @@ class GuardedMutationHost:
             observation_object = self.storage.put_object(
                 observation.to_dict(), kind="runtime-job-observation"
             )
-            data = _object(locked.snapshot.data, "mutation Dispatch data")
+            data = require_object(locked.snapshot.data, "mutation Dispatch data")
             if status == "succeeded":
                 state = TaskState.VERIFYING
                 frontier = "verify"
@@ -813,11 +529,11 @@ class GuardedMutationHost:
             )
 
     def _prepared_from_snapshot(self, snapshot: TaskEventSnapshot) -> PreparedMutation:
-        data = _object(snapshot.data, "prepared Dispatch data")
+        data = require_object(snapshot.data, "prepared Dispatch data")
         plan = self._load_plan(snapshot)
-        effect_object = self.storage.objects.inspect(_string(data, "effectDigest"))
-        binding_object = self.storage.objects.inspect(_string(data, "bindingDigest"))
-        dispatch_object = self.storage.objects.inspect(_string(data, "dispatchDigest"))
+        effect_object = self.storage.objects.inspect(require_string(data, "effectDigest"))
+        binding_object = self.storage.objects.inspect(require_string(data, "bindingDigest"))
+        dispatch_object = self.storage.objects.inspect(require_string(data, "dispatchDigest"))
         effect_value = self.storage.objects.get(effect_object.digest, expected_kind="effect")
         binding_value = self.storage.objects.get(
             binding_object.digest, expected_kind="effect-binding"
@@ -901,7 +617,7 @@ class GuardedMutationHost:
                 return matches
             if not isinstance(next_cursor, dict):
                 raise RuntimeProtocolError("task.list returned an invalid cursor")
-            typed_cursor = _json_object(next_cursor, "Runtime Job list cursor")
+            typed_cursor = json_object(next_cursor, "Runtime Job list cursor")
             cursor_digest = canonical_digest(typed_cursor)
             if cursor_digest in seen_cursors:
                 raise RuntimeProtocolError("task.list repeated a pagination cursor")
@@ -930,7 +646,7 @@ class GuardedMutationHost:
                 {"schemaVersion": 1, "workspaceId": plan.workspace_id},
             )
         except RuntimeToolRejected as error:
-            if not _missing_workspace(error):
+            if not is_missing_workspace(error):
                 raise
             workspace = self.runtime.call_tool(
                 "workspace.open",
@@ -945,7 +661,7 @@ class GuardedMutationHost:
             raise RuntimeProtocolError("Runtime returned another Workspace")
         if workspace.get("sourceRevision") != plan.source_revision:
             raise RuntimeProtocolError("Runtime returned another source revision")
-        return _json_object(workspace, "Runtime Workspace")
+        return json_object(workspace, "Runtime Workspace")
 
     def _ensure_closed(self, workspace_id: str) -> dict[str, JsonValue]:
         try:
@@ -954,7 +670,7 @@ class GuardedMutationHost:
                 {"schemaVersion": 1, "workspaceId": workspace_id},
             )
         except RuntimeToolRejected as error:
-            if _missing_workspace(error):
+            if is_missing_workspace(error):
                 return {"workspaceId": workspace_id, "alreadyAbsent": True}
             raise
         try:
@@ -963,12 +679,12 @@ class GuardedMutationHost:
                 {"schemaVersion": 1, "workspaceId": workspace_id, "force": True},
             )
         except RuntimeToolRejected as error:
-            if _missing_workspace(error):
+            if is_missing_workspace(error):
                 return {"workspaceId": workspace_id, "alreadyAbsent": True}
             raise
         if closed.get("workspaceId") != workspace_id:
             raise RuntimeProtocolError("workspace.close returned another Workspace")
-        return _json_object(closed, "Runtime Workspace close")
+        return json_object(closed, "Runtime Workspace close")
 
     def _load_plan(self, snapshot: TaskEventSnapshot) -> GuardedMutationPlan:
         value = self.storage.objects.get(
@@ -983,7 +699,7 @@ class GuardedMutationHost:
 
     def _load_dispatch(self, data: dict[str, JsonValue]) -> DispatchIntent:
         value = self.storage.objects.get(
-            _string(data, "dispatchDigest"),
+            require_string(data, "dispatchDigest"),
             expected_kind="runtime-dispatch-intent",
         )
         if not isinstance(value, dict):
@@ -996,20 +712,20 @@ class GuardedMutationHost:
     @staticmethod
     def _state_fields(data: dict[str, JsonValue]) -> dict[str, JsonValue]:
         return {
-            "planDigest": _string(data, "planDigest"),
-            "catalogDigest": _string(data, "catalogDigest"),
-            "catalogObjectDigest": _string(data, "catalogObjectDigest"),
-            "effectDigest": _string(data, "effectDigest"),
-            "bindingDigest": _string(data, "bindingDigest"),
-            "dispatchDigest": _string(data, "dispatchDigest"),
-            "clientRequestId": _string(data, "clientRequestId"),
+            "planDigest": require_string(data, "planDigest"),
+            "catalogDigest": require_string(data, "catalogDigest"),
+            "catalogObjectDigest": require_string(data, "catalogObjectDigest"),
+            "effectDigest": require_string(data, "effectDigest"),
+            "bindingDigest": require_string(data, "bindingDigest"),
+            "dispatchDigest": require_string(data, "dispatchDigest"),
+            "clientRequestId": require_string(data, "clientRequestId"),
         }
 
     def _state_references(
         self, data: dict[str, JsonValue]
     ) -> tuple[StoredObject, ...]:
         return tuple(
-            self.storage.objects.inspect(_string(data, field))
+            self.storage.objects.inspect(require_string(data, field))
             for field in (
                 "planDigest",
                 "catalogObjectDigest",
@@ -1020,9 +736,9 @@ class GuardedMutationHost:
         )
 
     def _plan_digest(self, snapshot: TaskEventSnapshot) -> str:
-        data = _object(snapshot.data, "mutation Task event data")
-        digest = _string(data, "planDigest")
-        _validate_digest(digest)
+        data = require_object(snapshot.data, "mutation Task event data")
+        digest = require_string(data, "planDigest")
+        validate_digest(digest)
         return digest
 
     def _require_frontier(
@@ -1074,11 +790,11 @@ class GuardedMutationHost:
 
     @staticmethod
     def _node(plan: GuardedMutationPlan, stage: str) -> str:
-        return f"node:{_task_token(plan.task_id)}:{stage}"
+        return f"node:{task_token(plan.task_id)}:{stage}"
 
     @staticmethod
     def _event_id(plan: GuardedMutationPlan, revision: int) -> str:
-        return f"event:{_task_token(plan.task_id)}:r{revision}"
+        return f"event:{task_token(plan.task_id)}:r{revision}"
 
     @staticmethod
     def _step(
@@ -1101,83 +817,3 @@ class GuardedMutationHost:
         )
 
 
-def _mutation_effect(plan: GuardedMutationPlan) -> EffectEnvelope:
-    action = "anc.execution.launch.v1"
-    target = TargetRef(f"world_object:ordivon-workspace:{plan.workspace_id}")
-    encoded = base64.b64encode(plan.content.encode("utf-8")).decode("ascii")
-    return EffectEnvelope(
-        effect_id=f"effect:{_task_token(plan.task_id)}:exec",
-        target=target,
-        mode=EffectMode.CHANGE,
-        action=SemanticAction(action, "anc.execution-launch-input.v1"),
-        input=CanonicalInput(
-            {
-                "executable": "/usr/bin/python3",
-                "args": ["-c", _CREATE_SCRIPT, plan.relative_path, encoded],
-                "cwdRelative": ".",
-                "env": {},
-                "timeoutMs": plan.timeout_ms,
-                "stdoutLimitBytes": 65_536,
-                "stderrLimitBytes": 65_536,
-                "waitMs": 0,
-                "stdoutTailBytes": 4_096,
-                "stderrTailBytes": 4_096,
-            }
-        ),
-        capability=CapabilityRequirement(plan.principal_id, action, target.object_id),
-        delivery=DeliverySemantics(IdempotencyKind.NONE),
-        result=ResultSemantics(
-            ExecutionKind.ASYNCHRONOUS,
-            CompletionKind.ACCEPTED_VERIFICATION,
-        ),
-        verification=VerificationPlan(
-            "exact-content-sha256.v1",
-            (EvidenceKind.OBSERVATION,),
-        ),
-    )
-
-
-def _missing_workspace(error: RuntimeToolRejected) -> bool:
-    return (
-        error.detail.code == "INVALID_REQUEST"
-        and error.detail.field == "workspaceId"
-        and error.detail.commit_state == "not_committed"
-    )
-
-
-def _task_token(task_id: str) -> str:
-    return task_id.removeprefix("task:")
-
-
-def _digest_text(value: str) -> str:
-    return f"sha256:{hashlib.sha256(value.encode('utf-8')).hexdigest()}"
-
-
-def _validate_digest(value: str) -> None:
-    if (
-        len(value) != 71
-        or not value.startswith("sha256:")
-        or any(character not in "0123456789abcdef" for character in value[7:])
-    ):
-        raise ValueError("invalid sha256 digest")
-
-
-def _object(value: JsonValue, label: str) -> dict[str, JsonValue]:
-    if not isinstance(value, dict):
-        raise JournalCorruption(f"{label} must be an object")
-    return value
-
-
-def _string(value: dict[str, JsonValue], key: str) -> str:
-    result = value.get(key)
-    if not isinstance(result, str):
-        raise JournalCorruption(f"Task event field {key} must be a string")
-    return result
-
-
-def _json_object(value: dict[str, Any], label: str) -> dict[str, JsonValue]:
-    try:
-        validate_json_value(value)
-    except ValueError as error:
-        raise RuntimeProtocolError(f"{label} contains non-JSON data") from error
-    return dict(value)

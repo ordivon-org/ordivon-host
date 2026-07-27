@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
 import unittest
 
 from anc_canonical import canonical_digest
 from ordivon_host import ComponentOwner, TaskProjection, owner_of
+from ordivon_host.engine import DeterministicReadHost, GuardedMutationHost
+from ordivon_host.engine.mutation import GuardedMutationHost as MutationPackageHost
+from ordivon_host.runtime import RuntimeClient
 from ordivon_semantics import EffectState
 
 
@@ -18,8 +22,17 @@ class HostBoundaryTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             owner_of("generic-agent-state")
 
-    def test_incubator_only_uses_promoted_protocol(self) -> None:
+    def test_host_uses_promoted_protocol(self) -> None:
         self.assertEqual(canonical_digest({"state": EffectState.UNKNOWN.value})[:7], "sha256:")
+
+    def test_extracted_public_imports_remain_stable(self) -> None:
+        self.assertIs(MutationPackageHost, GuardedMutationHost)
+        self.assertTrue(callable(DeterministicReadHost))
+        self.assertTrue(hasattr(RuntimeClient, "call_tool"))
+
+    def test_legacy_mutation_module_is_removed(self) -> None:
+        source = Path(__file__).resolve().parents[1] / "src" / "ordivon_host" / "engine"
+        self.assertFalse((source / "mutation_task.py").exists())
 
     def test_projection_decoder_rejects_coerced_revision_types(self) -> None:
         value = {
