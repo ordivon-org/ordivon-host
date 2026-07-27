@@ -13,9 +13,11 @@ Current proven vertical slices:
 - deterministic Runtime read with independent digest verification;
 - persistent multi-candidate cognition with deterministic admission;
 - guarded mutation with durable Dispatch identity and conservative UNKNOWN reconciliation;
-- recovery across fresh Host processes and local Runtime control-plane restarts.
+- durable two-file source change through structured Runtime checks and independent diff verification;
+- recovery across fresh Host processes and local Runtime control-plane restarts;
+- schema-v3 operational state, backup/restore, full Doctor validation, and measured 100,000-event behavior.
 
-See `ARCHITECTURE.md`, `CLOSURE.md`, and `evidence/` for exact boundaries and receipts.
+See `ARCHITECTURE.md`, `CLOSURE.md`, `docs/PRE_H7_CLOSURE.md`, and `evidence/` for exact boundaries and receipts.
 
 ## Development
 
