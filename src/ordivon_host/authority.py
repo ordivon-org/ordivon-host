@@ -49,10 +49,18 @@ class TrustedLocalAuthorizer:
         self.policy_id = policy_id
 
     def authorize(self, requirement: CapabilityRequirement) -> CapabilityDecision:
-        allowed = (
-            requirement.principal_id == self.principal_id
-            and requirement.action_id == "anc.source.change.v1"
+        source_change = (
+            requirement.action_id == "anc.source.change.v1"
             and requirement.object_scope.startswith("world_object:repository:")
+        )
+        repository_read = (
+            requirement.action_id == "anc.object.read.v1"
+            and requirement.object_scope.startswith(
+                "world_object:repository-file:repository:"
+            )
+        )
+        allowed = requirement.principal_id == self.principal_id and (
+            source_change or repository_read
         )
         decision = CapabilityDecision(
             principal_id=requirement.principal_id,
@@ -61,9 +69,9 @@ class TrustedLocalAuthorizer:
             policy_id=self.policy_id,
             allowed=allowed,
             reason=(
-                "trusted local owner may change a repository"
+                "trusted local owner may access the repository scope"
                 if allowed
-                else "requirement is outside trusted-local source-change policy"
+                else "requirement is outside trusted-local repository policy"
             ),
         )
         if not allowed:

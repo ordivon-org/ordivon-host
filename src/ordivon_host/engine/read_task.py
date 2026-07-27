@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +24,15 @@ from anc_effect_ir import (
     VerificationPlan,
 )
 
-from ..domain import EventKind, TaskProjection, TaskState
+from ..authority import CapabilityAuthorizer, TrustedLocalAuthorizer
+from ..domain import (
+    EventKind,
+    RepositoryRef,
+    RepositoryResolver,
+    StaticRepositoryResolver,
+    TaskProjection,
+    TaskState,
+)
 from ..journal import JournalCorruption
 from ..kernel import HostKernel, LockedTask, worker_owner_id
 from ..objects.codecs import decode_versioned_object
@@ -61,8 +70,7 @@ class ReadTaskPlan:
     task_id: str
     goal_id: str
     workspace_id: str
-    source_repo: str
-    source_revision: str
+    repository: RepositoryRef
     relative_path: str
     max_bytes: int = _MAX_READ_BYTES
     principal_id: str = "principal:local-owner"
@@ -74,13 +82,6 @@ class ReadTaskPlan:
             raise ValueError("read Goal identity must start with goal:")
         if not self.workspace_id or self.workspace_id != self.workspace_id.strip():
             raise ValueError("Runtime Workspace identity is required")
-        if not Path(self.source_repo).is_absolute():
-            raise ValueError("read source repository must be an absolute path")
-        if (
-            len(self.source_revision) != 40
-            or any(character not in "0123456789abcdef" for character in self.source_revision)
-        ):
-            raise ValueError("read source revision must be a lowercase Git object id")
         relative = Path(self.relative_path)
         if (
             not self.relative_path
@@ -94,15 +95,18 @@ class ReadTaskPlan:
         if not self.principal_id.startswith("principal:"):
             raise ValueError("read principal identity must start with principal:")
 
+    @property
+    def source_revision(self) -> str:
+        return self.repository.revision
+
     def to_dict(self) -> dict[str, JsonValue]:
         return {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "kind": _PLAN_KIND,
             "taskId": self.task_id,
             "goalId": self.goal_id,
             "workspaceId": self.workspace_id,
-            "sourceRepo": self.source_repo,
-            "sourceRevision": self.source_revision,
+            "repository": self.repository.to_dict(),
             "relativePath": self.relative_path,
             "maxBytes": self.max_bytes,
             "principalId": self.principal_id,
@@ -113,7 +117,7 @@ class ReadTaskPlan:
         return decode_versioned_object(
             value,
             expected_kind=_PLAN_KIND,
-            decoders={1: cls._from_dict_v1},
+            decoders={1: cls._from_dict_v1, 2: cls._from_dict_v2},
             label="ReadTaskPlan",
         )
 
@@ -132,28 +136,61 @@ class ReadTaskPlan:
             "principalId",
         }
         if set(value) != expected:
-            raise ValueError("ReadTaskPlan fields differ")
-        if value["schemaVersion"] != 1 or value["kind"] != _PLAN_KIND:
-            raise ValueError("ReadTaskPlan version or kind is invalid")
-        string_fields = (
-            "taskId",
-            "goalId",
-            "workspaceId",
-            "sourceRepo",
-            "sourceRevision",
-            "relativePath",
-            "principalId",
-        )
-        if any(not isinstance(value[field], str) for field in string_fields):
-            raise ValueError("ReadTaskPlan identities and paths must be strings")
-        if type(value["maxBytes"]) is not int:
-            raise ValueError("ReadTaskPlan maxBytes must be an integer")
+            raise ValueError("ReadTaskPlan v1 fields differ")
+        strings = expected - {"schemaVersion", "maxBytes"}
+        if (
+            value["schemaVersion"] != 1
+            or any(not isinstance(value[field], str) for field in strings)
+            or type(value["maxBytes"]) is not int
+        ):
+            raise ValueError("ReadTaskPlan v1 fields are invalid")
+        source_repo = value["sourceRepo"]
+        if not Path(source_repo).is_absolute():
+            raise ValueError("ReadTaskPlan v1 source repository must be absolute")
+        token = hashlib.sha256(source_repo.encode("utf-8")).hexdigest()[:24]
         return cls(
             task_id=value["taskId"],
             goal_id=value["goalId"],
             workspace_id=value["workspaceId"],
-            source_repo=value["sourceRepo"],
-            source_revision=value["sourceRevision"],
+            repository=RepositoryRef(
+                repository_id=f"repository:legacy-{token}",
+                revision=value["sourceRevision"],
+                legacy_path=source_repo,
+            ),
+            relative_path=value["relativePath"],
+            max_bytes=value["maxBytes"],
+            principal_id=value["principalId"],
+        )
+
+    @classmethod
+    def _from_dict_v2(cls, value: dict[str, Any]) -> ReadTaskPlan:
+        expected = {
+            "schemaVersion",
+            "kind",
+            "taskId",
+            "goalId",
+            "workspaceId",
+            "repository",
+            "relativePath",
+            "maxBytes",
+            "principalId",
+        }
+        if set(value) != expected:
+            raise ValueError("ReadTaskPlan v2 fields differ")
+        repository = value["repository"]
+        strings = expected - {"schemaVersion", "repository", "maxBytes"}
+        if (
+            value["schemaVersion"] != 2
+            or not isinstance(repository, dict)
+            or any(not isinstance(value[field], str) for field in strings)
+            or type(value["maxBytes"]) is not int
+        ):
+            raise ValueError("ReadTaskPlan v2 fields are invalid")
+        return cls(
+            task_id=value["taskId"],
+            goal_id=value["goalId"],
+            workspace_id=value["workspaceId"],
+            repository=RepositoryRef.from_dict(repository),
             relative_path=value["relativePath"],
             max_bytes=value["maxBytes"],
             principal_id=value["principalId"],
@@ -231,6 +268,8 @@ class DeterministicReadHost:
         runtime: RuntimeClient,
         *,
         clock_ms: Callable[[], int],
+        repository_resolver: RepositoryResolver | None = None,
+        authorizer: CapabilityAuthorizer | None = None,
         owner_id: str | None = None,
         lease_ttl_ms: int = 30_000,
     ) -> None:
@@ -240,6 +279,8 @@ class DeterministicReadHost:
             raise ValueError("Host lease TTL must be positive")
         self.storage = storage
         self.runtime = runtime
+        self.repository_resolver = repository_resolver or StaticRepositoryResolver({})
+        self.authorizer = authorizer or TrustedLocalAuthorizer()
         self.kernel = HostKernel(
             storage,
             clock_ms=clock_ms,
@@ -344,6 +385,10 @@ class DeterministicReadHost:
                 "Runtime Tool catalog changed before the bound read"
             )
         effect = _read_effect(plan)
+        authority = self.authorizer.authorize(effect.capability)
+        authority_object = self.storage.put_object(
+            authority.to_dict(), kind="capability-decision"
+        )
         binding = lower_to_ordivon(
             effect,
             catalog.read_contract,
@@ -387,6 +432,7 @@ class DeterministicReadHost:
                 "catalogDigest": catalog.digest,
                 "effectDigest": effect_object.digest,
                 "bindingDigest": binding_object.digest,
+                "authorityDecisionDigest": authority_object.digest,
                 "observationDigest": observation_object.digest,
                 "verificationDigest": verification_object.digest,
             },
@@ -395,6 +441,7 @@ class DeterministicReadHost:
                 plan_object,
                 effect_object,
                 binding_object,
+                authority_object,
                 observation_object,
                 verification_object,
             ),
@@ -417,6 +464,9 @@ class DeterministicReadHost:
             "catalogDigest": require_string(data, "catalogDigest"),
             "effectDigest": require_string(data, "effectDigest"),
             "bindingDigest": require_string(data, "bindingDigest"),
+            "authorityDecisionDigest": require_string(
+                data, "authorityDecisionDigest"
+            ),
             "observationDigest": require_string(data, "observationDigest"),
             "verificationDigest": require_string(data, "verificationDigest"),
             "workspaceClosed": True,
@@ -445,12 +495,13 @@ class DeterministicReadHost:
         except RuntimeToolRejected as error:
             if not is_missing_workspace(error):
                 raise
+            source_repo = self.repository_resolver.resolve(plan.repository)
             workspace = self.runtime.call_tool(
                 "workspace.open",
                 {
                     "schemaVersion": 1,
-                    "sourceRepo": plan.source_repo,
-                    "sourceRevision": plan.source_revision,
+                    "sourceRepo": str(source_repo),
+                    "sourceRevision": plan.repository.revision,
                     "workspaceId": plan.workspace_id,
                 },
             )
@@ -524,7 +575,8 @@ class DeterministicReadHost:
 def _read_effect(plan: ReadTaskPlan) -> EffectEnvelope:
     action = "anc.object.read.v1"
     target = TargetRef(
-        f"world_object:workspace-file:{plan.workspace_id}/{plan.relative_path}",
+        f"world_object:repository-file:{plan.repository.repository_id}/"
+        f"{plan.relative_path}",
         None,
     )
     return EffectEnvelope(
@@ -532,7 +584,14 @@ def _read_effect(plan: ReadTaskPlan) -> EffectEnvelope:
         target=target,
         mode=EffectMode.OBSERVE,
         action=SemanticAction(action, "anc.object-read-input.v1"),
-        input=CanonicalInput({}),
+        input=CanonicalInput(
+            {
+                "repositoryId": plan.repository.repository_id,
+                "revision": plan.repository.revision,
+                "relativePath": plan.relative_path,
+                "maxBytes": plan.max_bytes,
+            }
+        ),
         capability=CapabilityRequirement(
             plan.principal_id,
             action,

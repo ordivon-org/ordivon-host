@@ -104,3 +104,78 @@ class HostOperationsTests(unittest.TestCase):
             (backup / "host.sqlite3").write_bytes(b"forged")
             with self.assertRaises(ValueError):
                 verify_backup(backup)
+
+class HostHistoryDoctorTests(unittest.TestCase):
+    def _two_event_state(self, root: Path) -> None:
+        with HostStorage(root) as storage:
+            first = TaskProjection(
+                task_id="task:history",
+                goal_id="goal:history",
+                state=TaskState.READY,
+                active_node_id=None,
+                ready_frontier=("node:history:work",),
+                revision=1,
+                updated_at_ms=1,
+            )
+            storage.record_task_event(
+                event_id="event:history:r1",
+                kind=EventKind.TASK_CREATED,
+                payload={"stage": "created"},
+                projection=first,
+                expected_revision=0,
+            )
+            second = TaskProjection(
+                task_id="task:history",
+                goal_id="goal:history",
+                state=TaskState.COMPLETED,
+                active_node_id=None,
+                ready_frontier=(),
+                revision=2,
+                updated_at_ms=2,
+            )
+            storage.record_task_event(
+                event_id="event:history:r2",
+                kind=EventKind.TASK_STATE_CHANGED,
+                payload={"stage": "completed"},
+                projection=second,
+                expected_revision=1,
+            )
+
+    def test_history_doctor_validates_every_event(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._two_event_state(root)
+            report = doctor_state(root, check_history=True)
+            self.assertTrue(report["healthy"])
+            check = next(
+                item for item in report["checks"] if item["name"] == "journal.history"
+            )
+            self.assertEqual(check["status"], "ok")
+            self.assertIn('"events": 2', check["detail"])
+
+    def test_history_doctor_catches_old_row_bound_to_newer_payload(self) -> None:
+        import sqlite3
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._two_event_state(root)
+            database = root / "host.sqlite3"
+            connection = sqlite3.connect(database)
+            latest = connection.execute(
+                "SELECT payload_digest FROM events WHERE stream_revision = 2"
+            ).fetchone()[0]
+            connection.execute(
+                "UPDATE events SET payload_digest = ? WHERE stream_revision = 1",
+                (latest,),
+            )
+            connection.commit()
+            connection.close()
+            baseline = doctor_state(root)
+            self.assertTrue(baseline["healthy"])
+            report = doctor_state(root, check_history=True)
+            self.assertFalse(report["healthy"])
+            check = next(
+                item for item in report["checks"] if item["name"] == "journal.history"
+            )
+            self.assertEqual(check["status"], "error")
+            self.assertIn("historical Event", check["detail"])

@@ -11,6 +11,7 @@ from ..journal.migrations import schema_version
 from ..runtime import McpRuntimeClient
 from ..storage import HostStorage
 from .gc import plan_gc
+from .history import validate_history
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +29,7 @@ def doctor_state(
     *,
     config: HostConfig | None = None,
     check_runtime: bool = False,
+    check_history: bool = False,
     now_ms: int | None = None,
 ) -> dict[str, object]:
     state_root = Path(root)
@@ -93,6 +95,25 @@ def doctor_state(
                     f"active={active}, expired={expired}",
                 )
             )
+            if check_history:
+                try:
+                    history = validate_history(storage)
+                except BaseException as error:
+                    checks.append(
+                        DoctorCheck(
+                            "journal.history",
+                            "error",
+                            f"{type(error).__name__}: {error}",
+                        )
+                    )
+                else:
+                    checks.append(
+                        DoctorCheck(
+                            "journal.history",
+                            "ok",
+                            json.dumps(history.to_dict(), sort_keys=True),
+                        )
+                    )
     except BaseException as error:
         checks.append(
             DoctorCheck("host.open", "error", f"{type(error).__name__}: {error}")

@@ -7,6 +7,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from ordivon_host import EventKind, HostStorage, TaskProjection, TaskState
 from ordivon_host.cli import main
 
 
@@ -40,6 +41,54 @@ class HostCliTests(unittest.TestCase):
             )
             self.assertEqual(code, 0)
             self.assertTrue(result["restored"])
+
+    def test_history_doctor_and_recovery_assessment_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "state"
+            with HostStorage(state) as storage:
+                storage.record_task_event(
+                    event_id="event:cli-assess:r1",
+                    kind=EventKind.TASK_CREATED,
+                    payload={"purpose": "cli-assessment"},
+                    projection=TaskProjection(
+                        task_id="task:cli-assess",
+                        goal_id="goal:cli-assess",
+                        state=TaskState.READY,
+                        active_node_id=None,
+                        ready_frontier=("node:cli-assess",),
+                        revision=1,
+                        updated_at_ms=1,
+                    ),
+                    expected_revision=0,
+                )
+            code, result = self.invoke(
+                "--state-root", str(state), "doctor", "--history"
+            )
+            self.assertEqual(code, 0)
+            history = next(
+                item for item in result["checks"] if item["name"] == "journal.history"
+            )
+            self.assertEqual(history["status"], "ok")
+            code, result = self.invoke(
+                "--state-root",
+                str(state),
+                "task",
+                "assess",
+                "task:cli-assess",
+            )
+            self.assertEqual(code, 0)
+            self.assertEqual(result["action"], "unsupported")
+            self.assertFalse(result["automatic"])
+            code, result = self.invoke(
+                "--state-root",
+                str(state),
+                "task",
+                "reconcile",
+                "task:cli-assess",
+            )
+            self.assertEqual(code, 0)
+            self.assertFalse(result["changed"])
+            self.assertEqual(result["before"]["action"], "unsupported")
 
     def test_task_list_and_missing_task(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

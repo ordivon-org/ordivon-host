@@ -29,6 +29,13 @@ from .kernel import (
     TransitionReceipt,
 )
 from .objects import ContentAddressedStore
+from .recovery import (
+    RecoveryAction,
+    RecoveryAssessment,
+    RecoveryResult,
+    TaskReconciler,
+    assess_recovery,
+)
 from .runtime import (
     ExecutionRuntimeCatalog,
     McpRuntimeClient,
@@ -83,4 +90,9 @@ __all__ = [
     "discover_execution_runtime_catalog",
     "load_config",
     "owner_of",
+    "RecoveryAction",
+    "RecoveryAssessment",
+    "RecoveryResult",
+    "TaskReconciler",
+    "assess_recovery",
 ]
