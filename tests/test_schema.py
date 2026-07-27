@@ -44,6 +44,7 @@ class HostSchemaTests(unittest.TestCase):
                         "task_projection",
                         "leases",
                         "object_refs",
+                        "object_validation",
                         "schema_migrations",
                     }.issubset(names)
                 )

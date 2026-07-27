@@ -5,13 +5,29 @@
 The deployable Host state root contains:
 
 ```text
-host.sqlite3   schema v2 event journal, Task projection, and leases
+host.sqlite3   schema v3 event journal, Task projection, leases, and CAS validation cache
 objects/       immutable content-addressed objects
 receipts/      operational and live-scenario receipts
 backups/       optional operator-selected backup destinations
 ```
 
-Schema v2 removes the unowned `task_nodes`, `task_edges`, `runtime_links`, and `wakeups` tables. Opening a v1 database creates `host.sqlite3.pre-schema-v2.sqlite3` and migrates only when all four legacy tables are empty. Populated legacy tables fail closed.
+Schema evolution is explicit:
+
+- v1 → v2 removes the unowned `task_nodes`, `task_edges`, `runtime_links`, and `wakeups` tables. Migration proceeds only when all four tables are empty; populated legacy tables fail closed. The source database is retained as `host.sqlite3.pre-schema-v2.sqlite3`.
+- v2 → v3 adds `object_validation`, which binds a previously SHA-256-verified CAS object to its device, inode, length, modification time, change time, and mode. The source database is retained as `host.sqlite3.pre-schema-v3.sqlite3`.
+
+A v1 database advances through both migrations in order and records both entries in `schema_migrations`.
+
+## CAS validation modes
+
+Normal Host startup uses cached validation:
+
+1. missing objects fail immediately;
+2. an unchanged file identity reuses the last successful full decode and SHA-256 result;
+3. any ordinary write, replacement, truncation, metadata change, or cache miss forces a full decode and SHA-256 check;
+4. every materialized Task head is still read and fully verified while rebuilding its projection.
+
+This cache is scoped to the trusted-local filesystem threat model. `ordivon-host doctor` always performs full byte validation of every referenced CAS object, covering bit rot or offline block-level changes that may not be represented by normal file metadata transitions.
 
 ## Configuration
 
@@ -61,8 +77,8 @@ A backup is a directory containing:
 - every CAS object referenced by that database;
 - a manifest with exact file digests, object metadata, schema version, and migration history.
 
-Restore verifies all file digests, opens the restored state under full Host invariants, and then atomically renames the verified temporary state into place. `--replace` preserves the old state root under a timestamped `.previous-*` path.
+Backup verification is full and read-only: it disables validation-cache writes so repeated verification cannot alter a manifest-covered database. Restore verifies all file digests, opens the restored state under full Host invariants, and then atomically renames the verified temporary state into place. `--replace` preserves the old state root under a timestamped `.previous-*` path.
 
 ## Doctor
 
-The local doctor checks SQLite integrity, schema compatibility, Journal invariants, CAS references, orphan objects, and lease state. `--runtime` additionally loads the token from its file and performs MCP initialization.
+The local doctor checks SQLite integrity, schema compatibility, Journal invariants, full CAS content integrity, orphan objects, and lease state. `--runtime` additionally loads the token from its file and performs MCP initialization.

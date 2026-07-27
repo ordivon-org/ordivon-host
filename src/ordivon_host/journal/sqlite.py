@@ -16,7 +16,7 @@ from ..domain import (
     TaskProjection,
     TaskState,
 )
-from ..objects import StoredObject
+from ..objects import ObjectFileIdentity, StoredObject
 
 
 class HostJournalError(RuntimeError):
@@ -248,6 +248,43 @@ class HostJournal:
             StoredObject(row["digest"], int(row["byte_length"]), row["kind"])
             for row in rows
         )
+
+    def object_reference_validation_rows(self) -> sqlite3.Cursor:
+        return self.connection.execute(
+            "SELECT r.digest, r.byte_length, r.kind, "
+            "v.device, v.inode, v.byte_length AS validated_byte_length, "
+            "v.modified_at_ns, v.changed_at_ns, v.mode "
+            "FROM object_refs r LEFT JOIN object_validation v ON v.digest = r.digest "
+            "ORDER BY r.digest"
+        )
+
+    def record_object_validations(
+        self,
+        values: tuple[tuple[str, ObjectFileIdentity], ...],
+    ) -> None:
+        if not values:
+            return
+        with self._transaction():
+            self.connection.executemany(
+                "INSERT INTO object_validation("
+                "digest, device, inode, byte_length, modified_at_ns, changed_at_ns, mode"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(digest) DO UPDATE SET "
+                "device = excluded.device, inode = excluded.inode, "
+                "byte_length = excluded.byte_length, "
+                "modified_at_ns = excluded.modified_at_ns, "
+                "changed_at_ns = excluded.changed_at_ns, mode = excluded.mode",
+                (
+                    (digest, *identity.to_sql())
+                    for digest, identity in values
+                ),
+            )
+
+    def object_validation_count(self) -> int:
+        row = self.connection.execute(
+            "SELECT COUNT(*) AS count FROM object_validation"
+        ).fetchone()
+        return int(row["count"])
 
     def task_ids(self) -> tuple[str, ...]:
         rows = self.connection.execute(

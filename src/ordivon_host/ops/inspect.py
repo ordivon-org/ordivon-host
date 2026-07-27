@@ -50,6 +50,13 @@ def inspect_state(root: str | Path) -> dict[str, object]:
             "stateRoot": str(state_root),
             "events": storage.journal.event_count(),
             "objectRefs": storage.journal.object_ref_count(),
+            "validatedObjects": storage.journal.object_validation_count(),
+            "startupValidation": {
+                "cachedObjects": storage.validation_summary.cached_objects,
+                "hashedObjects": storage.validation_summary.hashed_objects,
+                "taskHeads": storage.validation_summary.task_heads,
+                "full": storage.validation_summary.full,
+            },
             "tasks": len(tasks),
             "terminalTasks": sum(task.state.terminal for task in tasks),
             "tasksByState": dict(sorted(states.items())),

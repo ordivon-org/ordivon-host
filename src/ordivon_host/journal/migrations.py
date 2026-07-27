@@ -15,10 +15,16 @@ def initialize_schema(connection: sqlite3.Connection, path: Path) -> None:
     if not _table_exists(connection, "host_metadata"):
         connection.executescript(_schema.SCHEMA)
         return
-    version = schema_version(connection)
-    if version == 1:
-        _migrate_v1_to_v2(connection, path)
-    elif version != _schema.SCHEMA_VERSION:
+    while True:
+        version = schema_version(connection)
+        if version == _schema.SCHEMA_VERSION:
+            break
+        if version == 1:
+            _migrate_v1_to_v2(connection, path)
+            continue
+        if version == 2:
+            _migrate_v2_to_v3(connection, path)
+            continue
         raise SchemaMigrationError(f"unsupported Host Journal schema version: {version}")
     connection.executescript(_schema.SCHEMA)
     if schema_version(connection) != _schema.SCHEMA_VERSION:
@@ -67,7 +73,7 @@ def _migrate_v1_to_v2(connection: sqlite3.Connection, path: Path) -> None:
             "legacy unowned Host tables contain state: " + ", ".join(populated)
         )
     backup_path = path.with_name(f"{path.name}.pre-schema-v2.sqlite3")
-    _ensure_backup(connection, backup_path)
+    _ensure_backup(connection, backup_path, expected_version=1)
     connection.execute("BEGIN IMMEDIATE")
     try:
         connection.execute(
@@ -80,12 +86,7 @@ def _migrate_v1_to_v2(connection: sqlite3.Connection, path: Path) -> None:
         for table in _schema.LEGACY_UNUSED_TABLES:
             if _table_exists(connection, table):
                 connection.execute(f"DROP TABLE {table}")
-        changed = connection.execute(
-            "UPDATE host_metadata SET value = '2' "
-            "WHERE key = 'schema_version' AND value = '1'"
-        ).rowcount
-        if changed != 1:
-            raise SchemaMigrationError("Host Journal schema changed during migration")
+        _advance_version(connection, 1, 2)
         connection.execute(
             "INSERT INTO schema_migrations(from_version, to_version, name, backup_path) "
             "VALUES (1, 2, 'remove-unowned-pre-h7-tables', ?)",
@@ -98,7 +99,52 @@ def _migrate_v1_to_v2(connection: sqlite3.Connection, path: Path) -> None:
         connection.execute("COMMIT")
 
 
-def _ensure_backup(connection: sqlite3.Connection, path: Path) -> None:
+def _migrate_v2_to_v3(connection: sqlite3.Connection, path: Path) -> None:
+    backup_path = path.with_name(f"{path.name}.pre-schema-v3.sqlite3")
+    _ensure_backup(connection, backup_path, expected_version=2)
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        connection.execute(
+            "CREATE TABLE object_validation("
+            "digest TEXT PRIMARY KEY REFERENCES object_refs(digest) ON DELETE CASCADE, "
+            "device INTEGER NOT NULL CHECK(device >= 0), "
+            "inode INTEGER NOT NULL CHECK(inode >= 0), "
+            "byte_length INTEGER NOT NULL CHECK(byte_length >= 0), "
+            "modified_at_ns INTEGER NOT NULL CHECK(modified_at_ns >= 0), "
+            "changed_at_ns INTEGER NOT NULL CHECK(changed_at_ns >= 0), "
+            "mode INTEGER NOT NULL CHECK(mode >= 0))"
+        )
+        _advance_version(connection, 2, 3)
+        connection.execute(
+            "INSERT INTO schema_migrations(from_version, to_version, name, backup_path) "
+            "VALUES (2, 3, 'cache-verified-object-file-identity', ?)",
+            (str(backup_path),),
+        )
+    except BaseException:
+        connection.execute("ROLLBACK")
+        raise
+    else:
+        connection.execute("COMMIT")
+
+
+def _advance_version(
+    connection: sqlite3.Connection, from_version: int, to_version: int
+) -> None:
+    changed = connection.execute(
+        "UPDATE host_metadata SET value = ? "
+        "WHERE key = 'schema_version' AND value = ?",
+        (str(to_version), str(from_version)),
+    ).rowcount
+    if changed != 1:
+        raise SchemaMigrationError("Host Journal schema changed during migration")
+
+
+def _ensure_backup(
+    connection: sqlite3.Connection,
+    path: Path,
+    *,
+    expected_version: int,
+) -> None:
     if path.exists():
         backup = sqlite3.connect(path)
         try:
@@ -108,7 +154,11 @@ def _ensure_backup(connection: sqlite3.Connection, path: Path) -> None:
             ).fetchone()
         finally:
             backup.close()
-        if quick != [("ok",)] or row is None or row[0] != "1":
+        if (
+            quick != [("ok",)]
+            or row is None
+            or row[0] != str(expected_version)
+        ):
             raise SchemaMigrationError("existing schema migration backup is invalid")
         return
     backup = sqlite3.connect(path)

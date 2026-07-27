@@ -96,7 +96,11 @@ def verify_backup(backup_root: str | Path) -> dict[str, object]:
         encoded = (backup / relative).read_bytes()
         if len(encoded) != byte_length or _sha256(encoded) != digest:
             raise ValueError(f"Host backup file differs: {relative}")
-    with HostStorage(backup):
+    with HostStorage(
+        backup,
+        validation_mode="full",
+        update_validation_cache=False,
+    ):
         pass
     return value
 

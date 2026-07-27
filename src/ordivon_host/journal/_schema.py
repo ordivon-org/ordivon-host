@@ -1,4 +1,4 @@
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 LEGACY_UNUSED_TABLES = ("wakeups", "runtime_links", "task_edges", "task_nodes")
 
 SCHEMA = """
@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS host_metadata(
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-INSERT OR IGNORE INTO host_metadata(key, value) VALUES ('schema_version', '2');
+INSERT OR IGNORE INTO host_metadata(key, value) VALUES ('schema_version', '3');
 
 CREATE TABLE IF NOT EXISTS schema_migrations(
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -21,6 +21,16 @@ CREATE TABLE IF NOT EXISTS object_refs(
     kind TEXT NOT NULL,
     byte_length INTEGER NOT NULL CHECK(byte_length >= 0),
     first_seen_at_ms INTEGER NOT NULL CHECK(first_seen_at_ms >= 0)
+);
+
+CREATE TABLE IF NOT EXISTS object_validation(
+    digest TEXT PRIMARY KEY REFERENCES object_refs(digest) ON DELETE CASCADE,
+    device INTEGER NOT NULL CHECK(device >= 0),
+    inode INTEGER NOT NULL CHECK(inode >= 0),
+    byte_length INTEGER NOT NULL CHECK(byte_length >= 0),
+    modified_at_ns INTEGER NOT NULL CHECK(modified_at_ns >= 0),
+    changed_at_ns INTEGER NOT NULL CHECK(changed_at_ns >= 0),
+    mode INTEGER NOT NULL CHECK(mode >= 0)
 );
 
 CREATE TABLE IF NOT EXISTS streams(

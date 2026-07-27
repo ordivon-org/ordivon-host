@@ -52,7 +52,7 @@ def doctor_state(
     except sqlite3.Error as error:
         checks.append(DoctorCheck("sqlite.quick_check", "error", str(error)))
     try:
-        with HostStorage(state_root) as storage:
+        with HostStorage(state_root, validation_mode="full") as storage:
             checks.append(
                 DoctorCheck(
                     "journal.schema",
@@ -62,8 +62,15 @@ def doctor_state(
             )
             storage.journal.validate_invariants()
             checks.append(DoctorCheck("journal.invariants", "ok", "valid"))
-            storage.validate_references()
-            checks.append(DoctorCheck("cas.references", "ok", "valid"))
+            validation = storage.validation_summary
+            checks.append(
+                DoctorCheck(
+                    "cas.references",
+                    "ok",
+                    f"full={validation.full}, hashed={validation.hashed_objects}, "
+                    f"cached={validation.cached_objects}",
+                )
+            )
             gc_plan = plan_gc(state_root, storage=storage)
             orphans = gc_plan["orphanedObjects"]
             checks.append(
