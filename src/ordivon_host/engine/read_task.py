@@ -26,6 +26,7 @@ from anc_effect_ir import (
 
 from ..domain import EventKind, TaskProjection, TaskState
 from ..journal import JournalCorruption
+from ..kernel import HostKernel, LockedTask
 from ..objects import ObjectCorrupt
 from ..runtime import (
     RuntimeProtocolError,
@@ -226,9 +227,12 @@ class DeterministicReadHost:
             raise ValueError("Host owner and lease TTL are required")
         self.storage = storage
         self.runtime = runtime
-        self.clock_ms = clock_ms
-        self.owner_id = owner_id
-        self.lease_ttl_ms = lease_ttl_ms
+        self.kernel = HostKernel(
+            storage,
+            clock_ms=clock_ms,
+            owner_id=owner_id,
+            lease_ttl_ms=lease_ttl_ms,
+        )
 
     def create(self, plan: ReadTaskPlan) -> TaskProjection:
         plan_object = self.storage.put_object(plan.to_dict(), kind="host-read-task-plan")
@@ -238,51 +242,35 @@ class DeterministicReadHost:
             if current_plan != plan:
                 raise ValueError("Task identity is already bound to a different read plan")
             return existing
-        projection = TaskProjection(
-            task_id=plan.task_id,
-            goal_id=plan.goal_id,
-            state=TaskState.READY,
-            active_node_id=None,
-            ready_frontier=(self._node(plan, "open"),),
-            revision=1,
-            updated_at_ms=self._timestamp(None),
-        )
-        self.storage.record_task_event(
+        return self.kernel.create_task(
             event_id=self._event_id(plan, 1),
             kind=EventKind.TASK_CREATED,
+            task_id=plan.task_id,
+            goal_id=plan.goal_id,
             payload={"planDigest": plan_object.digest},
-            projection=projection,
-            expected_revision=0,
+            frontier=(self._node(plan, "open"),),
             referenced_objects=(plan_object,),
-        )
-        return projection
+        ).projection
 
     def step(self, task_id: str) -> ReadTaskStep:
-        current = self.storage.journal.get_task(task_id)
-        if current is None:
-            raise KeyError(f"unknown read Task: {task_id}")
-        if current.state.terminal:
-            return ReadTaskStep(task_id, current.revision, None, True)
-        lease = self.storage.journal.acquire_lease(
+        with self.kernel.locked_task(
             task_id,
-            owner_id=self.owner_id,
-            now_ms=self.clock_ms(),
-            ttl_ms=self.lease_ttl_ms,
-        )
-        try:
-            snapshot = self.storage.read_task_event(task_id)
-            plan = self._load_plan(snapshot)
-            if snapshot.projection != current:
-                raise JournalCorruption("Task projection changed before Host step")
+            label="read",
+            error_factory=self._kernel_error,
+        ) as locked:
+            current = locked.projection
+            if current.state.terminal:
+                return ReadTaskStep(task_id, current.revision, None, True)
+            plan = self._load_plan(locked.snapshot)
             if len(current.ready_frontier) != 1:
                 raise JournalCorruption("read Task requires exactly one ready node")
             frontier = current.ready_frontier[0]
             if frontier == self._node(plan, "open"):
-                projection = self._step_open(snapshot, plan)
+                projection = self._step_open(locked, plan)
             elif frontier == self._node(plan, "read"):
-                projection = self._step_read(snapshot, plan)
+                projection = self._step_read(locked, plan)
             elif frontier == self._node(plan, "close"):
-                projection = self._step_close(snapshot, plan)
+                projection = self._step_close(locked, plan)
             else:
                 raise JournalCorruption(f"unknown read Task frontier: {frontier}")
             return ReadTaskStep(
@@ -291,8 +279,6 @@ class DeterministicReadHost:
                 frontier=(projection.ready_frontier[0] if projection.ready_frontier else None),
                 completed=projection.state is TaskState.COMPLETED,
             )
-        finally:
-            self.storage.journal.release_lease(lease)
 
     def run(self, task_id: str, *, max_steps: int = 4) -> TaskProjection:
         if max_steps < 1:
@@ -308,7 +294,7 @@ class DeterministicReadHost:
 
     def _step_open(
         self,
-        snapshot: TaskEventSnapshot,
+        locked: LockedTask,
         plan: ReadTaskPlan,
     ) -> TaskProjection:
         self.runtime.initialize()
@@ -317,10 +303,9 @@ class DeterministicReadHost:
             catalog.to_dict(), kind="runtime-catalog"
         )
         workspace = self._ensure_workspace(plan)
-        projection = self._next_projection(snapshot.projection, plan, "read")
-        plan_object = self.storage.objects.inspect(self._plan_digest(snapshot))
-        self.storage.record_task_event(
-            event_id=self._event_id(plan, projection.revision),
+        plan_object = self.storage.objects.inspect(self._plan_digest(locked.snapshot))
+        return locked.commit(
+            event_id=self._event_id(plan, locked.projection.revision + 1),
             kind=EventKind.RUNTIME_LINKED,
             payload={
                 "planDigest": plan_object.digest,
@@ -328,18 +313,16 @@ class DeterministicReadHost:
                 "catalogObjectDigest": catalog_object.digest,
                 "workspace": workspace,
             },
-            projection=projection,
-            expected_revision=snapshot.projection.revision,
+            frontier=(self._node(plan, "read"),),
             referenced_objects=(plan_object, catalog_object),
-        )
-        return projection
+        ).projection
 
     def _step_read(
         self,
-        snapshot: TaskEventSnapshot,
+        locked: LockedTask,
         plan: ReadTaskPlan,
     ) -> TaskProjection:
-        data = _object(snapshot.data, "read Task open data")
+        data = _object(locked.snapshot.data, "read Task open data")
         expected_catalog_digest = _string(data, "catalogDigest")
         self.runtime.initialize()
         catalog = discover_runtime_catalog(self.runtime)
@@ -382,10 +365,9 @@ class DeterministicReadHost:
         verification_object = self.storage.put_object(
             verification.to_dict(), kind="verification-receipt"
         )
-        projection = self._next_projection(snapshot.projection, plan, "close")
-        plan_object = self.storage.objects.inspect(self._plan_digest(snapshot))
-        self.storage.record_task_event(
-            event_id=self._event_id(plan, projection.revision),
+        plan_object = self.storage.objects.inspect(self._plan_digest(locked.snapshot))
+        return locked.commit(
+            event_id=self._event_id(plan, locked.projection.revision + 1),
             kind=EventKind.TASK_FRONTIER_CHANGED,
             payload={
                 "planDigest": plan_object.digest,
@@ -395,8 +377,7 @@ class DeterministicReadHost:
                 "observationDigest": observation_object.digest,
                 "verificationDigest": verification_object.digest,
             },
-            projection=projection,
-            expected_revision=snapshot.projection.revision,
+            frontier=(self._node(plan, "close"),),
             referenced_objects=(
                 plan_object,
                 effect_object,
@@ -404,16 +385,15 @@ class DeterministicReadHost:
                 observation_object,
                 verification_object,
             ),
-        )
-        return projection
+        ).projection
 
     def _step_close(
         self,
-        snapshot: TaskEventSnapshot,
+        locked: LockedTask,
         plan: ReadTaskPlan,
     ) -> TaskProjection:
         closed = self._ensure_closed(plan.workspace_id)
-        data = _object(snapshot.data, "read Task result data")
+        data = _object(locked.snapshot.data, "read Task result data")
         outcome: JsonValue = {
             "schemaVersion": 1,
             "kind": _OUTCOME_KIND,
@@ -429,29 +409,19 @@ class DeterministicReadHost:
             "workspaceClosed": True,
         }
         outcome_object = self.storage.put_object(outcome, kind="task-outcome")
-        projection = TaskProjection(
-            task_id=plan.task_id,
-            goal_id=plan.goal_id,
-            state=TaskState.COMPLETED,
-            active_node_id=None,
-            ready_frontier=(),
-            revision=snapshot.projection.revision + 1,
-            updated_at_ms=self._timestamp(snapshot.projection.updated_at_ms),
-        )
-        plan_object = self.storage.objects.inspect(self._plan_digest(snapshot))
-        self.storage.record_task_event(
-            event_id=self._event_id(plan, projection.revision),
+        plan_object = self.storage.objects.inspect(self._plan_digest(locked.snapshot))
+        return locked.commit(
+            event_id=self._event_id(plan, locked.projection.revision + 1),
             kind=EventKind.TASK_STATE_CHANGED,
             payload={
                 "planDigest": plan_object.digest,
                 "outcomeDigest": outcome_object.digest,
                 "workspaceClose": closed,
             },
-            projection=projection,
-            expected_revision=snapshot.projection.revision,
+            state=TaskState.COMPLETED,
+            frontier=(),
             referenced_objects=(plan_object, outcome_object),
-        )
-        return projection
+        ).projection
 
     def _ensure_workspace(self, plan: ReadTaskPlan) -> dict[str, JsonValue]:
         try:
@@ -523,27 +493,11 @@ class DeterministicReadHost:
         _validate_digest(digest)
         return digest
 
-    def _next_projection(
-        self,
-        current: TaskProjection,
-        plan: ReadTaskPlan,
-        frontier: str,
-    ) -> TaskProjection:
-        return TaskProjection(
-            task_id=plan.task_id,
-            goal_id=plan.goal_id,
-            state=TaskState.READY,
-            active_node_id=None,
-            ready_frontier=(self._node(plan, frontier),),
-            revision=current.revision + 1,
-            updated_at_ms=self._timestamp(current.updated_at_ms),
-        )
-
-    def _timestamp(self, previous: int | None) -> int:
-        value = self.clock_ms()
-        if value < 0:
-            raise ValueError("Host clock returned a negative timestamp")
-        return value if previous is None else max(value, previous + 1)
+    @staticmethod
+    def _kernel_error(category: str, message: str) -> Exception:
+        if category == "missing":
+            return KeyError(message)
+        return JournalCorruption(message)
 
     @staticmethod
     def _node(plan: ReadTaskPlan, stage: str) -> str:

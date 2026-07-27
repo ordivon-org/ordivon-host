@@ -8,6 +8,7 @@ from anc_canonical import JsonValue
 
 from ..domain import EventKind, TaskProjection, TaskState
 from ..journal import JournalCorruption
+from ..kernel import HostKernel
 from ..objects import ObjectCorrupt, StoredObject
 from ..storage import HostStorage
 from .adapters import ModelAdapter
@@ -106,9 +107,12 @@ class CognitionTurnHost:
         if not owner_id or lease_ttl_ms < 1:
             raise ValueError("Cognition Host owner and lease TTL are required")
         self.storage = storage
-        self.clock_ms = clock_ms
-        self.owner_id = owner_id
-        self.lease_ttl_ms = lease_ttl_ms
+        self.kernel = HostKernel(
+            storage,
+            clock_ms=clock_ms,
+            owner_id=owner_id,
+            lease_ttl_ms=lease_ttl_ms,
+        )
         self.compiler = ContextCompiler()
         self.admission = DecisionAdmission()
 
@@ -135,32 +139,21 @@ class CognitionTurnHost:
                 )
             return existing
 
-        lease = self.storage.journal.acquire_lease(
+        with self.kernel.locked_task(
             task_id,
-            owner_id=self.owner_id,
-            now_ms=self.clock_ms(),
-            ttl_ms=self.lease_ttl_ms,
-        )
-        try:
-            current = self._require_revision_and_frontier(
-                task_id,
-                expected_revision=current.revision,
-                decision_node_id=decision_node_id,
-            )
+            expected_revision=current.revision,
+            expected_state=TaskState.READY,
+            expected_frontier=(decision_node_id,),
+            label="Cognition",
+            error_factory=self._kernel_error,
+        ) as locked:
             context_object = self.storage.put_object(
                 context.to_dict(), kind="compiled-context"
             )
-            projection = TaskProjection(
-                task_id=current.task_id,
-                goal_id=current.goal_id,
-                state=TaskState.READY,
-                active_node_id=None,
-                ready_frontier=current.ready_frontier,
-                revision=current.revision + 1,
-                updated_at_ms=self._timestamp(current.updated_at_ms),
-            )
-            self.storage.record_task_event(
-                event_id=self._event_id(task_id, "context", projection.revision),
+            projection = locked.commit(
+                event_id=self._event_id(
+                    task_id, "context", locked.projection.revision + 1
+                ),
                 kind=EventKind.COGNITION_CONTEXT_COMPILED,
                 payload={
                     "decisionNodeId": decision_node_id,
@@ -168,10 +161,8 @@ class CognitionTurnHost:
                     "contextObjectDigest": context_object.digest,
                     "tokenBudget": token_budget,
                 },
-                projection=projection,
-                expected_revision=current.revision,
                 referenced_objects=(context_object,),
-            )
+            ).projection
             return PreparedCognition(
                 task_id=task_id,
                 task_revision=projection.revision,
@@ -179,8 +170,6 @@ class CognitionTurnHost:
                 context_object=context_object,
                 context=context,
             )
-        finally:
-            self.storage.journal.release_lease(lease)
 
     def load_prepared(self, task_id: str) -> PreparedCognition:
         snapshot = self.storage.read_task_event(task_id)
@@ -213,18 +202,14 @@ class CognitionTurnHost:
     ) -> CognitionTurnReceipt:
         if not adapter_id or adapter_id != adapter_id.strip():
             raise ValueError("Cognition adapter identity is required")
-        lease = self.storage.journal.acquire_lease(
+        with self.kernel.locked_task(
             prepared.task_id,
-            owner_id=self.owner_id,
-            now_ms=self.clock_ms(),
-            ttl_ms=self.lease_ttl_ms,
-        )
-        try:
-            current = self._require_revision_and_frontier(
-                prepared.task_id,
-                expected_revision=prepared.task_revision,
-                decision_node_id=prepared.decision_node_id,
-            )
+            expected_revision=prepared.task_revision,
+            expected_state=TaskState.READY,
+            expected_frontier=(prepared.decision_node_id,),
+            label="Cognition",
+            error_factory=self._kernel_error,
+        ) as locked:
             latest = self.load_prepared(prepared.task_id)
             if (
                 latest.task_revision != prepared.task_revision
@@ -249,18 +234,11 @@ class CognitionTurnHost:
             selected_node_id = self._selected_node(
                 prepared.task_id, admitted.action.action_id
             )
-            projection = TaskProjection(
-                task_id=current.task_id,
-                goal_id=current.goal_id,
-                state=TaskState.READY,
-                active_node_id=None,
-                ready_frontier=(selected_node_id,),
-                revision=current.revision + 1,
-                updated_at_ms=self._timestamp(current.updated_at_ms),
-            )
-            self.storage.record_task_event(
+            projection = locked.commit(
                 event_id=self._event_id(
-                    prepared.task_id, "decision", projection.revision
+                    prepared.task_id,
+                    "decision",
+                    locked.projection.revision + 1,
                 ),
                 kind=EventKind.COGNITION_DECISION_ADMITTED,
                 payload={
@@ -273,14 +251,13 @@ class CognitionTurnHost:
                     "decisionObjectDigest": decision_object.digest,
                     "admissionObjectDigest": admission_object.digest,
                 },
-                projection=projection,
-                expected_revision=current.revision,
+                frontier=(selected_node_id,),
                 referenced_objects=(
                     prepared.context_object,
                     decision_object,
                     admission_object,
                 ),
-            )
+            ).projection
             return CognitionTurnReceipt(
                 task_id=prepared.task_id,
                 revision=projection.revision,
@@ -292,8 +269,6 @@ class CognitionTurnHost:
                 selected_action_id=admitted.action.action_id,
                 selected_node_id=selected_node_id,
             )
-        finally:
-            self.storage.journal.release_lease(lease)
 
     def _load_prepared_snapshot(
         self,
@@ -337,40 +312,25 @@ class CognitionTurnHost:
         task_id: str,
         decision_node_id: str,
     ) -> TaskProjection:
-        current = self.storage.journal.get_task(task_id)
-        if current is None:
-            raise KeyError(f"unknown Cognition Task: {task_id}")
-        if current.state is not TaskState.READY:
-            raise CognitionTurnError("Cognition requires a ready Task")
-        if current.ready_frontier != (decision_node_id,):
-            raise CognitionTurnError("Task is not at the requested decision frontier")
-        return current
+        return self.kernel.current_snapshot(
+            task_id,
+            expected_state=TaskState.READY,
+            expected_frontier=(decision_node_id,),
+            label="Cognition",
+            error_factory=self._kernel_error,
+        ).projection
 
-    def _require_revision_and_frontier(
-        self,
-        task_id: str,
-        *,
-        expected_revision: int,
-        decision_node_id: str,
-    ) -> TaskProjection:
-        current = self.storage.journal.get_task(task_id)
-        if current is None:
-            raise KeyError(f"unknown Cognition Task: {task_id}")
-        if current.revision != expected_revision:
-            raise CognitionSuperseded(
-                f"Task revision is {current.revision}, expected {expected_revision}"
-            )
-        if current.state is not TaskState.READY:
-            raise CognitionTurnError("Cognition requires a ready Task")
-        if current.ready_frontier != (decision_node_id,):
-            raise CognitionTurnError("Task is not at the requested decision frontier")
-        return current
-
-    def _timestamp(self, previous: int) -> int:
-        value = self.clock_ms()
-        if value < 0:
-            raise ValueError("Host clock returned a negative timestamp")
-        return max(value, previous + 1)
+    @staticmethod
+    def _kernel_error(category: str, message: str) -> Exception:
+        if category == "missing":
+            return KeyError(message)
+        if category == "revision":
+            return CognitionSuperseded(message)
+        if category == "frontier":
+            return CognitionTurnError("Task is not at the requested decision frontier")
+        if category == "state":
+            return CognitionTurnError("Cognition requires a ready Task")
+        return JournalCorruption(message)
 
     @staticmethod
     def _event_id(task_id: str, stage: str, revision: int) -> str:

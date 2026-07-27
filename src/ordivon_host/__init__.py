@@ -10,6 +10,17 @@ from .engine import (
     ReadTaskStep,
 )
 from .journal import HostJournal, LeaseHeld, RevisionConflict
+from .kernel import (
+    HostKernel,
+    HostKernelError,
+    LockedTask,
+    TaskFrontierMismatch,
+    TaskMissing,
+    TaskProjectionDrift,
+    TaskRevisionMismatch,
+    TaskStateMismatch,
+    TransitionReceipt,
+)
 from .objects import ContentAddressedStore
 from .runtime import (
     ExecutionRuntimeCatalog,
@@ -28,10 +39,13 @@ __all__ = [
     "EventKind",
     "ExecutionRuntimeCatalog",
     "HostJournal",
+    "HostKernel",
+    "HostKernelError",
     "GuardedMutationHost",
     "GuardedMutationPlan",
     "HostStorage",
     "LeaseHeld",
+    "LockedTask",
     "McpRuntimeClient",
     "MutationStep",
     "OwnershipRule",
@@ -41,8 +55,14 @@ __all__ = [
     "RevisionConflict",
     "RuntimeCatalog",
     "TaskEventSnapshot",
+    "TaskFrontierMismatch",
+    "TaskMissing",
+    "TaskProjectionDrift",
     "TaskProjection",
+    "TaskRevisionMismatch",
     "TaskState",
+    "TaskStateMismatch",
+    "TransitionReceipt",
     "discover_runtime_catalog",
     "discover_execution_runtime_catalog",
     "owner_of",

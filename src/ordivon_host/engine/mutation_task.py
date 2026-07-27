@@ -27,6 +27,7 @@ from anc_effect_ir import (
 
 from ..domain import EventKind, TaskProjection, TaskState
 from ..journal import JournalCorruption
+from ..kernel import HostKernel
 from ..objects import ObjectCorrupt, StoredObject
 from ..runtime import (
     RuntimeClientError,
@@ -342,9 +343,12 @@ class GuardedMutationHost:
             raise ValueError("mutation Host owner and lease TTL are required")
         self.storage = storage
         self.runtime = runtime
-        self.clock_ms = clock_ms
-        self.owner_id = owner_id
-        self.lease_ttl_ms = lease_ttl_ms
+        self.kernel = HostKernel(
+            storage,
+            clock_ms=clock_ms,
+            owner_id=owner_id,
+            lease_ttl_ms=lease_ttl_ms,
+        )
 
     def create(self, plan: GuardedMutationPlan) -> TaskProjection:
         plan_object = self.storage.put_object(plan.to_dict(), kind="host-mutation-task-plan")
@@ -353,41 +357,38 @@ class GuardedMutationHost:
             if self._load_plan(self.storage.read_task_event(plan.task_id)) != plan:
                 raise ValueError("Task identity is bound to another mutation plan")
             return existing
-        projection = TaskProjection(
+        return self.kernel.create_task(
+            event_id=self._event_id(plan, 1),
+            kind=EventKind.TASK_CREATED,
             task_id=plan.task_id,
             goal_id=plan.goal_id,
-            state=TaskState.READY,
-            active_node_id=None,
-            ready_frontier=(self._node(plan, "open"),),
-            revision=1,
-            updated_at_ms=self._timestamp(None),
-        )
-        self.storage.record_task_event(
-            event_id=self._event_id(plan, projection.revision),
-            kind=EventKind.TASK_CREATED,
             payload={"planDigest": plan_object.digest},
-            projection=projection,
-            expected_revision=0,
+            frontier=(self._node(plan, "open"),),
             referenced_objects=(plan_object,),
-        )
-        return projection
+        ).projection
 
     def open_workspace(self, task_id: str) -> MutationStep:
         current = self._require_frontier(task_id, "open")
-        lease = self._acquire(task_id)
-        try:
-            snapshot = self._require_revision(task_id, current.revision, "open")
-            plan = self._load_plan(snapshot)
+        with self.kernel.locked_task(
+            task_id,
+            expected_revision=current.revision,
+            expected_state=TaskState.READY,
+            expected_frontier=(current.ready_frontier[0],),
+            label="mutation",
+            error_factory=self._kernel_error,
+        ) as locked:
+            plan = self._load_plan(locked.snapshot)
             self.runtime.initialize()
             catalog = discover_execution_runtime_catalog(self.runtime)
             catalog_object = self.storage.put_object(
                 catalog.to_dict(), kind="runtime-execution-catalog"
             )
             workspace = self._ensure_workspace(plan)
-            projection = self._projection(snapshot.projection, plan, "dispatch")
-            plan_object = self.storage.objects.inspect(self._plan_digest(snapshot))
-            self.storage.record_task_event(
-                event_id=self._event_id(plan, projection.revision),
+            plan_object = self.storage.objects.inspect(
+                self._plan_digest(locked.snapshot)
+            )
+            projection = locked.commit(
+                event_id=self._event_id(plan, locked.projection.revision + 1),
                 kind=EventKind.RUNTIME_LINKED,
                 payload={
                     "planDigest": plan_object.digest,
@@ -395,21 +396,23 @@ class GuardedMutationHost:
                     "catalogObjectDigest": catalog_object.digest,
                     "workspace": workspace,
                 },
-                projection=projection,
-                expected_revision=snapshot.projection.revision,
+                frontier=(self._node(plan, "dispatch"),),
                 referenced_objects=(plan_object, catalog_object),
-            )
+            ).projection
             return self._step(projection)
-        finally:
-            self.storage.journal.release_lease(lease)
 
     def prepare(self, task_id: str) -> PreparedMutation:
         current = self._require_frontier(task_id, "dispatch")
-        lease = self._acquire(task_id)
-        try:
-            snapshot = self._require_revision(task_id, current.revision, "dispatch")
-            plan = self._load_plan(snapshot)
-            data = _object(snapshot.data, "mutation open data")
+        with self.kernel.locked_task(
+            task_id,
+            expected_revision=current.revision,
+            expected_state=TaskState.READY,
+            expected_frontier=(current.ready_frontier[0],),
+            label="mutation",
+            error_factory=self._kernel_error,
+        ) as locked:
+            plan = self._load_plan(locked.snapshot)
+            data = _object(locked.snapshot.data, "mutation open data")
             expected_catalog = _string(data, "catalogDigest")
             self.runtime.initialize()
             catalog = discover_execution_runtime_catalog(self.runtime)
@@ -445,21 +448,14 @@ class GuardedMutationHost:
             dispatch_object = self.storage.put_object(
                 dispatch.to_dict(), kind="runtime-dispatch-intent"
             )
-            projection = TaskProjection(
-                task_id=plan.task_id,
-                goal_id=plan.goal_id,
-                state=TaskState.WAITING,
-                active_node_id=None,
-                ready_frontier=(self._node(plan, "reconcile"),),
-                revision=snapshot.projection.revision + 1,
-                updated_at_ms=self._timestamp(snapshot.projection.updated_at_ms),
+            plan_object = self.storage.objects.inspect(
+                self._plan_digest(locked.snapshot)
             )
-            plan_object = self.storage.objects.inspect(self._plan_digest(snapshot))
             catalog_object = self.storage.objects.inspect(
                 _string(data, "catalogObjectDigest")
             )
-            self.storage.record_task_event(
-                event_id=self._event_id(plan, projection.revision),
+            projection = locked.commit(
+                event_id=self._event_id(plan, locked.projection.revision + 1),
                 kind=EventKind.RUNTIME_DISPATCH_PREPARED,
                 payload={
                     "planDigest": plan_object.digest,
@@ -470,8 +466,8 @@ class GuardedMutationHost:
                     "dispatchDigest": dispatch_object.digest,
                     "clientRequestId": dispatch.client_request_id,
                 },
-                projection=projection,
-                expected_revision=snapshot.projection.revision,
+                state=TaskState.WAITING,
+                frontier=(self._node(plan, "reconcile"),),
                 referenced_objects=(
                     plan_object,
                     catalog_object,
@@ -479,7 +475,7 @@ class GuardedMutationHost:
                     binding_object,
                     dispatch_object,
                 ),
-            )
+            ).projection
             return PreparedMutation(
                 task_id=plan.task_id,
                 task_revision=projection.revision,
@@ -490,8 +486,6 @@ class GuardedMutationHost:
                 dispatch=dispatch,
                 arguments=dict(binding.arguments),
             )
-        finally:
-            self.storage.journal.release_lease(lease)
 
     def load_prepared(self, task_id: str) -> PreparedMutation:
         snapshot = self.storage.read_task_event(task_id)
@@ -551,13 +545,16 @@ class GuardedMutationHost:
 
     def verify(self, task_id: str) -> MutationStep:
         current = self._require_frontier(task_id, "verify", TaskState.VERIFYING)
-        lease = self._acquire(task_id)
-        try:
-            snapshot = self._require_revision(
-                task_id, current.revision, "verify", TaskState.VERIFYING
-            )
-            plan = self._load_plan(snapshot)
-            data = _object(snapshot.data, "mutation observation data")
+        with self.kernel.locked_task(
+            task_id,
+            expected_revision=current.revision,
+            expected_state=TaskState.VERIFYING,
+            expected_frontier=(current.ready_frontier[0],),
+            label="mutation",
+            error_factory=self._kernel_error,
+        ) as locked:
+            plan = self._load_plan(locked.snapshot)
+            data = _object(locked.snapshot.data, "mutation observation data")
             self.runtime.initialize()
             catalog = discover_execution_runtime_catalog(self.runtime)
             if catalog.digest != _string(data, "catalogDigest"):
@@ -612,15 +609,12 @@ class GuardedMutationHost:
             verification_object = self.storage.put_object(
                 receipt.to_dict(), kind="verification-receipt"
             )
-            projection = self._projection(
-                snapshot.projection, plan, "close", state=TaskState.READY
-            )
             references = self._state_references(data) + (
                 read_object,
                 verification_object,
             )
-            self.storage.record_task_event(
-                event_id=self._event_id(plan, projection.revision),
+            projection = locked.commit(
+                event_id=self._event_id(plan, locked.projection.revision + 1),
                 kind=EventKind.VERIFICATION_ACCEPTED,
                 payload={
                     **self._state_fields(data),
@@ -631,25 +625,28 @@ class GuardedMutationHost:
                     "readObservationDigest": read_object.digest,
                     "verificationDigest": verification_object.digest,
                 },
-                projection=projection,
-                expected_revision=snapshot.projection.revision,
+                state=TaskState.READY,
+                frontier=(self._node(plan, "close"),),
                 referenced_objects=references,
-            )
+            ).projection
             return self._step(
                 projection,
                 dispatch_id=receipt.dispatch_id,
                 job_id=_string(data, "jobId"),
             )
-        finally:
-            self.storage.journal.release_lease(lease)
 
     def close(self, task_id: str) -> MutationStep:
         current = self._require_frontier(task_id, "close")
-        lease = self._acquire(task_id)
-        try:
-            snapshot = self._require_revision(task_id, current.revision, "close")
-            plan = self._load_plan(snapshot)
-            data = _object(snapshot.data, "mutation verification data")
+        with self.kernel.locked_task(
+            task_id,
+            expected_revision=current.revision,
+            expected_state=TaskState.READY,
+            expected_frontier=(current.ready_frontier[0],),
+            label="mutation",
+            error_factory=self._kernel_error,
+        ) as locked:
+            plan = self._load_plan(locked.snapshot)
+            data = _object(locked.snapshot.data, "mutation verification data")
             closed = self._ensure_closed(plan.workspace_id)
             dispatch = self._load_dispatch(data)
             outcome: JsonValue = {
@@ -668,22 +665,13 @@ class GuardedMutationHost:
                 "deliveryReconciled": True,
             }
             outcome_object = self.storage.put_object(outcome, kind="task-outcome")
-            projection = TaskProjection(
-                task_id=plan.task_id,
-                goal_id=plan.goal_id,
-                state=TaskState.COMPLETED,
-                active_node_id=None,
-                ready_frontier=(),
-                revision=snapshot.projection.revision + 1,
-                updated_at_ms=self._timestamp(snapshot.projection.updated_at_ms),
-            )
             references = self._state_references(data) + (
                 self.storage.objects.inspect(_string(data, "readObservationDigest")),
                 self.storage.objects.inspect(_string(data, "verificationDigest")),
                 outcome_object,
             )
-            self.storage.record_task_event(
-                event_id=self._event_id(plan, projection.revision),
+            projection = locked.commit(
+                event_id=self._event_id(plan, locked.projection.revision + 1),
                 kind=EventKind.TASK_STATE_CHANGED,
                 payload={
                     **self._state_fields(data),
@@ -696,10 +684,10 @@ class GuardedMutationHost:
                     "outcomeDigest": outcome_object.digest,
                     "workspaceClose": closed,
                 },
-                projection=projection,
-                expected_revision=snapshot.projection.revision,
+                state=TaskState.COMPLETED,
+                frontier=(),
                 referenced_objects=references,
-            )
+            ).projection
             return self._step(
                 projection,
                 dispatch_id=dispatch.dispatch_id,
@@ -707,17 +695,23 @@ class GuardedMutationHost:
                 reconciled=True,
                 completed=True,
             )
-        finally:
-            self.storage.journal.release_lease(lease)
 
     def _record_unknown(
         self,
         prepared: PreparedMutation,
         error: RuntimeClientError,
     ) -> MutationStep:
-        lease = self._acquire(prepared.task_id)
-        try:
-            snapshot = self._require_prepared_revision(prepared)
+        with self.kernel.locked_task(
+            prepared.task_id,
+            expected_revision=prepared.task_revision,
+            expected_state=TaskState.WAITING,
+            expected_frontier=(self._node(prepared.plan, "reconcile"),),
+            label="mutation",
+            error_factory=self._kernel_error,
+        ) as locked:
+            current = self._prepared_from_snapshot(locked.snapshot)
+            if current.dispatch != prepared.dispatch:
+                raise MutationSuperseded("prepared Dispatch identity changed")
             uncertainty: JsonValue = {
                 "schemaVersion": 1,
                 "kind": "ordivon.runtime-uncertain-delivery",
@@ -728,34 +722,25 @@ class GuardedMutationHost:
             uncertainty_object = self.storage.put_object(
                 uncertainty, kind="runtime-uncertain-delivery"
             )
-            projection = TaskProjection(
-                task_id=prepared.plan.task_id,
-                goal_id=prepared.plan.goal_id,
-                state=TaskState.WAITING,
-                active_node_id=None,
-                ready_frontier=(self._node(prepared.plan, "reconcile"),),
-                revision=snapshot.projection.revision + 1,
-                updated_at_ms=self._timestamp(snapshot.projection.updated_at_ms),
-            )
-            data = _object(snapshot.data, "prepared Dispatch data")
+            data = _object(locked.snapshot.data, "prepared Dispatch data")
             references = self._state_references(data) + (uncertainty_object,)
-            self.storage.record_task_event(
-                event_id=self._event_id(prepared.plan, projection.revision),
+            projection = locked.commit(
+                event_id=self._event_id(
+                    prepared.plan, locked.projection.revision + 1
+                ),
                 kind=EventKind.RUNTIME_OUTCOME_UNKNOWN,
                 payload={
                     **self._state_fields(data),
                     "uncertaintyDigest": uncertainty_object.digest,
                 },
-                projection=projection,
-                expected_revision=snapshot.projection.revision,
+                state=TaskState.WAITING,
+                frontier=(self._node(prepared.plan, "reconcile"),),
                 referenced_objects=references,
-            )
+            ).projection
             return self._step(
                 projection,
                 dispatch_id=prepared.dispatch.dispatch_id,
             )
-        finally:
-            self.storage.journal.release_lease(lease)
 
     def _record_observation(
         self,
@@ -782,31 +767,31 @@ class GuardedMutationHost:
         )
         if status in _FAILED_JOB_STATES:
             raise MutationTaskError(f"Runtime mutation Job ended with {status}")
-        lease = self._acquire(prepared.task_id)
-        try:
-            current = self.storage.journal.get_task(prepared.task_id)
-            if current is None or current.state is not TaskState.WAITING:
-                raise MutationSuperseded("mutation Task advanced before observation")
-            snapshot = self.storage.read_task_event(prepared.task_id)
-            current_prepared = self._prepared_from_snapshot(snapshot)
+        with self.kernel.locked_task(
+            prepared.task_id,
+            expected_state=TaskState.WAITING,
+            expected_frontier=(self._node(prepared.plan, "reconcile"),),
+            label="mutation",
+            error_factory=self._observation_kernel_error,
+        ) as locked:
+            current_prepared = self._prepared_from_snapshot(locked.snapshot)
             if current_prepared.dispatch != prepared.dispatch:
                 raise MutationSuperseded("prepared Dispatch changed before observation")
             observation_object = self.storage.put_object(
                 observation.to_dict(), kind="runtime-job-observation"
             )
-            data = _object(snapshot.data, "mutation Dispatch data")
+            data = _object(locked.snapshot.data, "mutation Dispatch data")
             if status == "succeeded":
                 state = TaskState.VERIFYING
                 frontier = "verify"
             else:
                 state = TaskState.WAITING
                 frontier = "reconcile"
-            projection = self._projection(
-                snapshot.projection, prepared.plan, frontier, state=state
-            )
             references = self._state_references(data) + (observation_object,)
-            self.storage.record_task_event(
-                event_id=self._event_id(prepared.plan, projection.revision),
+            projection = locked.commit(
+                event_id=self._event_id(
+                    prepared.plan, locked.projection.revision + 1
+                ),
                 kind=EventKind.RUNTIME_DISPATCH_OBSERVED,
                 payload={
                     **self._state_fields(data),
@@ -816,18 +801,16 @@ class GuardedMutationHost:
                     "observationDigest": observation_object.digest,
                     "reconciled": reconciled,
                 },
-                projection=projection,
-                expected_revision=snapshot.projection.revision,
+                state=state,
+                frontier=(self._node(prepared.plan, frontier),),
                 referenced_objects=references,
-            )
+            ).projection
             return self._step(
                 projection,
                 dispatch_id=prepared.dispatch.dispatch_id,
                 job_id=job_id,
                 reconciled=reconciled,
             )
-        finally:
-            self.storage.journal.release_lease(lease)
 
     def _prepared_from_snapshot(self, snapshot: TaskEventSnapshot) -> PreparedMutation:
         data = _object(snapshot.data, "prepared Dispatch data")
@@ -874,22 +857,19 @@ class GuardedMutationHost:
         )
 
     def _require_prepared_current(self, prepared: PreparedMutation) -> None:
-        current = self.storage.journal.get_task(prepared.task_id)
-        if current is None or current.revision != prepared.task_revision:
-            raise MutationSuperseded("prepared Dispatch revision is no longer current")
-        if current.state is not TaskState.WAITING:
-            raise MutationSuperseded("prepared Dispatch Task is not waiting")
-
-    def _require_prepared_revision(
-        self, prepared: PreparedMutation
-    ) -> TaskEventSnapshot:
-        snapshot = self.storage.read_task_event(prepared.task_id)
-        if snapshot.projection.revision != prepared.task_revision:
-            raise MutationSuperseded("prepared Dispatch was superseded")
-        current = self._prepared_from_snapshot(snapshot)
-        if current.dispatch != prepared.dispatch:
-            raise MutationSuperseded("prepared Dispatch identity changed")
-        return snapshot
+        try:
+            self.kernel.current_snapshot(
+                prepared.task_id,
+                expected_revision=prepared.task_revision,
+                expected_state=TaskState.WAITING,
+                expected_frontier=(self._node(prepared.plan, "reconcile"),),
+                label="mutation",
+                error_factory=self._prepared_kernel_error,
+            )
+        except KeyError as error:
+            raise MutationSuperseded(
+                "prepared Dispatch revision is no longer current"
+            ) from error
 
     def _find_jobs(self, client_request_id: str) -> list[dict[str, Any]]:
         cursor: dict[str, JsonValue] | None = None
@@ -1030,61 +1010,46 @@ class GuardedMutationHost:
         stage: str,
         state: TaskState = TaskState.READY,
     ) -> TaskProjection:
-        current = self.storage.journal.get_task(task_id)
-        if current is None:
-            raise KeyError(f"unknown mutation Task: {task_id}")
-        plan = self._load_plan(self.storage.read_task_event(task_id))
-        if current.state is not state:
-            raise MutationTaskError(f"mutation Task is not {state.value}")
-        if current.ready_frontier != (self._node(plan, stage),):
-            raise MutationTaskError(f"Task is not at the {stage} frontier")
-        return current
-
-    def _require_revision(
-        self,
-        task_id: str,
-        revision: int,
-        stage: str,
-        state: TaskState = TaskState.READY,
-    ) -> TaskEventSnapshot:
-        current = self._require_frontier(task_id, stage, state)
-        if current.revision != revision:
-            raise MutationSuperseded(
-                f"mutation Task revision is {current.revision}, expected {revision}"
-            )
-        return self.storage.read_task_event(task_id)
-
-    def _projection(
-        self,
-        current: TaskProjection,
-        plan: GuardedMutationPlan,
-        frontier: str,
-        *,
-        state: TaskState = TaskState.READY,
-    ) -> TaskProjection:
-        return TaskProjection(
-            task_id=plan.task_id,
-            goal_id=plan.goal_id,
-            state=state,
-            active_node_id=None,
-            ready_frontier=(self._node(plan, frontier),),
-            revision=current.revision + 1,
-            updated_at_ms=self._timestamp(current.updated_at_ms),
-        )
-
-    def _timestamp(self, previous: int | None) -> int:
-        value = self.clock_ms()
-        if value < 0:
-            raise ValueError("Host clock returned a negative timestamp")
-        return value if previous is None else max(value, previous + 1)
-
-    def _acquire(self, task_id: str):
-        return self.storage.journal.acquire_lease(
+        snapshot = self.kernel.current_snapshot(
             task_id,
-            owner_id=self.owner_id,
-            now_ms=self.clock_ms(),
-            ttl_ms=self.lease_ttl_ms,
+            expected_state=state,
+            label="mutation",
+            error_factory=self._kernel_error,
         )
+        plan = self._load_plan(snapshot)
+        if snapshot.projection.ready_frontier != (self._node(plan, stage),):
+            raise MutationTaskError(f"Task is not at the {stage} frontier")
+        return snapshot.projection
+
+    @staticmethod
+    def _kernel_error(category: str, message: str) -> Exception:
+        if category == "missing":
+            return KeyError(message)
+        if category == "revision":
+            return MutationSuperseded(message)
+        if category == "state":
+            return MutationTaskError(message.replace("requires a", "Task is not"))
+        if category == "frontier":
+            return MutationTaskError(message)
+        return JournalCorruption(message)
+
+    @staticmethod
+    def _prepared_kernel_error(category: str, message: str) -> Exception:
+        if category in {"missing", "revision"}:
+            return MutationSuperseded(
+                "prepared Dispatch revision is no longer current"
+            )
+        if category in {"state", "frontier"}:
+            return MutationSuperseded("prepared Dispatch Task is not waiting")
+        return JournalCorruption(message)
+
+    @staticmethod
+    def _observation_kernel_error(category: str, message: str) -> Exception:
+        if category in {"missing", "state", "frontier"}:
+            return MutationSuperseded("mutation Task advanced before observation")
+        if category == "revision":
+            return MutationSuperseded(message)
+        return JournalCorruption(message)
 
     @staticmethod
     def _node(plan: GuardedMutationPlan, stage: str) -> str:

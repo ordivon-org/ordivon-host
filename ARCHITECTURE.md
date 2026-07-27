@@ -55,6 +55,31 @@ Expected consequences:
 - event-history gaps, stream-kind drift, projection drift, missing objects, and object corruption prevent startup;
 - a lease coordinates the active writer but does not replace stream revision CAS.
 
+## Minimal HostKernel
+
+H2 read, H3 cognition, and H4 guarded mutation share one mechanical transition kernel. The Kernel owns only the invariants that were independently repeated by all three workloads:
+
+```text
+read current Task projection and event head
+→ acquire the short Task lease
+→ recheck revision, state, frontier, and projection equality
+→ let the workload build semantic objects and the next event payload
+→ append at most one event and resulting projection with revision CAS
+→ release the lease on success or failure
+```
+
+`HostKernel` and `LockedTask` therefore own lease lifetime, monotonic timestamps, current-state admission, one-transition-per-lock enforcement, and atomic event/projection commit. Workload code still owns Context compilation, candidate admission, Effect and Binding construction, Runtime calls, delivery classification, reconciliation, independent verification, and TaskOutcome semantics.
+
+The Kernel preserves these boundaries:
+
+- it is not a workflow DSL, scheduler, DAG engine, provider router, Runtime adapter, or policy engine;
+- it never invokes a Provider or Runtime Tool;
+- workload-specific public exceptions are preserved through explicit error mapping;
+- `workspace.exec`, asynchronous Job observation, and Provider invocation remain outside the Task lease;
+- deterministic coordination and verification operations may remain inside a short transition until real latency data proves a need to split them;
+- one locked transition may append at most one Host event;
+- the existing H2, H3, and H4 workloads remain regression specifications for Kernel behavior.
+
 ## Deterministic Runtime read slice
 
 The first vertical slice contains no model call. It advances one durable frontier per Host step:
