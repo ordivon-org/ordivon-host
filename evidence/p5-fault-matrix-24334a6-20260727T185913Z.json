@@ -1,0 +1,128 @@
+{
+  "capturedAt": "2026-07-27T18:59:13.950479+00:00",
+  "checks": {
+    "backupCrossProcessRestore": true,
+    "boundedDiskWriteFailure": true,
+    "leaseOwnerCrash": true,
+    "missingCasObject": true,
+    "orphanAfterHostKill": true,
+    "sqliteCorruption": true,
+    "sqliteTransactionCrash": true
+  },
+  "elapsedMs": 403,
+  "hostRevision": "24334a6bbef446910cffef6cc559221cb99438da",
+  "integrity": {
+    "algorithm": "sha256",
+    "canonicalization": "ordivon-canonical-json-v1",
+    "payloadDigest": "sha256:d4e25ad96e592d0cb693937a095a0dba47fe951251d61461f23588dddd973a7a"
+  },
+  "kind": "ordivon.host-state-fault-matrix",
+  "notProven": [
+    "whole WSL restart during Host state transition",
+    "machine reboot or abrupt power loss",
+    "kernel crash",
+    "remote Runtime network partition",
+    "physical storage failure beyond detectable file or SQLite corruption"
+  ],
+  "retainedRoot": null,
+  "scenarios": {
+    "backupCrossProcessRestore": {
+      "accepted": true,
+      "backupDatabaseDigestAfter": "sha256:5718391494d531a584690285f9a0ed8f7142332b0c5f2d9dbc9394b129e50ce5",
+      "backupDatabaseDigestBefore": "sha256:5718391494d531a584690285f9a0ed8f7142332b0c5f2d9dbc9394b129e50ce5",
+      "manifestSchemaVersion": 3,
+      "restoredInspection": {
+        "events": 1,
+        "leases": 0,
+        "migrations": [],
+        "objectRefs": 1,
+        "schemaVersion": 3,
+        "startupValidation": {
+          "cachedObjects": 1,
+          "full": false,
+          "hashedObjects": 0,
+          "taskHeads": 1
+        },
+        "stateRoot": "/tmp/ordivon-host-faults-kokiyk7j/backup/restored",
+        "tasks": 1,
+        "tasksByState": {
+          "ready": 1
+        },
+        "terminalTasks": 0,
+        "validatedObjects": 1
+      }
+    },
+    "boundedDiskWriteFailure": {
+      "accepted": true,
+      "error": {
+        "errno": 27,
+        "type": "OSError"
+      },
+      "eventCount": 0,
+      "objectRefCount": 0,
+      "remainingObjectFiles": []
+    },
+    "leaseOwnerCrash": {
+      "accepted": true,
+      "crashedLeaseRevision": 1,
+      "remainingLeases": 0,
+      "returnCode": -9,
+      "takeoverRevision": 2
+    },
+    "missingCasObject": {
+      "accepted": true,
+      "doctorHealthy": false,
+      "errorChecks": [
+        {
+          "detail": "ObjectMissing: content-addressed object is missing: sha256:da82cf45ed6515ca1a03ae223c78cc4047dc0ed31faef9ae189b5334bab23453",
+          "name": "host.open",
+          "status": "error"
+        }
+      ],
+      "missingDigest": "sha256:da82cf45ed6515ca1a03ae223c78cc4047dc0ed31faef9ae189b5334bab23453"
+    },
+    "orphanAfterHostKill": {
+      "accepted": true,
+      "doctorHealthy": true,
+      "eventCount": 0,
+      "gcPlan": {
+        "deleteAllowed": false,
+        "missingObjects": [],
+        "orphanedObjects": [
+          "3637fd9c26c726c5157ce4c02b2d05a28ed1bcf391d57ad51d742264c95796ec.json"
+        ],
+        "presentObjects": 1,
+        "referencedObjects": 0,
+        "stateRoot": "/tmp/ordivon-host-faults-kokiyk7j/orphan"
+      },
+      "objectRefCount": 0,
+      "orphanDigest": "sha256:3637fd9c26c726c5157ce4c02b2d05a28ed1bcf391d57ad51d742264c95796ec",
+      "returnCode": -9
+    },
+    "sqliteCorruption": {
+      "accepted": true,
+      "doctorHealthy": false,
+      "errorChecks": [
+        {
+          "detail": "file is not a database",
+          "name": "sqlite.quick_check",
+          "status": "error"
+        },
+        {
+          "detail": "DatabaseError: file is not a database",
+          "name": "host.open",
+          "status": "error"
+        }
+      ]
+    },
+    "sqliteTransactionCrash": {
+      "accepted": true,
+      "objectRefCount": 0,
+      "quickCheck": [
+        "ok"
+      ],
+      "returnCode": -9
+    }
+  },
+  "schemaVersion": 1
+}

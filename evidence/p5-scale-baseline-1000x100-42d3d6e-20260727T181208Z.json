@@ -1,0 +1,112 @@
+{
+  "checks": {
+    "allTasksTerminal": true,
+    "doctorHealthy": true,
+    "eventCountExact": true,
+    "inspectionMatches": true,
+    "objectCountExact": true,
+    "taskCountExact": true,
+    "threeFreshProcessesOpened": true
+  },
+  "doctor": {
+    "checks": [
+      {
+        "detail": "('ok',)",
+        "name": "sqlite.quick_check",
+        "status": "ok"
+      },
+      {
+        "detail": "2",
+        "name": "journal.schema",
+        "status": "ok"
+      },
+      {
+        "detail": "valid",
+        "name": "journal.invariants",
+        "status": "ok"
+      },
+      {
+        "detail": "valid",
+        "name": "cas.references",
+        "status": "ok"
+      },
+      {
+        "detail": "0",
+        "name": "cas.orphans",
+        "status": "ok"
+      },
+      {
+        "detail": "active=0, expired=0",
+        "name": "journal.leases",
+        "status": "ok"
+      }
+    ],
+    "healthy": true,
+    "stateRoot": "/tmp/ordivon-host-scale-da6c91147c26-_scox7rg"
+  },
+  "fixture": {
+    "buildElapsedMs": 8470,
+    "events": 100000,
+    "eventsPerTask": 100,
+    "objectBytes": 37743000,
+    "objectFiles": 100000,
+    "objects": 100000,
+    "sqliteBytes": 42229760,
+    "stateRoot": null,
+    "tasks": 1000
+  },
+  "hostRevision": "42d3d6e8c46dd163502c3771c4227b12619bb3aa",
+  "inspection": {
+    "events": 100000,
+    "leases": 0,
+    "migrations": [],
+    "objectRefs": 100000,
+    "schemaVersion": 2,
+    "stateRoot": "/tmp/ordivon-host-scale-da6c91147c26-_scox7rg",
+    "tasks": 1000,
+    "tasksByState": {
+      "completed": 1000
+    },
+    "terminalTasks": 1000
+  },
+  "integrity": {
+    "algorithm": "sha256",
+    "canonicalization": "ordivon-canonical-json-v1",
+    "payloadDigest": "sha256:8fad507cc2f5c10200abb32579f01b14ddc3215d822703745a603d163c96e1f2"
+  },
+  "kind": "ordivon.host-scale-measurement",
+  "queries": {
+    "doctorElapsedMs": 14438,
+    "inspectElapsedMs": 6975,
+    "invariantElapsedMs": 35,
+    "listElapsedMs": 8,
+    "showElapsedMs": 0
+  },
+  "schemaVersion": 1,
+  "startup": {
+    "freshProcessRuns": [
+      {
+        "elapsedMs": 7302,
+        "eventCount": 100000,
+        "maxRssKiB": 66432,
+        "objectCount": 100000,
+        "taskCount": 1000
+      },
+      {
+        "elapsedMs": 7514,
+        "eventCount": 100000,
+        "maxRssKiB": 66304,
+        "objectCount": 100000,
+        "taskCount": 1000
+      },
+      {
+        "elapsedMs": 7311,
+        "eventCount": 100000,
+        "maxRssKiB": 66304,
+        "objectCount": 100000,
+        "taskCount": 1000
+      }
+    ],
+    "inProcessOpenElapsedMs": 7275
+  }
+}
