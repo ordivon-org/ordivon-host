@@ -1,0 +1,173 @@
+{
+  "capturedAt": "2026-07-27T01:34:11.027647+00:00",
+  "checks": {
+    "codexAdmitted": true,
+    "completedEffectForbiddenInContext": true,
+    "hermesAdmitted": true,
+    "noProviderSessionInTaskState": true,
+    "persistedDecisionMatches": true,
+    "providersConverged": true,
+    "sameContextObjectAfterFreshOpen": true,
+    "samePersistentContext": true,
+    "taskAdvancedAfterAdmission": true,
+    "threeHostEvents": true,
+    "unresolvedDispatchPreservedInContext": true
+  },
+  "cognition": {
+    "completedEffectIds": [
+      "effect:completed-mutation"
+    ],
+    "context": {
+      "byteLength": 2747,
+      "candidateCount": 3,
+      "digest": "sha256:4d0e859462498354c29ee7a21d8b6e2e88083331083220b05ee169dd1ab421e3",
+      "estimatedTokens": 687,
+      "manifest": {
+        "estimatedTokens": 687,
+        "omittedBlockIds": [],
+        "selectedBlockIds": [
+          "context-block:constraints",
+          "context-block:dispatch",
+          "context-block:goal"
+        ],
+        "tokenBudget": 8000
+      },
+      "objectDigest": "sha256:cbf2465a40bc8ece1503881387ad195046b752a638fd063439be483a6f17b17c"
+    },
+    "selectedActionId": "action:observe-original-dispatch",
+    "selectedNodeId": "node:live-cognition-1785116003069:selected:d335645b21f03e6b",
+    "unresolvedDispatchIds": [
+      "dispatch:runtime-job-7"
+    ],
+    "worldDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "environment": {
+    "codexVersion": "codex-cli 0.145.0",
+    "hermesVersion": "Hermes Agent v0.18.0 (2026.7.1) · upstream 009b42d0",
+    "hostToolsExposedToProviders": false,
+    "providerSessionPersisted": false,
+    "python": "3.12.13"
+  },
+  "evidenceId": "host-live-cognition-cf9e2d02-20260727t013411z",
+  "host": {
+    "decisionNodeId": "node:live-cognition-1785116003069:decide",
+    "executionRevision": "cf9e2d0209362a0b403cf79d73a80818a3ed8196",
+    "goalId": "goal:live-cognition-1785116003069",
+    "repository": "https://github.com/zycxfyh/ordivon-computing.git",
+    "stateRootFormat": "typed-cas-plus-sqlite-host-journal-v1",
+    "taskId": "task:live-cognition-1785116003069"
+  },
+  "integrity": {
+    "algorithm": "sha256",
+    "canonicalization": "ordivon-canonical-json-v1",
+    "payloadDigest": "sha256:6f1c2e35e14faed6ebad6d24bdfcf795aba65ed1e6783a0c746247fdf79e0e1c"
+  },
+  "kind": "ordivon.host-live-multi-provider-cognition-evidence",
+  "objectReferences": [
+    {
+      "byteLength": 609,
+      "digest": "sha256:13350979876d4c4aeaf2f9c681ee8983cfd7f13cb8fca4d10aa48c22ea8daf2d",
+      "kind": "admitted-decision"
+    },
+    {
+      "byteLength": 668,
+      "digest": "sha256:2b89a03b470bd496d3799ae2b125e9190f5afd680b28d49198a520db52272e23",
+      "kind": "host-event-payload"
+    },
+    {
+      "byteLength": 1045,
+      "digest": "sha256:925502c159ad4c2403dac23570f5cf3fe99d9cea45b4c16ab47667a77a46c631",
+      "kind": "host-event-payload"
+    },
+    {
+      "byteLength": 461,
+      "digest": "sha256:c594a57bb9b5c1e271074a998dc3cdc8e39a46bc8d60c68483f6b0a53712860a",
+      "kind": "model-decision"
+    },
+    {
+      "byteLength": 3147,
+      "digest": "sha256:cbf2465a40bc8ece1503881387ad195046b752a638fd063439be483a6f17b17c",
+      "kind": "compiled-context"
+    },
+    {
+      "byteLength": 449,
+      "digest": "sha256:cc4ff51ac3bcbba4b1545bf501c20a6885674356fbbd2a6d0e291ac76ae86d0b",
+      "kind": "host-event-payload"
+    }
+  ],
+  "persistence": {
+    "admissionObjectDigest": "sha256:13350979876d4c4aeaf2f9c681ee8983cfd7f13cb8fca4d10aa48c22ea8daf2d",
+    "admittedRevision": 3,
+    "contextObjectDigest": "sha256:cbf2465a40bc8ece1503881387ad195046b752a638fd063439be483a6f17b17c",
+    "decisionObjectDigest": "sha256:c594a57bb9b5c1e271074a998dc3cdc8e39a46bc8d60c68483f6b0a53712860a",
+    "headEventKind": "cognition.decision-admitted",
+    "hostEventCount": 3,
+    "objectRefCount": 6,
+    "persistedAdapterId": "codex-cli-ephemeral-v2:configured",
+    "preparedRevision": 2,
+    "readyFrontier": [
+      "node:live-cognition-1785116003069:selected:d335645b21f03e6b"
+    ],
+    "taskState": "ready"
+  },
+  "providers": [
+    {
+      "adapterId": "codex-cli-ephemeral-v2:configured",
+      "admittedActionId": "action:observe-original-dispatch",
+      "decision": {
+        "actionId": "action:observe-original-dispatch",
+        "bindingId": null,
+        "contextDigest": "sha256:4d0e859462498354c29ee7a21d8b6e2e88083331083220b05ee169dd1ab421e3",
+        "dispatchId": "dispatch:runtime-job-7",
+        "effectId": null,
+        "kind": "observe-dispatch",
+        "rationale": "The original Runtime Job is unresolved and observable now; observing it reduces uncertainty and avoids duplicate physical delivery.",
+        "requiredWorldDigest": null
+      },
+      "evidence": {
+        "adapter": "codex-cli",
+        "ephemeral": true,
+        "model": "configured",
+        "persistentSessionRetained": false,
+        "sandbox": "read-only",
+        "toolsExposedByHost": []
+      }
+    },
+    {
+      "adapterId": "hermes-cli-isolated-v2:deepseek/deepseek-v4-pro",
+      "admittedActionId": "action:observe-original-dispatch",
+      "decision": {
+        "actionId": "action:observe-original-dispatch",
+        "bindingId": null,
+        "contextDigest": "sha256:4d0e859462498354c29ee7a21d8b6e2e88083331083220b05ee169dd1ab421e3",
+        "dispatchId": "dispatch:runtime-job-7",
+        "effectId": null,
+        "kind": "observe-dispatch",
+        "rationale": "Observation of the unresolved dispatch is available and will reconcile the real state without duplicate delivery, satisfying the goal and constraints.",
+        "requiredWorldDigest": null
+      },
+      "evidence": {
+        "adapter": "hermes-cli",
+        "apiCalls": 1,
+        "baseUrl": "https://api.deepseek.com",
+        "enabledToolsets": [],
+        "estimatedCostUsd": "0.0047241",
+        "inputTokens": 1611,
+        "isolatedHome": true,
+        "memoryLoaded": false,
+        "model": "deepseek-v4-pro",
+        "outputTokens": 552,
+        "persistentSessionRetained": false,
+        "provider": "deepseek",
+        "reasoningTokens": 421,
+        "totalTokens": 2163
+      }
+    }
+  ],
+  "purpose": "Prove that two replaceable Provider adapters can decide against the same persisted CompiledContext, pass the same deterministic current-state Admission, and leave Task continuity owned by the Host while only one admitted decision advances the durable frontier.",
+  "schemaVersion": 1,
+  "sourceReceipt": {
+    "kind": "ordivon.host-live-multi-candidate-cognition",
+    "payloadDigest": "sha256:9384db76c0030401a4c789dd3321927763d3062e66df1a5f13e9b5be39cee79c"
+  }
+}
