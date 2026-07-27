@@ -1,6 +1,6 @@
 # Ordivon Host v0 boundary
 
-The incubator exists to falsify and reduce the Host architecture before an independent repository is created.
+This architecture was falsified and reduced in the Computing incubator before the independent repository was created. The extracted repository retains the proven v0 boundary while product and operational work proceed as separately reviewable changes.
 
 ## Ownership
 

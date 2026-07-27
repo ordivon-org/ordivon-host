@@ -3,12 +3,19 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ordivon-host-incubator"
-version = "0.0.1"
-description = "Incubation carrier for the persistent Ordivon Host control plane."
+name = "ordivon-host"
+version = "0.1.0"
+description = "Persistent Agent Host control plane for Ordivon."
+readme = "README.md"
 requires-python = ">=3.12,<3.13"
-license = { text = "Apache-2.0" }
-dependencies = ["ordivon-protocol==0.1.0"]
+license = { file = "LICENSE" }
+dependencies = [
+  "ordivon-protocol @ git+https://github.com/zycxfyh/ordivon-computing.git@b2b9bb0ca0ea9a56ce600014f2b642a55e4f7461#subdirectory=packages/ordivon-protocol",
+]
+
+[project.urls]
+Repository = "https://github.com/zycxfyh/ordivon-host"
+Issues = "https://github.com/zycxfyh/ordivon-host/issues"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
