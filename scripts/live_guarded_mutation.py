@@ -4,49 +4,28 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import hashlib
-import json
 import os
-from pathlib import Path
-import shutil
-import tempfile
-import time
-import uuid
-from typing import Any
 
-from anc_canonical import JsonValue, canonical_digest
+from anc_canonical import JsonValue
 from ordivon_host import (
     GuardedMutationHost,
     GuardedMutationPlan,
     HostStorage,
-    McpRuntimeClient,
     TaskState,
 )
-from ordivon_host.runtime import RuntimeToolRejected, RuntimeTransportError
-
-
-class DropFirstSuccessfulExecResponse:
-    def __init__(self, client: McpRuntimeClient) -> None:
-        self.client = client
-        self.calls: list[str] = []
-        self.response_dropped = False
-
-    def initialize(self) -> dict[str, Any]:
-        self.calls.append("initialize")
-        return self.client.initialize()
-
-    def list_tools(self) -> tuple[dict[str, Any], ...]:
-        self.calls.append("tools/list")
-        return self.client.list_tools()
-
-    def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        self.calls.append(name)
-        result = self.client.call_tool(name, arguments)
-        if name == "workspace.exec" and not self.response_dropped:
-            self.response_dropped = True
-            raise RuntimeTransportError(
-                "injected response loss after Runtime accepted workspace.exec"
-            )
-        return result
+from ordivon_host.runtime import RuntimeToolRejected
+from ordivon_host.testing import (
+    DropFirstSuccessfulExecResponse,
+    RuntimeClientFactory,
+    ScenarioIdentity,
+    cleanup_state_root,
+    emit_receipt,
+    jobs_for_request,
+    load_scenario_token,
+    scenario_clock_ms,
+    scenario_state_root,
+    workspace_absent,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -74,18 +53,13 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    token = os.environ.get("ORDIVON_BEARER_TOKEN")
-    if not token:
-        raise SystemExit("ORDIVON_BEARER_TOKEN is required")
-    stamp = int(time.time() * 1_000)
-    nonce = uuid.uuid4().hex[:12]
-    task_token = f"live-mutation-{stamp}-{nonce}"
-    relative_path = args.relative_path or f"host-h4-proof-{stamp}.txt"
-    state_root = Path(
-        args.state_root
-        or tempfile.mkdtemp(prefix=f"ordivon-host-mutation-{stamp}-", dir="/tmp")
+    token = load_scenario_token()
+    identity = ScenarioIdentity.create("live-mutation")
+    task_token = identity.token
+    relative_path = args.relative_path or f"host-h4-proof-{identity.stamp_ms}.txt"
+    state_root = scenario_state_root(
+        args.state_root, prefix="mutation", identity=identity
     )
-    state_root.mkdir(parents=True, exist_ok=True)
     plan = GuardedMutationPlan(
         task_id=f"task:{task_token}",
         goal_id=f"goal:{task_token}",
@@ -96,16 +70,11 @@ def main() -> None:
         content=args.content,
     )
 
-    def clock() -> int:
-        return int(time.time() * 1_000)
-
-    def client(label: str) -> McpRuntimeClient:
-        return McpRuntimeClient(
-            args.endpoint,
-            token,
-            client_name=f"ordivon-host-live-mutation-{label}",
-            client_version="0.0.1",
-        )
+    factory = RuntimeClientFactory(
+        args.endpoint, token, "ordivon-host-live-mutation"
+    )
+    client = factory.client
+    clock = scenario_clock_ms
 
     completed = False
     lossy: DropFirstSuccessfulExecResponse | None = None
@@ -171,8 +140,8 @@ def main() -> None:
             ).close(plan.task_id)
 
         audit_client = client("audit")
-        jobs = _jobs_for_request(audit_client, client_request_id)
-        runtime_workspace_closed = _workspace_absent(
+        jobs = jobs_for_request(audit_client, client_request_id)
+        runtime_workspace_closed = workspace_absent(
             audit_client, plan.workspace_id
         )
         with HostStorage(state_root) as storage:
@@ -263,13 +232,8 @@ def main() -> None:
                     "providerSessionPersisted": False,
                 },
             }
-            receipt["integrity"] = {
-                "algorithm": "sha256",
-                "canonicalization": "ordivon-canonical-json-v1",
-                "payloadDigest": canonical_digest(receipt),
-            }
             completed = True
-            print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+            emit_receipt(receipt)
     finally:
         if not completed:
             try:
@@ -283,78 +247,7 @@ def main() -> None:
                 )
             except RuntimeToolRejected:
                 pass
-        if not args.keep_state:
-            shutil.rmtree(state_root, ignore_errors=True)
-
-
-def _jobs_for_request(
-    client: McpRuntimeClient,
-    client_request_id: str,
-) -> list[dict[str, JsonValue]]:
-    filtered = _task_list_supports_client_request_filter(client)
-    cursor: dict[str, JsonValue] | None = None
-    seen_cursors: set[str] = set()
-    matches: list[dict[str, JsonValue]] = []
-    for _ in range(100):
-        arguments: dict[str, Any] = {"limit": 100}
-        if filtered:
-            arguments["clientRequestId"] = client_request_id
-        if cursor is not None:
-            arguments["cursor"] = cursor
-        page = client.call_tool("task.list", arguments)
-        jobs = page.get("jobs")
-        if not isinstance(jobs, list):
-            raise AssertionError("task.list omitted jobs")
-        for job in jobs:
-            if not isinstance(job, dict):
-                raise AssertionError("task.list returned a non-object Job")
-            observed_request_id = job.get("clientRequestId")
-            if filtered and observed_request_id != client_request_id:
-                raise AssertionError(
-                    "filtered task.list returned another clientRequestId"
-                )
-            if observed_request_id == client_request_id:
-                matches.append(job)
-        next_cursor = page.get("nextCursor")
-        if next_cursor is None:
-            return matches
-        if not isinstance(next_cursor, dict):
-            raise AssertionError("task.list returned an invalid cursor")
-        cursor_digest = canonical_digest(next_cursor)
-        if cursor_digest in seen_cursors:
-            raise AssertionError("task.list repeated a pagination cursor")
-        seen_cursors.add(cursor_digest)
-        cursor = next_cursor
-    raise AssertionError("task.list pagination exceeded the live proof bound")
-
-
-def _task_list_supports_client_request_filter(client: McpRuntimeClient) -> bool:
-    for tool in client.list_tools():
-        if tool.get("name") != "task.list":
-            continue
-        schema = tool.get("inputSchema")
-        if not isinstance(schema, dict):
-            raise AssertionError("task.list input schema is not an object")
-        properties = schema.get("properties")
-        if not isinstance(properties, dict):
-            raise AssertionError("task.list input schema omitted properties")
-        return "clientRequestId" in properties
-    raise AssertionError("Runtime Tool catalog omitted task.list")
-
-
-def _workspace_absent(client: McpRuntimeClient, workspace_id: str) -> bool:
-    try:
-        client.call_tool(
-            "workspace.get",
-            {"schemaVersion": 1, "workspaceId": workspace_id},
-        )
-    except RuntimeToolRejected as error:
-        return (
-            error.detail.code == "INVALID_REQUEST"
-            and error.detail.field == "workspaceId"
-            and error.detail.commit_state == "not_committed"
-        )
-    return False
+        cleanup_state_root(state_root, keep=args.keep_state)
 
 
 if __name__ == "__main__":

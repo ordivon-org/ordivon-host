@@ -3,16 +3,18 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
-import json
 from pathlib import Path
-import shutil
 import subprocess
-import tempfile
-import time
-import uuid
 
-from anc_canonical import JsonValue, canonical_digest
+from anc_canonical import JsonValue
 from ordivon_host import EventKind, HostStorage, TaskProjection, TaskState
+from ordivon_host.testing import (
+    ScenarioIdentity,
+    cleanup_state_root,
+    emit_receipt,
+    scenario_clock_ms,
+    scenario_state_root,
+)
 from ordivon_host.cognition import (
     AdmissionState,
     BlockKind,
@@ -50,17 +52,14 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    stamp = int(time.time() * 1_000)
-    nonce = uuid.uuid4().hex[:12]
-    task_token = f"live-cognition-{stamp}-{nonce}"
-    task_id = f"task:{task_token}"
-    goal_id = f"goal:{task_token}"
+    identity = ScenarioIdentity.create("live-cognition")
+    task_token = identity.token
+    task_id = identity.task_id
+    goal_id = identity.goal_id
     decision_node_id = f"node:{task_token}:decide"
-    state_root = Path(
-        args.state_root
-        or tempfile.mkdtemp(prefix=f"ordivon-host-cognition-{stamp}-", dir="/tmp")
+    state_root = scenario_state_root(
+        args.state_root, prefix="cognition", identity=identity
     )
-    state_root.mkdir(parents=True, exist_ok=True)
     working_directory = Path(args.working_directory).resolve()
     request = _request(task_id, goal_id)
     admission_state = AdmissionState(
@@ -68,8 +67,7 @@ def main() -> None:
         completed_effect_ids=(_COMPLETED_EFFECT_ID,),
         unresolved_dispatch_ids=(_DISPATCH_ID,),
     )
-    def clock() -> int:
-        return int(time.time() * 1_000)
+    clock = scenario_clock_ms
 
     try:
         with HostStorage(state_root) as storage:
@@ -237,15 +235,9 @@ def main() -> None:
                     "stateRoot": str(state_root) if args.keep_state else None,
                 },
             }
-            receipt["integrity"] = {
-                "algorithm": "sha256",
-                "canonicalization": "ordivon-canonical-json-v1",
-                "payloadDigest": canonical_digest(receipt),
-            }
-            print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+            emit_receipt(receipt)
     finally:
-        if not args.keep_state:
-            shutil.rmtree(state_root, ignore_errors=True)
+        cleanup_state_root(state_root, keep=args.keep_state)
 
 
 def _request(task_id: str, goal_id: str) -> CognitionRequest:
