@@ -1,0 +1,793 @@
+{
+  "capturedAt": "2026-07-27T10:38:43.661262+00:00",
+  "claims": {
+    "concurrentLiveTaskIdentitiesDoNotCollide": true,
+    "filteredLookupPreservesConflictDetection": true,
+    "minimalHostKernelCarriesReadCognitionMutation": true,
+    "oldRuntimeSchemaFallsBackSafely": true,
+    "physicalCommitGapRecoversFromPreparedDispatch": true,
+    "runtimeCandidateIsNotProductionDeployed": true,
+    "unknownSurvivesRuntimeRestartWithoutRedispatch": true,
+    "workingJobSurvivesRuntimeProcessRestart": true
+  },
+  "evidenceId": "host-h6-recovery-e4e8e6b9-20260727t103843z",
+  "gates": {
+    "compileall": true,
+    "hostAndResearchTests": {
+      "evidence": 8,
+      "externalSemanticContract": 41,
+      "host": 77,
+      "passed": true,
+      "protocol": 4,
+      "semanticCore": 100,
+      "taskContinuation": 20,
+      "total": 250
+    },
+    "hostWheel": {
+      "digest": "sha256:4a2ef6db74d9e0c61c9fe8d88ead02dc0ec503d456715ffcc469b42378ea37e6"
+    },
+    "productionSecretAssignmentScan": true,
+    "protocolWheel": {
+      "digest": "sha256:5bfd2924ea6b64c2eddd0e8ae5cc218bba3f87d936b35a7c3a7691dc17892efa"
+    },
+    "ruff": true,
+    "runtimeCandidate": {
+      "cargoTestWorkspace": true,
+      "clippyAllTargetsDenyWarnings": true,
+      "pythonOperationsTests": 29,
+      "transactionalRuntimeNoDefaultFeatures": true
+    },
+    "rustCanonicalVectors": 5
+  },
+  "host": {
+    "branch": "host/h0-promote-protocol-incubator",
+    "h5KernelRevision": "c371da48cea950a75a4f72b4492770979dfcf55f",
+    "h6ExecutionRevision": "e4e8e6b90b39677ec7582e0f66fdcc3789904918",
+    "productionDeployed": false,
+    "repository": "https://github.com/zycxfyh/ordivon-computing.git",
+    "stateRootFormat": "typed-cas-plus-sqlite-host-journal-v1"
+  },
+  "integrity": {
+    "algorithm": "sha256",
+    "canonicalization": "ordivon-canonical-json-v1",
+    "payloadDigest": "sha256:6f3a826382f4bca01b6da0b843c87ce019fabb082ef87a2c221d7f2d29c807af"
+  },
+  "kind": "ordivon.host-h6-recovery-evidence",
+  "limitations": [
+    "The Runtime candidate was tested on an isolated loopback service and isolated Registry, not deployed to production.",
+    "The restart matrix covers Runtime process restart under local systemd; it does not prove host reboot, kernel crash, machine power loss, remote Runtime, or distributed scheduler recovery.",
+    "The synthetic Registry reproduces Job-count scale but not every distribution of production Attempt and Artifact payload sizes.",
+    "No automatic redispatch was added for missing or ambiguous Runtime Jobs.",
+    "The v0 mutation remains a bounded root-level proof-file workload, not a general mutation DSL."
+  ],
+  "measurements": {
+    "activeJobRuntimeRestart": {
+      "allChecksAccepted": true,
+      "elapsedMs": [
+        2525,
+        2520,
+        2511
+      ],
+      "maximumElapsedMs": 2525,
+      "medianElapsedMs": 2520,
+      "minimumElapsedMs": 2511,
+      "runCount": 3,
+      "runs": [
+        {
+          "checks": {
+            "contentDigestMatches": true,
+            "contentWrittenExactlyOnce": true,
+            "jobSucceeded": true,
+            "jobWasActiveBeforeRestart": true,
+            "runtimeActiveAfterRestart": true,
+            "runtimeProcessReplaced": true,
+            "sameJobIdentityAfterRestart": true,
+            "workspaceClosed": true
+          },
+          "elapsedMs": 2525,
+          "finalStatus": "succeeded",
+          "jobId": "job-019fa321-9aa4-7980-b1a7-60a924b6c227",
+          "kind": "ordivon.runtime-live-active-job-restart",
+          "label": "run-1",
+          "receiptByteLength": 1784,
+          "receiptFileDigest": "sha256:03261ce5308c7897268b96f2616034d59df83fbb53e89d8648120cf3e78b34ab",
+          "receiptPayloadDigest": "sha256:4a1803b8702a42dd457646dc85a5da8f9f1c8ab74844046cd0661e1c7886429c",
+          "restartElapsedMs": 128,
+          "sourceRevision": "e4e8e6b90b39677ec7582e0f66fdcc3789904918",
+          "statusSequence": [
+            "working",
+            "succeeded"
+          ],
+          "taskId": null,
+          "workspaceId": "h6-active-restart-1785148316237-f8095cb1f907"
+        },
+        {
+          "checks": {
+            "contentDigestMatches": true,
+            "contentWrittenExactlyOnce": true,
+            "jobSucceeded": true,
+            "jobWasActiveBeforeRestart": true,
+            "runtimeActiveAfterRestart": true,
+            "runtimeProcessReplaced": true,
+            "sameJobIdentityAfterRestart": true,
+            "workspaceClosed": true
+          },
+          "elapsedMs": 2520,
+          "finalStatus": "succeeded",
+          "jobId": "job-019fa321-a488-7581-ae30-608e9da4815f",
+          "kind": "ordivon.runtime-live-active-job-restart",
+          "label": "run-2",
+          "receiptByteLength": 1784,
+          "receiptFileDigest": "sha256:828d0b33ec92ee6c36ccb44fc6442b9d67132ecf1fc5a24b17da46753e9bb029",
+          "receiptPayloadDigest": "sha256:f60fc06b1546dba6f1dbc000360e0e25cc540245b07ecb543347b3ed44735769",
+          "restartElapsedMs": 130,
+          "sourceRevision": "e4e8e6b90b39677ec7582e0f66fdcc3789904918",
+          "statusSequence": [
+            "working",
+            "succeeded"
+          ],
+          "taskId": null,
+          "workspaceId": "h6-active-restart-1785148318770-f232fccdcb54"
+        },
+        {
+          "checks": {
+            "contentDigestMatches": true,
+            "contentWrittenExactlyOnce": true,
+            "jobSucceeded": true,
+            "jobWasActiveBeforeRestart": true,
+            "runtimeActiveAfterRestart": true,
+            "runtimeProcessReplaced": true,
+            "sameJobIdentityAfterRestart": true,
+            "workspaceClosed": true
+          },
+          "elapsedMs": 2511,
+          "finalStatus": "succeeded",
+          "jobId": "job-019fa321-ae64-7da0-8320-594a314fe70e",
+          "kind": "ordivon.runtime-live-active-job-restart",
+          "label": "run-3",
+          "receiptByteLength": 1784,
+          "receiptFileDigest": "sha256:f6f3e1946221e871eff32dc66fc4c3e1b959a95502ea43695c0fee09f2b729eb",
+          "receiptPayloadDigest": "sha256:c397d4a36558d2799a09569ba66b0b70f277de40ea769de510275802a9ca22d3",
+          "restartElapsedMs": 129,
+          "sourceRevision": "e4e8e6b90b39677ec7582e0f66fdcc3789904918",
+          "statusSequence": [
+            "working",
+            "succeeded"
+          ],
+          "taskId": null,
+          "workspaceId": "h6-active-restart-1785148321288-62abd141c530"
+        }
+      ]
+    },
+    "deterministicRead": {
+      "allChecksAccepted": true,
+      "elapsedMs": [
+        263,
+        265,
+        283
+      ],
+      "maximumElapsedMs": 283,
+      "medianElapsedMs": 265,
+      "minimumElapsedMs": 263,
+      "runCount": 3,
+      "runs": [
+        {
+          "checks": {
+            "finalRevisionFour": true,
+            "finalStateCompleted": true,
+            "freshStorageOpenPerStep": true,
+            "providerSessionNotPersisted": true,
+            "runtimeWorkspaceClosed": true
+          },
+          "elapsedMs": 263,
+          "finalRevision": 4,
+          "finalState": "completed",
+          "jobId": null,
+          "kind": "ordivon.host-live-read-receipt",
+          "label": "run-1",
+          "receiptByteLength": 2140,
+          "receiptFileDigest": "sha256:6f8b05763bcfbbb8fd4bdb9be1405193d2baa4c52956b8bd98b4f1de77522dcd",
+          "receiptPayloadDigest": "sha256:b6e565489355b867c662ed846a1bae7df5552e9e89bea0626a37e76157b9dd61",
+          "sourceRevision": "e4e8e6b90b39677ec7582e0f66fdcc3789904918",
+          "taskId": "task:live-read-1785148171798-42d173428224",
+          "workspaceId": "host-live-read-1785148171798-42d173428224"
+        },
+        {
+          "checks": {
+            "finalRevisionFour": true,
+            "finalStateCompleted": true,
+            "freshStorageOpenPerStep": true,
+            "providerSessionNotPersisted": true,
+            "runtimeWorkspaceClosed": true
+          },
+          "elapsedMs": 265,
+          "finalRevision": 4,
+          "finalState": "completed",
+          "jobId": null,
+          "kind": "ordivon.host-live-read-receipt",
+          "label": "run-2",
+          "receiptByteLength": 2140,
+          "receiptFileDigest": "sha256:862e71f084ff3d99228ce933565b9b8818ec407f9d32640809803f282601a6d1",
+          "receiptPayloadDigest": "sha256:45bca089ac70cf5f66a406d6bb198b5317aee5eef0535bd721fb3c09e4193ad8",
+          "sourceRevision": "e4e8e6b90b39677ec7582e0f66fdcc3789904918",
+          "taskId": "task:live-read-1785148172064-c3e9513d48c7",
+          "workspaceId": "host-live-read-1785148172064-c3e9513d48c7"
+        },
+        {
+          "checks": {
+            "finalRevisionFour": true,
+            "finalStateCompleted": true,
+            "freshStorageOpenPerStep": true,
+            "providerSessionNotPersisted": true,
+            "runtimeWorkspaceClosed": true
+          },
+          "elapsedMs": 283,
+          "finalRevision": 4,
+          "finalState": "completed",
+          "jobId": null,
+          "kind": "ordivon.host-live-read-receipt",
+          "label": "run-3",
+          "receiptByteLength": 2140,
+          "receiptFileDigest": "sha256:6f70feca9507ed35a594b631e7766fe7f24621e1e8229aa0a169882f5a771299",
+          "receiptPayloadDigest": "sha256:38aade463cf9795495f1fdf0cd5fd208232303f198938c09701559ccdabf0282",
+          "sourceRevision": "e4e8e6b90b39677ec7582e0f66fdcc3789904918",
+          "taskId": "task:live-read-1785148172341-4c3d77e17baa",
+          "workspaceId": "host-live-read-1785148172341-4c3d77e17baa"
+        }
+      ]
+    },
+    "fourConcurrentGuardedMutations": {
+      "allChecks": true,
+      "completed": 4,
+      "errors": [],
+      "processFailures": 0,
+      "runs": [
+        {
+          "checks": {
+            "exactContentVerified": true,
+            "freshStorageOpenPerStage": true,
+            "noProviderSessionPersisted": true,
+            "noRedispatchAfterUnknown": true,
+            "oneRuntimeJobForClientRequestId": true,
+            "oneWorkspaceExecInvocation": true,
+            "originalRuntimeJobObserved": true,
+            "responseDroppedAfterExecAdmission": true,
+            "runtimeWorkspaceClosed": true,
+            "taskCompleted": true,
+            "unknownStatePersisted": true
+          },
+          "jobId": "job-019fa322-2389-7d61-bca0-5a578f25fa3c",
+          "kind": "ordivon.host-live-guarded-mutation",
+          "label": "run-1",
+          "receiptByteLength": 6906,
+          "receiptFileDigest": "sha256:be66a52e02b8a20f9e2e1f89d868f50df57287ad89e385d3f79db9e2c7f9302e",
+          "receiptPayloadDigest": "sha256:3c3bffbdca97c6af18f90365c8957e57b3057008f039910aa20a2b46061278cb",
+          "sourceRevision": "e4e8e6b90b39677ec7582e0f66fdcc3789904918",
+          "taskId": "task:live-mutation-1785148351071-a3037930c4a7",
+          "workspaceId": "host-live-mutation-1785148351071-a3037930c4a7"
+        },
+        {
+          "checks": {
+            "exactContentVerified": true,
+            "freshStorageOpenPerStage": true,
+            "noProviderSessionPersisted": true,
+            "noRedispatchAfterUnknown": true,
+            "oneRuntimeJobForClientRequestId": true,
+            "oneWorkspaceExecInvocation": true,
+            "originalRuntimeJobObserved": true,
+            "responseDroppedAfterExecAdmission": true,
+            "runtimeWorkspaceClosed": true,
+            "taskCompleted": true,
+            "unknownStatePersisted": true
+          },
+          "jobId": "job-019fa322-2584-7553-840d-ed91ab446b62",
+          "kind": "ordivon.host-live-guarded-mutation",
+          "label": "run-2",
+          "receiptByteLength": 6906,
+          "receiptFileDigest": "sha256:4e2fa1baa79eac0ced0aac0b997859eb071436152b10764019d56bc78681fcce",
+          "receiptPayloadDigest": "sha256:2a5a889b76627e2a64a9a8e151aaa972d20fc16916a3ac1d6c9c8fc6e8c57bb6",
+          "sourceRevision": "e4e8e6b90b39677ec7582e0f66fdcc3789904918",
+          "taskId": "task:live-mutation-1785148351070-11c778a466d6",
+          "workspaceId": "host-live-mutation-1785148351070-11c778a466d6"
+        },
+        {
+          "checks": {
+            "exactContentVerified": true,
+            "freshStorageOpenPerStage": true,
+            "noProviderSessionPersisted": true,
+            "noRedispatchAfterUnknown": true,
+            "oneRuntimeJobForClientRequestId": true,
+            "oneWorkspaceExecInvocation": true,
+            "originalRuntimeJobObserved": true,
+            "responseDroppedAfterExecAdmission": true,
+            "runtimeWorkspaceClosed": true,
+            "taskCompleted": true,
+            "unknownStatePersisted": true
+          },
+          "jobId": "job-019fa322-246d-7c02-a891-7bea8812bc10",
+          "kind": "ordivon.host-live-guarded-mutation",
+          "label": "run-3",
+          "receiptByteLength": 6906,
+          "receiptFileDigest": "sha256:016ea21f0ae7c1836db9896b0323065d4aba760e38954ffa979fb797ade7b5b1",
+          "receiptPayloadDigest": "sha256:bc5a1704e4291b9d2d273126bd3e91a4e04c68d82a7d738d0b29f8e6158ef7b0",
+          "sourceRevision": "e4e8e6b90b39677ec7582e0f66fdcc3789904918",
+          "taskId": "task:live-mutation-1785148351073-ef6bcc6e8420",
+          "workspaceId": "host-live-mutation-1785148351073-ef6bcc6e8420"
+        },
+        {
+          "checks": {
+            "exactContentVerified": true,
+            "freshStorageOpenPerStage": true,
+            "noProviderSessionPersisted": true,
+            "noRedispatchAfterUnknown": true,
+            "oneRuntimeJobForClientRequestId": true,
+            "oneWorkspaceExecInvocation": true,
+            "originalRuntimeJobObserved": true,
+            "responseDroppedAfterExecAdmission": true,
+            "runtimeWorkspaceClosed": true,
+            "taskCompleted": true,
+            "unknownStatePersisted": true
+          },
+          "jobId": "job-019fa322-26a2-7a91-a4da-b5bfb1674b90",
+          "kind": "ordivon.host-live-guarded-mutation",
+          "label": "run-4",
+          "receiptByteLength": 6906,
+          "receiptFileDigest": "sha256:872ea52995b6d564bf3a63cffddf90ad8a906b46fc9993aeef191386accb40c9",
+          "receiptPayloadDigest": "sha256:22a2a34cd3a6957202954f54c5f28c9e2dda6eac56b15e72ea38205ca630e620",
+          "sourceRevision": "e4e8e6b90b39677ec7582e0f66fdcc3789904918",
+          "taskId": "task:live-mutation-1785148351073-ed5ebba55bc3",
+          "workspaceId": "host-live-mutation-1785148351073-ed5ebba55bc3"
+        }
+      ],
+      "uniqueTaskIds": 4,
+      "uniqueWorkspaceIds": 4,
+      "wallElapsedMs": 1654
+    },
+    "guardedMutationFiltered": {
+      "allChecksAccepted": true,
+      "elapsedMs": [
+        567,
+        583,
+        587,
+        552,
+        555
+      ],
+      "maximumElapsedMs": 587,
+      "medianElapsedMs": 567,
+      "minimumElapsedMs": 552,
+      "runCount": 5,
+      "runs": [
+        {
+          "checks": {
+            "exactContentVerified": true,
+            "freshStorageOpenPerStage": true,
+            "noProviderSessionPersisted": true,
+            "noRedispatchAfterUnknown": true,
+            "oneRuntimeJobForClientRequestId": true,
+            "oneWorkspaceExecInvocation": true,
+            "originalRuntimeJobObserved": true,
+            "responseDroppedAfterExecAdmission": true,
+            "runtimeWorkspaceClosed": true,
+            "taskCompleted": true,
+            "unknownStatePersisted": true
+          },
+          "elapsedMs": 567,
+          "jobId": "job-019fa31f-69b3-76a1-9ae4-43719d7df7f4",
+          "kind": "ordivon.host-live-guarded-mutation",
+          "label": "run-1",
+          "receiptByteLength": 6906,
+          "receiptFileDigest": "sha256:5c6d788b93d3dd6706adeea7feb176e16d9b5be1074a26e6b2e80fd0daf48eab",
+          "receiptPayloadDigest": "sha256:d05030b7191ca39e7e0b94d2f088041f6b496559761270eb81f7423ebe8dc717",
+          "sourceRevision": "e4e8e6b90b39677ec7582e0f66fdcc3789904918",
+          "taskId": "task:live-mutation-1785148172615-c86952c9beab",
+          "workspaceId": "host-live-mutation-1785148172615-c86952c9beab"
+        },
+        {
+          "checks": {
+            "exactContentVerified": true,
+            "freshStorageOpenPerStage": true,
+            "noProviderSessionPersisted": true,
+            "noRedispatchAfterUnknown": true,
+            "oneRuntimeJobForClientRequestId": true,
+            "oneWorkspaceExecInvocation": true,
+            "originalRuntimeJobObserved": true,
+            "responseDroppedAfterExecAdmission": true,
+            "runtimeWorkspaceClosed": true,
+            "taskCompleted": true,
+            "unknownStatePersisted": true
+          },
+          "elapsedMs": 583,
+          "jobId": "job-019fa31f-6bf5-7d21-8c78-9bc1b5faefc8",
+          "kind": "ordivon.host-live-guarded-mutation",
+          "label": "run-2",
+          "receiptByteLength": 6906,
+          "receiptFileDigest": "sha256:6d837b0d316a886433e8f71358721fce41ed982b9d479af8b5c846142df058c9",
+          "receiptPayloadDigest": "sha256:21385670c9ece003d769c98c18916529139a00d66dc1a1a3d434af9c7fb1304d",
+          "sourceRevision": "e4e8e6b90b39677ec7582e0f66fdcc3789904918",
+          "taskId": "task:live-mutation-1785148173185-d2d0c1a3a71d",
+          "workspaceId": "host-live-mutation-1785148173185-d2d0c1a3a71d"
+        },
+        {
+          "checks": {
+            "exactContentVerified": true,
+            "freshStorageOpenPerStage": true,
+            "noProviderSessionPersisted": true,
+            "noRedispatchAfterUnknown": true,
+            "oneRuntimeJobForClientRequestId": true,
+            "oneWorkspaceExecInvocation": true,
+            "originalRuntimeJobObserved": true,
+            "responseDroppedAfterExecAdmission": true,
+            "runtimeWorkspaceClosed": true,
+            "taskCompleted": true,
+            "unknownStatePersisted": true
+          },
+          "elapsedMs": 587,
+          "jobId": "job-019fa31f-6e49-7d11-bd36-779ee006e12e",
+          "kind": "ordivon.host-live-guarded-mutation",
+          "label": "run-3",
+          "receiptByteLength": 6906,
+          "receiptFileDigest": "sha256:639985a9e4b6dab8cddb9bc5c12139856a00d967630f8ad99366623f56e890ad",
+          "receiptPayloadDigest": "sha256:e79ac2c0bc8311e35e2caf190a513bfbcad7d51bc3ba41bf9ffce7254499c25a",
+          "sourceRevision": "e4e8e6b90b39677ec7582e0f66fdcc3789904918",
+          "taskId": "task:live-mutation-1785148173781-2ff0dd5849ac",
+          "workspaceId": "host-live-mutation-1785148173781-2ff0dd5849ac"
+        },
+        {
+          "checks": {
+            "exactContentVerified": true,
+            "freshStorageOpenPerStage": true,
+            "noProviderSessionPersisted": true,
+            "noRedispatchAfterUnknown": true,
+            "oneRuntimeJobForClientRequestId": true,
+            "oneWorkspaceExecInvocation": true,
+            "originalRuntimeJobObserved": true,
+            "responseDroppedAfterExecAdmission": true,
+            "runtimeWorkspaceClosed": true,
+            "taskCompleted": true,
+            "unknownStatePersisted": true
+          },
+          "elapsedMs": 552,
+          "jobId": "job-019fa31f-7084-77b3-bfe6-81059c5d0829",
+          "kind": "ordivon.host-live-guarded-mutation",
+          "label": "run-4",
+          "receiptByteLength": 6906,
+          "receiptFileDigest": "sha256:3f3a7072b081721857bf079fe2ae3ebce29184b69630c98059b1463cd95b9c14",
+          "receiptPayloadDigest": "sha256:b454edd632b767d208c1fd31a475573a618bd2577794d1649f478f37065e3148",
+          "sourceRevision": "e4e8e6b90b39677ec7582e0f66fdcc3789904918",
+          "taskId": "task:live-mutation-1785148174358-d63f68b6b356",
+          "workspaceId": "host-live-mutation-1785148174358-d63f68b6b356"
+        },
+        {
+          "checks": {
+            "exactContentVerified": true,
+            "freshStorageOpenPerStage": true,
+            "noProviderSessionPersisted": true,
+            "noRedispatchAfterUnknown": true,
+            "oneRuntimeJobForClientRequestId": true,
+            "oneWorkspaceExecInvocation": true,
+            "originalRuntimeJobObserved": true,
+            "responseDroppedAfterExecAdmission": true,
+            "runtimeWorkspaceClosed": true,
+            "taskCompleted": true,
+            "unknownStatePersisted": true
+          },
+          "elapsedMs": 555,
+          "jobId": "job-019fa31f-72b0-7d21-bf6a-358520dab1fe",
+          "kind": "ordivon.host-live-guarded-mutation",
+          "label": "run-5",
+          "receiptByteLength": 6906,
+          "receiptFileDigest": "sha256:df28aa5b8f73149b3b388df61442575bee96c32c59ae833d40706d1925304c11",
+          "receiptPayloadDigest": "sha256:f97f59e9b20939be4c41f238b24cdab8f782e6ee426de86ae0971d06cb85e522",
+          "sourceRevision": "e4e8e6b90b39677ec7582e0f66fdcc3789904918",
+          "taskId": "task:live-mutation-1785148174910-3adbf28c467b",
+          "workspaceId": "host-live-mutation-1785148174910-3adbf28c467b"
+        }
+      ]
+    },
+    "hostCommitGapRecovery": {
+      "allChecksAccepted": true,
+      "elapsedMs": [
+        547,
+        539,
+        557
+      ],
+      "maximumElapsedMs": 557,
+      "medianElapsedMs": 547,
+      "minimumElapsedMs": 539,
+      "runCount": 3,
+      "runs": [
+        {
+          "checks": {
+            "onePhysicalWorkspaceExec": true,
+            "oneRuntimeJobForRequest": true,
+            "originalRuntimeJobRecovered": true,
+            "runtimeResponseNeverAdmitted": true,
+            "taskCompleted": true,
+            "verificationAccepted": true,
+            "workspaceClosed": true
+          },
+          "elapsedMs": 547,
+          "finalRevision": 6,
+          "jobId": "job-019fa321-b847-75f1-923e-437a18649a15",
+          "kind": "ordivon.host-live-commit-gap-recovery",
+          "label": "run-1",
+          "preparedRevision": 3,
+          "receiptByteLength": 2017,
+          "receiptFileDigest": "sha256:26a9105d06eb0ccd47607dab707ece525f8cecb1e8990493166c339b4676a901",
+          "receiptPayloadDigest": "sha256:90294b74fbf2031ddad97cf67b59272a06c6ee574c8309531a04cdd0f1f4d55b",
+          "sourceRevision": "e4e8e6b90b39677ec7582e0f66fdcc3789904918",
+          "taskId": "task:live-commit-gap-1785148323799-d18d33bfc385",
+          "workspaceId": "host-live-commit-gap-1785148323799-d18d33bfc385"
+        },
+        {
+          "checks": {
+            "onePhysicalWorkspaceExec": true,
+            "oneRuntimeJobForRequest": true,
+            "originalRuntimeJobRecovered": true,
+            "runtimeResponseNeverAdmitted": true,
+            "taskCompleted": true,
+            "verificationAccepted": true,
+            "workspaceClosed": true
+          },
+          "elapsedMs": 539,
+          "finalRevision": 6,
+          "jobId": "job-019fa321-ba63-7762-97b9-17905cf22f63",
+          "kind": "ordivon.host-live-commit-gap-recovery",
+          "label": "run-2",
+          "preparedRevision": 3,
+          "receiptByteLength": 2017,
+          "receiptFileDigest": "sha256:e41e9eab71c033802492447445ce6693dadb33f0f5ad2aa72e43f9ae140dd4f1",
+          "receiptPayloadDigest": "sha256:a1652b46294d4dd4982e1d14d4582ae99c957c4a5f9bc4b7027165ee2d189063",
+          "sourceRevision": "e4e8e6b90b39677ec7582e0f66fdcc3789904918",
+          "taskId": "task:live-commit-gap-1785148324345-caa13a520348",
+          "workspaceId": "host-live-commit-gap-1785148324345-caa13a520348"
+        },
+        {
+          "checks": {
+            "onePhysicalWorkspaceExec": true,
+            "oneRuntimeJobForRequest": true,
+            "originalRuntimeJobRecovered": true,
+            "runtimeResponseNeverAdmitted": true,
+            "taskCompleted": true,
+            "verificationAccepted": true,
+            "workspaceClosed": true
+          },
+          "elapsedMs": 557,
+          "finalRevision": 6,
+          "jobId": "job-019fa321-bc7f-74c3-8d69-a30e73b228c2",
+          "kind": "ordivon.host-live-commit-gap-recovery",
+          "label": "run-3",
+          "preparedRevision": 3,
+          "receiptByteLength": 2017,
+          "receiptFileDigest": "sha256:65a2a49149271a6381453099b726cade96c7a22326a0b8ae657ff87dd3bd19c8",
+          "receiptPayloadDigest": "sha256:edb04824262f615d8cf511badbbcbe3d2cfa9add9de0ca5334507a1e76113b5e",
+          "sourceRevision": "e4e8e6b90b39677ec7582e0f66fdcc3789904918",
+          "taskId": "task:live-commit-gap-1785148324885-d8890207a71a",
+          "workspaceId": "host-live-commit-gap-1785148324885-d8890207a71a"
+        }
+      ]
+    },
+    "oldRuntimeVersusFilteredCandidate": {
+      "candidateRuntime": {
+        "absentFilteredJobs": 0,
+        "absentFilteredLookupMs": 6,
+        "allChecks": true,
+        "guardedMutationElapsedMs": 550,
+        "receipt": {
+          "checks": {
+            "exactContentVerified": true,
+            "freshStorageOpenPerStage": true,
+            "noProviderSessionPersisted": true,
+            "noRedispatchAfterUnknown": true,
+            "oneRuntimeJobForClientRequestId": true,
+            "oneWorkspaceExecInvocation": true,
+            "originalRuntimeJobObserved": true,
+            "responseDroppedAfterExecAdmission": true,
+            "runtimeWorkspaceClosed": true,
+            "taskCompleted": true,
+            "unknownStatePersisted": true
+          },
+          "elapsedMs": 550,
+          "jobId": "job-019fa323-673c-7051-abb0-dbcf0789a6bf",
+          "kind": "ordivon.host-live-guarded-mutation",
+          "label": "candidate-filtered-runtime",
+          "receiptByteLength": 6906,
+          "receiptFileDigest": "sha256:98be93d6b40d7ac6e868546eaffa5bba82f35d11a3f15396fe91d639cd633e72",
+          "receiptPayloadDigest": "sha256:4c643c7bfc907b7fe21d6d2f50ffa9eb8c6b8eae362e512ff45265a8a659464f",
+          "sourceRevision": "e4e8e6b90b39677ec7582e0f66fdcc3789904918",
+          "taskId": "task:live-mutation-1785148434115-513679add05c",
+          "workspaceId": "host-live-mutation-1785148434115-513679add05c"
+        }
+      },
+      "guardedMutationSpeedup": {
+        "filteredElapsedMs": 550,
+        "oldElapsedMs": 22009,
+        "oldOverFilteredFloor": 40
+      },
+      "productionOldRuntime": {
+        "allChecks": true,
+        "fullJobScan": {
+          "elapsedMs": 9998,
+          "jobs": 5772,
+          "pages": 58
+        },
+        "guardedMutationElapsedMs": 22009,
+        "receipt": {
+          "checks": {
+            "exactContentVerified": true,
+            "freshStorageOpenPerStage": true,
+            "noProviderSessionPersisted": true,
+            "noRedispatchAfterUnknown": true,
+            "oneRuntimeJobForClientRequestId": true,
+            "oneWorkspaceExecInvocation": true,
+            "originalRuntimeJobObserved": true,
+            "responseDroppedAfterExecAdmission": true,
+            "runtimeWorkspaceClosed": true,
+            "taskCompleted": true,
+            "unknownStatePersisted": true
+          },
+          "elapsedMs": 22009,
+          "jobId": "job-019fa323-1156-7e73-8855-4100e84499f1",
+          "kind": "ordivon.host-live-guarded-mutation",
+          "label": "production-old-runtime",
+          "receiptByteLength": 6906,
+          "receiptFileDigest": "sha256:3d990cf7c5afd05e34228daf9543ede4524cb550713dfc4851a82f7f78736137",
+          "receiptPayloadDigest": "sha256:660756252e462994cac82fe13e4050459edcfc6dcf72d57a4f63b7bbfd575123",
+          "sourceRevision": "e4e8e6b90b39677ec7582e0f66fdcc3789904918",
+          "taskId": "task:live-mutation-1785148412107-2f63ef0ef232",
+          "workspaceId": "host-live-mutation-1785148412107-2f63ef0ef232"
+        }
+      }
+    },
+    "unknownThenRuntimeRestart": {
+      "allChecksAccepted": true,
+      "elapsedMs": [
+        665,
+        660,
+        669
+      ],
+      "maximumElapsedMs": 669,
+      "medianElapsedMs": 665,
+      "minimumElapsedMs": 660,
+      "runCount": 3,
+      "runs": [
+        {
+          "checks": {
+            "noRedispatchAfterRestart": true,
+            "oneRuntimeJobForRequest": true,
+            "oneWorkspaceExecInvocation": true,
+            "originalRuntimeJobRecovered": true,
+            "runtimeActiveAfterRestart": true,
+            "runtimeProcessReplaced": true,
+            "taskCompleted": true,
+            "unknownPersistedBeforeRestart": true,
+            "verificationAccepted": true,
+            "workspaceClosed": true
+          },
+          "elapsedMs": 665,
+          "finalRevision": 7,
+          "jobId": "job-019fa320-0999-7e92-ae06-028f22680c57",
+          "kind": "ordivon.host-live-runtime-restart-recovery",
+          "label": "run-1",
+          "receiptByteLength": 2686,
+          "receiptFileDigest": "sha256:593b8efbd5c30072db57615d696c7de91ccdd3cf6173800be2a0459beff4f4c3",
+          "receiptPayloadDigest": "sha256:9246c68401788f7e39aa400bdc4c64a898f1e30646e06fa8e1a1fb261be7275a",
+          "restartElapsedMs": 133,
+          "sourceRevision": "e4e8e6b90b39677ec7582e0f66fdcc3789904918",
+          "taskId": "task:live-restart-recovery-1785148213545-912a36b1642b",
+          "workspaceId": "host-live-restart-recovery-1785148213545-912a36b1642b"
+        },
+        {
+          "checks": {
+            "noRedispatchAfterRestart": true,
+            "oneRuntimeJobForRequest": true,
+            "oneWorkspaceExecInvocation": true,
+            "originalRuntimeJobRecovered": true,
+            "runtimeActiveAfterRestart": true,
+            "runtimeProcessReplaced": true,
+            "taskCompleted": true,
+            "unknownPersistedBeforeRestart": true,
+            "verificationAccepted": true,
+            "workspaceClosed": true
+          },
+          "elapsedMs": 660,
+          "finalRevision": 7,
+          "jobId": "job-019fa320-0c30-7c91-ace7-a61af9055a4a",
+          "kind": "ordivon.host-live-runtime-restart-recovery",
+          "label": "run-2",
+          "receiptByteLength": 2686,
+          "receiptFileDigest": "sha256:2d8152a57807c6e9a4a22119ba3f3ffb04549e8cac9557dffaff33971b0a662c",
+          "receiptPayloadDigest": "sha256:3751b1c08fd193088fb7bcf165d47a8caff95a0d3d606000031f69103183ef9b",
+          "restartElapsedMs": 133,
+          "sourceRevision": "e4e8e6b90b39677ec7582e0f66fdcc3789904918",
+          "taskId": "task:live-restart-recovery-1785148214210-daacd0df4913",
+          "workspaceId": "host-live-restart-recovery-1785148214210-daacd0df4913"
+        },
+        {
+          "checks": {
+            "noRedispatchAfterRestart": true,
+            "oneRuntimeJobForRequest": true,
+            "oneWorkspaceExecInvocation": true,
+            "originalRuntimeJobRecovered": true,
+            "runtimeActiveAfterRestart": true,
+            "runtimeProcessReplaced": true,
+            "taskCompleted": true,
+            "unknownPersistedBeforeRestart": true,
+            "verificationAccepted": true,
+            "workspaceClosed": true
+          },
+          "elapsedMs": 669,
+          "finalRevision": 7,
+          "jobId": "job-019fa320-0ec4-75d1-bdf9-73b051e4397e",
+          "kind": "ordivon.host-live-runtime-restart-recovery",
+          "label": "run-3",
+          "receiptByteLength": 2686,
+          "receiptFileDigest": "sha256:edad7475d427e2711045fe85abb3b2406cf8cbdbf4e1d22baa069ac72b8b3597",
+          "receiptPayloadDigest": "sha256:bfeb7070ff7d831b31ee1f0e3ed831010774d63f29dc444ed3804b2535f7d769",
+          "restartElapsedMs": 133,
+          "sourceRevision": "e4e8e6b90b39677ec7582e0f66fdcc3789904918",
+          "taskId": "task:live-restart-recovery-1785148214870-ebccbd524e27",
+          "workspaceId": "host-live-restart-recovery-1785148214870-ebccbd524e27"
+        }
+      ]
+    }
+  },
+  "operationalFindings": [
+    {
+      "id": "historical-job-scan-dominates-reconciliation",
+      "observed": true,
+      "response": "Expose exact clientRequestId filtering backed by the durable Runtime Job index while preserving complete filtered pagination and conflict rejection."
+    },
+    {
+      "id": "systemd-active-precedes-mcp-readiness",
+      "observed": true,
+      "response": "Require successful MCP initialize after service activity before Host reconciliation."
+    },
+    {
+      "id": "millisecond-identities-collide-under-concurrency",
+      "observed": true,
+      "response": "Add independent UUID nonce to live Task, Workspace, and request identities."
+    },
+    {
+      "details": {
+        "burst": 5,
+        "intervalSeconds": 10,
+        "result": "start-limit-hit"
+      },
+      "id": "default-systemd-restart-rate-limit",
+      "observed": true,
+      "response": "Keep production policy unchanged; disable the limit only on the isolated fault-injection unit after recording the boundary."
+    },
+    {
+      "id": "canonical-json-rejects-floating-time-evidence",
+      "observed": true,
+      "response": "Persist restart durations as integer milliseconds rather than weakening canonical JSON."
+    }
+  ],
+  "runtime": {
+    "candidate": {
+      "binaryDigest": "sha256:1cad5970bf56f89de245306c3cc7c21731dd60893489ea88aa4918ade7422d0c",
+      "branch": "runtime/h6-client-request-lookup",
+      "faultInjectionStartLimitDisabled": true,
+      "isolatedLoopbackEndpoint": "http://127.0.0.1:8898/mcp",
+      "productionDeployed": false,
+      "registry": {
+        "clientRequestLookupIndexCount": 1,
+        "jobCountAtCapture": 5692,
+        "schemaVersion": 5
+      },
+      "repository": "https://github.com/zycxfyh/ordivon-runtime.git",
+      "revision": "c2551c2b2eb59f28d7c004c8cfb6f655dc35ee93",
+      "runnerDigest": "sha256:2a57a574cf555880ba5ef94d8fe96a548384a80fee4881c6793c60a0bc457ae9"
+    },
+    "production": {
+      "binaryDigest": "sha256:eb3081013110d6c5fa0e138d9abca1037cbd1c127a87cc46c04791db367b98d8",
+      "candidateRevisionDeployed": false,
+      "revision": "c38127bc72d160af5553fe231c65486cc6bd64a4",
+      "runnerDigest": "sha256:626cf8225f67ca197bb2bd9278a36f104dda0e6e9170b7485337288ee3a22fe1",
+      "serviceActive": true,
+      "serviceSubState": "running"
+    }
+  },
+  "schemaVersion": 1
+}
