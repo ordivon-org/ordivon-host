@@ -7,7 +7,7 @@ H7 remains frozen. This change hardens the existing Host and aligns its real sou
 ## Bound local revisions
 
 - Host base: `930374efb48622bcb67c7aa4b552dfc7a1ed4b31`
-- Computing source-change protocol: `a0e6c9990f82a80da7d133ea133a7befdea572a0`
+- Computing source-change protocol: `fb213ceac5c326e79b53a3122e320b976869e1af`
 - Runtime base: `2d4141b30ebabd9119ed4e9547c36759cb5b7b77`
 
 The final Host and Runtime revisions are supplied by their local commits. No remote push, merge, deployment, or production Runtime replacement is part of this pass.

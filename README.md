@@ -23,7 +23,7 @@ See `ARCHITECTURE.md`, `CLOSURE.md`, `docs/PRE_H7_CLOSURE.md`, `docs/P0_P1_ALIGN
 
 ## Development
 
-Python 3.12 is required. The authoritative `ordivon-protocol` package remains in `ordivon-computing` and is pinned to an exact Git revision by `pyproject.toml`.
+Python 3.12 is required. The authoritative `ordivon-protocol` 0.2.0 package remains in `ordivon-computing` and is pinned to the exact unified Protocol revision by `pyproject.toml`.
 
 ```bash
 python3.12 -m venv .venv
