@@ -9,7 +9,7 @@ from anc_effect_ir import EffectEnvelope
 
 from ...domain import EventKind, TaskProjection, TaskState
 from ...journal import JournalCorruption
-from ...kernel import HostKernel
+from ...kernel import HostKernel, worker_owner_id
 from ...objects import ObjectCorrupt, StoredObject
 from ...runtime import (
     RuntimeClient,
@@ -17,7 +17,9 @@ from ...runtime import (
     RuntimeProtocolError,
     RuntimeToolRejected,
     discover_execution_runtime_catalog,
-    is_missing_workspace,
+    ensure_workspace,
+    ensure_workspace_closed,
+    find_jobs_by_client_request,
 )
 from ...storage import HostStorage, TaskEventSnapshot
 from .._serde import (
@@ -52,17 +54,19 @@ class GuardedMutationHost:
         runtime: RuntimeClient,
         *,
         clock_ms: Callable[[], int],
-        owner_id: str = "host:guarded-mutation-v0",
+        owner_id: str | None = None,
         lease_ttl_ms: int = 30_000,
     ) -> None:
-        if not owner_id or lease_ttl_ms < 1:
-            raise ValueError("mutation Host owner and lease TTL are required")
+        if owner_id is not None and (not owner_id or owner_id != owner_id.strip()):
+            raise ValueError("explicit Host owner identity must be trimmed")
+        if lease_ttl_ms < 1:
+            raise ValueError("mutation Host lease TTL must be positive")
         self.storage = storage
         self.runtime = runtime
         self.kernel = HostKernel(
             storage,
             clock_ms=clock_ms,
-            owner_id=owner_id,
+            owner_id=owner_id or worker_owner_id("host:guarded-mutation-v1"),
             lease_ttl_ms=lease_ttl_ms,
         )
 
@@ -99,7 +103,12 @@ class GuardedMutationHost:
             catalog_object = self.storage.put_object(
                 catalog.to_dict(), kind="runtime-execution-catalog"
             )
-            workspace = self._ensure_workspace(plan)
+            workspace = ensure_workspace(
+                self.runtime,
+                workspace_id=plan.workspace_id,
+                source_repo=plan.source_repo,
+                source_revision=plan.source_revision,
+            )
             plan_object = self.storage.objects.inspect(
                 self._plan_digest(locked.snapshot)
             )
@@ -232,7 +241,9 @@ class GuardedMutationHost:
         if snapshot.projection.ready_frontier != (self._node(plan, "reconcile"),):
             raise MutationTaskError("Task is not at the reconciliation frontier")
         prepared = self._prepared_from_snapshot(snapshot)
-        jobs = self._find_jobs(prepared.dispatch.client_request_id)
+        jobs = find_jobs_by_client_request(
+            self.runtime, prepared.dispatch.client_request_id
+        )
         if not jobs:
             return self._step(
                 snapshot.projection,
@@ -352,65 +363,77 @@ class GuardedMutationHost:
             )
 
     def close(self, task_id: str) -> MutationStep:
-        current = self._require_frontier(task_id, "close")
+        snapshot = self.storage.read_task_event(task_id)
+        plan = self._load_plan(snapshot)
+        if snapshot.projection.ready_frontier != (self._node(plan, "close"),):
+            raise MutationTaskError("Task is not at the close frontier")
+        if snapshot.projection.state not in {TaskState.READY, TaskState.BLOCKED}:
+            raise MutationTaskError("mutation close requires ready or blocked state")
+        data = require_object(snapshot.data, "mutation close data")
+        closed = ensure_workspace_closed(self.runtime, plan.workspace_id, force=True)
+        dispatch = self._load_dispatch(data)
+        succeeded = snapshot.projection.state is TaskState.READY
+        outcome: JsonValue = {
+            "schemaVersion": 1,
+            "kind": _OUTCOME_KIND,
+            "taskId": plan.task_id,
+            "goalId": plan.goal_id,
+            "workspaceId": plan.workspace_id,
+            "relativePath": plan.relative_path,
+            "dispatchId": dispatch.dispatch_id,
+            "clientRequestId": dispatch.client_request_id,
+            "jobId": require_string(data, "jobId"),
+            "jobStatus": require_string(data, "jobStatus"),
+            "observationDigest": require_string(data, "observationDigest"),
+            "verificationDigest": data.get("verificationDigest"),
+            "status": "completed" if succeeded else "failed",
+            "workspaceClosed": True,
+            "deliveryReconciled": True,
+        }
+        outcome_object = self.storage.put_object(outcome, kind="task-outcome")
         with self.kernel.locked_task(
             task_id,
-            expected_revision=current.revision,
-            expected_state=TaskState.READY,
-            expected_frontier=(current.ready_frontier[0],),
+            expected_revision=snapshot.projection.revision,
+            expected_state=snapshot.projection.state,
+            expected_frontier=(self._node(plan, "close"),),
             label="mutation",
             error_factory=self._kernel_error,
         ) as locked:
-            plan = self._load_plan(locked.snapshot)
-            data = require_object(locked.snapshot.data, "mutation verification data")
-            closed = self._ensure_closed(plan.workspace_id)
-            dispatch = self._load_dispatch(data)
-            outcome: JsonValue = {
-                "schemaVersion": 1,
-                "kind": _OUTCOME_KIND,
-                "taskId": plan.task_id,
-                "goalId": plan.goal_id,
-                "workspaceId": plan.workspace_id,
-                "relativePath": plan.relative_path,
-                "dispatchId": dispatch.dispatch_id,
-                "clientRequestId": dispatch.client_request_id,
-                "jobId": require_string(data, "jobId"),
-                "observationDigest": require_string(data, "observationDigest"),
-                "verificationDigest": require_string(data, "verificationDigest"),
-                "workspaceClosed": True,
-                "deliveryReconciled": True,
-            }
-            outcome_object = self.storage.put_object(outcome, kind="task-outcome")
-            references = self._state_references(data) + (
-                self.storage.objects.inspect(require_string(data, "readObservationDigest")),
-                self.storage.objects.inspect(require_string(data, "verificationDigest")),
-                outcome_object,
-            )
+            self._require_same_plan(locked.snapshot, plan)
+            current = require_object(locked.snapshot.data, "mutation close data")
+            if require_string(current, "jobId") != require_string(data, "jobId"):
+                raise MutationSuperseded("Runtime Job changed before close")
+            references = self._state_references(current)
+            for field in ("readObservationDigest", "verificationDigest"):
+                value = current.get(field)
+                if isinstance(value, str):
+                    references += (self.storage.objects.inspect(value),)
+            references += (outcome_object,)
             projection = locked.commit(
                 event_id=self._event_id(plan, locked.projection.revision + 1),
                 kind=EventKind.TASK_STATE_CHANGED,
                 payload={
-                    **self._state_fields(data),
-                    "jobId": require_string(data, "jobId"),
-                    "attemptId": data.get("attemptId"),
-                    "jobStatus": require_string(data, "jobStatus"),
-                    "observationDigest": require_string(data, "observationDigest"),
-                    "readObservationDigest": require_string(data, "readObservationDigest"),
-                    "verificationDigest": require_string(data, "verificationDigest"),
+                    **self._state_fields(current),
+                    "jobId": require_string(current, "jobId"),
+                    "attemptId": current.get("attemptId"),
+                    "jobStatus": require_string(current, "jobStatus"),
+                    "observationDigest": require_string(current, "observationDigest"),
+                    "readObservationDigest": current.get("readObservationDigest"),
+                    "verificationDigest": current.get("verificationDigest"),
                     "outcomeDigest": outcome_object.digest,
                     "workspaceClose": closed,
                 },
-                state=TaskState.COMPLETED,
+                state=TaskState.COMPLETED if succeeded else TaskState.FAILED,
                 frontier=(),
                 referenced_objects=references,
             ).projection
-            return self._step(
-                projection,
-                dispatch_id=dispatch.dispatch_id,
-                job_id=require_string(data, "jobId"),
-                reconciled=True,
-                completed=True,
-            )
+        return self._step(
+            projection,
+            dispatch_id=dispatch.dispatch_id,
+            job_id=require_string(data, "jobId"),
+            reconciled=True,
+            completed=succeeded,
+        )
 
     def _record_unknown(
         self,
@@ -481,8 +504,6 @@ class GuardedMutationHost:
             payload_digest=canonical_digest(typed_payload),
             payload=typed_payload,
         )
-        if status in _FAILED_JOB_STATES:
-            raise MutationTaskError(f"Runtime mutation Job ended with {status}")
         with self.kernel.locked_task(
             prepared.task_id,
             expected_state=TaskState.WAITING,
@@ -500,6 +521,9 @@ class GuardedMutationHost:
             if status == "succeeded":
                 state = TaskState.VERIFYING
                 frontier = "verify"
+            elif status in _FAILED_JOB_STATES:
+                state = TaskState.BLOCKED
+                frontier = "close"
             else:
                 state = TaskState.WAITING
                 frontier = "reconcile"
@@ -587,104 +611,11 @@ class GuardedMutationHost:
                 "prepared Dispatch revision is no longer current"
             ) from error
 
-    def _find_jobs(self, client_request_id: str) -> list[dict[str, Any]]:
-        filtered = self._task_list_supports_client_request_filter()
-        cursor: dict[str, JsonValue] | None = None
-        seen_cursors: set[str] = set()
-        matches: list[dict[str, Any]] = []
-        for _ in range(100):
-            arguments: dict[str, Any] = {"limit": 100}
-            if filtered:
-                arguments["clientRequestId"] = client_request_id
-            if cursor is not None:
-                arguments["cursor"] = cursor
-            page = self.runtime.call_tool("task.list", arguments)
-            jobs = page.get("jobs")
-            if not isinstance(jobs, list):
-                raise RuntimeProtocolError("task.list omitted jobs")
-            for job in jobs:
-                if not isinstance(job, dict):
-                    raise RuntimeProtocolError("task.list returned a non-object Job")
-                observed_request_id = job.get("clientRequestId")
-                if filtered and observed_request_id != client_request_id:
-                    raise RuntimeProtocolError(
-                        "filtered task.list returned another clientRequestId"
-                    )
-                if observed_request_id == client_request_id:
-                    matches.append(job)
-            next_cursor = page.get("nextCursor")
-            if next_cursor is None:
-                return matches
-            if not isinstance(next_cursor, dict):
-                raise RuntimeProtocolError("task.list returned an invalid cursor")
-            typed_cursor = json_object(next_cursor, "Runtime Job list cursor")
-            cursor_digest = canonical_digest(typed_cursor)
-            if cursor_digest in seen_cursors:
-                raise RuntimeProtocolError("task.list repeated a pagination cursor")
-            seen_cursors.add(cursor_digest)
-            cursor = typed_cursor
-        raise RuntimeProtocolError("task.list pagination exceeded the Host bound")
-
-    def _task_list_supports_client_request_filter(self) -> bool:
-        self.runtime.initialize()
-        for tool in self.runtime.list_tools():
-            if tool.get("name") != "task.list":
-                continue
-            schema = tool.get("inputSchema")
-            if not isinstance(schema, dict):
-                raise RuntimeProtocolError("task.list input schema is not an object")
-            properties = schema.get("properties")
-            if not isinstance(properties, dict):
-                raise RuntimeProtocolError("task.list input schema omitted properties")
-            return "clientRequestId" in properties
-        raise RuntimeProtocolError("Runtime Tool catalog omitted task.list")
-
-    def _ensure_workspace(self, plan: GuardedMutationPlan) -> dict[str, JsonValue]:
-        try:
-            workspace = self.runtime.call_tool(
-                "workspace.get",
-                {"schemaVersion": 1, "workspaceId": plan.workspace_id},
-            )
-        except RuntimeToolRejected as error:
-            if not is_missing_workspace(error):
-                raise
-            workspace = self.runtime.call_tool(
-                "workspace.open",
-                {
-                    "schemaVersion": 1,
-                    "sourceRepo": plan.source_repo,
-                    "sourceRevision": plan.source_revision,
-                    "workspaceId": plan.workspace_id,
-                },
-            )
-        if workspace.get("workspaceId") != plan.workspace_id:
-            raise RuntimeProtocolError("Runtime returned another Workspace")
-        if workspace.get("sourceRevision") != plan.source_revision:
-            raise RuntimeProtocolError("Runtime returned another source revision")
-        return json_object(workspace, "Runtime Workspace")
-
-    def _ensure_closed(self, workspace_id: str) -> dict[str, JsonValue]:
-        try:
-            self.runtime.call_tool(
-                "workspace.get",
-                {"schemaVersion": 1, "workspaceId": workspace_id},
-            )
-        except RuntimeToolRejected as error:
-            if is_missing_workspace(error):
-                return {"workspaceId": workspace_id, "alreadyAbsent": True}
-            raise
-        try:
-            closed = self.runtime.call_tool(
-                "workspace.close",
-                {"schemaVersion": 1, "workspaceId": workspace_id, "force": True},
-            )
-        except RuntimeToolRejected as error:
-            if is_missing_workspace(error):
-                return {"workspaceId": workspace_id, "alreadyAbsent": True}
-            raise
-        if closed.get("workspaceId") != workspace_id:
-            raise RuntimeProtocolError("workspace.close returned another Workspace")
-        return json_object(closed, "Runtime Workspace close")
+    def _require_same_plan(
+        self, snapshot: TaskEventSnapshot, expected: GuardedMutationPlan
+    ) -> None:
+        if self._load_plan(snapshot) != expected:
+            raise MutationSuperseded("mutation plan changed")
 
     def _load_plan(self, snapshot: TaskEventSnapshot) -> GuardedMutationPlan:
         value = self.storage.objects.get(

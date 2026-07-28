@@ -4,36 +4,31 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import hashlib
-import json
-import os
-from pathlib import Path
-import re
-import shutil
-import subprocess
-import tempfile
 import time
-import uuid
 
-from anc_canonical import JsonValue, canonical_digest
-from live_guarded_mutation import (
-    DropFirstSuccessfulExecResponse,
-    _jobs_for_request,
-    _workspace_absent,
-)
+from anc_canonical import JsonValue
 from ordivon_host import (
     GuardedMutationHost,
     GuardedMutationPlan,
     HostStorage,
-    McpRuntimeClient,
     TaskState,
 )
-from ordivon_host.runtime import (
-    RuntimeProtocolError,
-    RuntimeToolRejected,
-    RuntimeTransportError,
+from ordivon_host.runtime import RuntimeToolRejected, RuntimeTransportError
+from ordivon_host.testing import (
+    DropFirstSuccessfulExecResponse,
+    RuntimeClientFactory,
+    ScenarioIdentity,
+    cleanup_state_root,
+    emit_receipt,
+    jobs_for_request,
+    load_scenario_token,
+    restart_runtime,
+    scenario_clock_ms,
+    scenario_state_root,
+    service_state,
+    wait_runtime_ready,
+    workspace_absent,
 )
-
-_SERVICE = re.compile(r"^[A-Za-z0-9_.@-]+$")
 
 
 def parse_args() -> argparse.Namespace:
@@ -55,39 +50,27 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    if not _SERVICE.fullmatch(args.service):
-        raise SystemExit("service name contains unsupported characters")
-    token = os.environ.get("ORDIVON_BEARER_TOKEN")
-    if not token:
-        raise SystemExit("ORDIVON_BEARER_TOKEN is required")
-    stamp = int(time.time() * 1_000)
-    nonce = uuid.uuid4().hex[:12]
-    task_token = f"live-restart-recovery-{stamp}-{nonce}"
-    state_root = Path(
-        args.state_root
-        or tempfile.mkdtemp(prefix=f"ordivon-host-restart-{stamp}-", dir="/tmp")
+    token = load_scenario_token()
+    identity = ScenarioIdentity.create("live-restart-recovery")
+    task_token = identity.token
+    state_root = scenario_state_root(
+        args.state_root, prefix="restart", identity=identity
     )
-    state_root.mkdir(parents=True, exist_ok=True)
     plan = GuardedMutationPlan(
         task_id=f"task:{task_token}",
         goal_id=f"goal:{task_token}",
         workspace_id=f"host-{task_token}",
         source_repo=args.source_repo,
         source_revision=args.source_revision,
-        relative_path=f"host-h6-restart-proof-{stamp}.txt",
+        relative_path=f"host-h6-restart-proof-{identity.stamp_ms}.txt",
         content=args.content,
     )
 
-    def clock() -> int:
-        return int(time.time() * 1_000)
-
-    def client(label: str) -> McpRuntimeClient:
-        return McpRuntimeClient(
-            args.endpoint,
-            token,
-            client_name=f"ordivon-host-h6-restart-{label}",
-            client_version="0.0.1",
-        )
+    factory = RuntimeClientFactory(
+        args.endpoint, token, "ordivon-host-h6-restart"
+    )
+    client = factory.client
+    clock = scenario_clock_ms
 
     completed = False
     lossy: DropFirstSuccessfulExecResponse | None = None
@@ -114,16 +97,12 @@ def main() -> None:
         if unknown.state is not TaskState.WAITING or not lossy.response_dropped:
             raise AssertionError("mutation did not persist UNKNOWN before restart")
 
-        before = _service_state(args.service)
+        before = service_state(args.service)
         restart_started = time.perf_counter()
-        subprocess.run(
-            ["/usr/bin/systemctl", "restart", args.service],
-            check=True,
-            stdout=subprocess.DEVNULL,
-        )
-        _wait_runtime(args.service, args.endpoint, token)
+        restart_runtime(args.service)
+        wait_runtime_ready(args.service, factory)
         restart_elapsed_ms = int(round((time.perf_counter() - restart_started) * 1_000))
-        after = _service_state(args.service)
+        after = service_state(args.service)
 
         reconciliation: list[dict[str, JsonValue]] = []
         reconciled = None
@@ -158,8 +137,8 @@ def main() -> None:
             ).close(plan.task_id)
 
         audit = client("audit")
-        jobs = _jobs_for_request(audit, prepared.dispatch.client_request_id)
-        workspace_closed = _workspace_absent(audit, plan.workspace_id)
+        jobs = jobs_for_request(audit, prepared.dispatch.client_request_id)
+        workspace_closed = workspace_absent(audit, plan.workspace_id)
         with HostStorage(state_root) as storage:
             projection = storage.journal.get_task(plan.task_id)
             if projection is None:
@@ -211,13 +190,8 @@ def main() -> None:
                 "checks": checks,
                 "stateRoot": str(state_root) if args.keep_state else None,
             }
-            receipt["integrity"] = {
-                "algorithm": "sha256",
-                "canonicalization": "ordivon-canonical-json-v1",
-                "payloadDigest": canonical_digest(receipt),
-            }
             completed = True
-            print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+            emit_receipt(receipt)
     finally:
         if not completed:
             try:
@@ -231,68 +205,7 @@ def main() -> None:
                 )
             except (RuntimeToolRejected, RuntimeTransportError):
                 pass
-        if not args.keep_state:
-            shutil.rmtree(state_root, ignore_errors=True)
-
-
-def _service_state(service: str) -> dict[str, JsonValue]:
-    output = subprocess.run(
-        [
-            "/usr/bin/systemctl",
-            "show",
-            service,
-            "-p",
-            "MainPID",
-            "-p",
-            "ActiveState",
-            "-p",
-            "SubState",
-            "-p",
-            "ExecMainStartTimestampMonotonic",
-        ],
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-    ).stdout
-    values = dict(line.split("=", 1) for line in output.splitlines() if "=" in line)
-    return {
-        "mainPid": int(values.get("MainPID", "0")),
-        "activeState": values.get("ActiveState", ""),
-        "subState": values.get("SubState", ""),
-        "startTimestampMonotonic": values.get(
-            "ExecMainStartTimestampMonotonic", ""
-        ),
-    }
-
-
-def _wait_runtime(service: str, endpoint: str, token: str) -> None:
-    deadline = time.monotonic() + 20
-    last_error: Exception | None = None
-    while time.monotonic() < deadline:
-        active = (
-            subprocess.run(
-                ["/usr/bin/systemctl", "is-active", "--quiet", service],
-                check=False,
-            ).returncode
-            == 0
-        )
-        if active:
-            probe = McpRuntimeClient(
-                endpoint,
-                token,
-                timeout_seconds=1.0,
-                client_name="ordivon-h6-restart-readiness",
-                client_version="0.0.1",
-            )
-            try:
-                probe.initialize()
-                return
-            except (RuntimeTransportError, RuntimeProtocolError) as error:
-                last_error = error
-        time.sleep(0.05)
-    raise RuntimeError(
-        f"Runtime did not become MCP-ready: {service}: {last_error}"
-    )
+        cleanup_state_root(state_root, keep=args.keep_state)
 
 
 if __name__ == "__main__":

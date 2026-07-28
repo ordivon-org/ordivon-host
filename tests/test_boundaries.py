@@ -53,3 +53,15 @@ class HostBoundaryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class DurableObjectCodecTests(unittest.TestCase):
+    def test_workload_plan_rejects_unknown_schema_version_explicitly(self) -> None:
+        from ordivon_host.engine.code_change import CodeChangePlan
+        from ordivon_host.objects import UnsupportedObjectVersion
+
+        value = {
+            "schemaVersion": 99,
+            "kind": "ordivon.host-code-change-plan",
+        }
+        with self.assertRaises(UnsupportedObjectVersion):
+            CodeChangePlan.from_dict(value)

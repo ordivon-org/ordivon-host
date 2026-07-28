@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import stat
 import uuid
 
 from anc_canonical import JsonValue, canonical_bytes, canonical_digest, loads_strict
@@ -31,6 +32,48 @@ class StoredObject:
             raise ValueError("object kind must be non-empty and trimmed")
         if self.byte_length < 0:
             raise ValueError("object byte length must be non-negative")
+
+
+@dataclass(frozen=True, slots=True)
+class ObjectFileIdentity:
+    device: int
+    inode: int
+    byte_length: int
+    modified_at_ns: int
+    changed_at_ns: int
+    mode: int
+
+    def __post_init__(self) -> None:
+        if min(
+            self.device,
+            self.inode,
+            self.byte_length,
+            self.modified_at_ns,
+            self.changed_at_ns,
+            self.mode,
+        ) < 0:
+            raise ValueError("object file identity values must be non-negative")
+
+    @classmethod
+    def from_stat(cls, value: os.stat_result) -> ObjectFileIdentity:
+        return cls(
+            device=int(value.st_dev),
+            inode=int(value.st_ino),
+            byte_length=int(value.st_size),
+            modified_at_ns=int(value.st_mtime_ns),
+            changed_at_ns=int(value.st_ctime_ns),
+            mode=stat.S_IMODE(value.st_mode),
+        )
+
+    def to_sql(self) -> tuple[int, int, int, int, int, int]:
+        return (
+            self.device,
+            self.inode,
+            self.byte_length,
+            self.modified_at_ns,
+            self.changed_at_ns,
+            self.mode,
+        )
 
 
 class ContentAddressedStore:
@@ -73,7 +116,7 @@ class ContentAddressedStore:
         return StoredObject(digest, len(encoded), kind)
 
     def get(self, digest: str, *, expected_kind: str | None = None) -> JsonValue:
-        envelope, stored = self._load(digest)
+        envelope, stored, _ = self._load_with_identity(digest)
         if expected_kind is not None and stored.kind != expected_kind:
             raise ObjectCorrupt(
                 f"object kind is {stored.kind}, expected {expected_kind}"
@@ -81,20 +124,45 @@ class ContentAddressedStore:
         return envelope["payload"]
 
     def inspect(self, digest: str) -> StoredObject:
-        _, stored = self._load(digest)
+        _, stored, _ = self._load_with_identity(digest)
         return stored
+
+    def inspect_with_identity(
+        self, digest: str
+    ) -> tuple[StoredObject, ObjectFileIdentity]:
+        _, stored, identity = self._load_with_identity(digest)
+        return stored, identity
+
+    def identity(self, digest: str) -> ObjectFileIdentity:
+        path = self._path(digest)
+        try:
+            return ObjectFileIdentity.from_stat(path.stat())
+        except FileNotFoundError as error:
+            raise ObjectMissing(f"content-addressed object is missing: {digest}") from error
+        except OSError as error:
+            raise ObjectCorrupt(f"object metadata cannot be read: {digest}") from error
 
     def exists(self, digest: str) -> bool:
         return self._path(digest).exists()
 
-    def _load(self, digest: str) -> tuple[dict[str, JsonValue], StoredObject]:
+    def _load_with_identity(
+        self, digest: str
+    ) -> tuple[dict[str, JsonValue], StoredObject, ObjectFileIdentity]:
         path = self._path(digest)
-        if not path.exists():
-            raise ObjectMissing(f"content-addressed object is missing: {digest}")
         try:
-            encoded = path.read_bytes()
+            with path.open("rb") as handle:
+                before = ObjectFileIdentity.from_stat(os.fstat(handle.fileno()))
+                encoded = handle.read()
+                after = ObjectFileIdentity.from_stat(os.fstat(handle.fileno()))
+        except FileNotFoundError as error:
+            raise ObjectMissing(f"content-addressed object is missing: {digest}") from error
+        except OSError as error:
+            raise ObjectCorrupt(f"object cannot be read: {digest}") from error
+        if before != after or len(encoded) != after.byte_length:
+            raise ObjectCorrupt(f"object changed while being read: {digest}")
+        try:
             value = loads_strict(encoded)
-        except (OSError, ValueError) as error:
+        except ValueError as error:
             raise ObjectCorrupt(f"object cannot be decoded: {digest}") from error
         if canonical_digest(value) != digest:
             raise ObjectCorrupt("object content does not match its address")
@@ -110,7 +178,7 @@ class ContentAddressedStore:
             stored = StoredObject(digest, len(encoded), value["kind"])
         except ValueError as error:
             raise ObjectCorrupt("object envelope metadata is invalid") from error
-        return value, stored
+        return value, stored, after
 
     def _path(self, digest: str) -> Path:
         if (

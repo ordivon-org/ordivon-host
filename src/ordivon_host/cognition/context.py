@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 from math import ceil
+from typing import Any
+
+from ..objects.codecs import decode_versioned_object
 
 from anc_canonical import (
     JsonValue,
@@ -269,7 +272,16 @@ class CompiledContext:
         }
 
     @classmethod
-    def from_dict(cls, value: dict[str, object]) -> CompiledContext:
+    def from_dict(cls, value: dict[str, Any]) -> CompiledContext:
+        return decode_versioned_object(
+            value,
+            expected_kind="ordivon.compiled-context-envelope",
+            decoders={1: cls._from_dict_v1},
+            label="CompiledContext",
+        )
+
+    @classmethod
+    def _from_dict_v1(cls, value: dict[str, object]) -> CompiledContext:
         expected = {
             "schemaVersion",
             "kind",

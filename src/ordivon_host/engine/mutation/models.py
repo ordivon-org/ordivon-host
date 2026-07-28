@@ -8,6 +8,7 @@ from anc_canonical import JsonValue, canonical_digest, validate_json_value
 
 from ...domain import TaskState
 from ...objects import StoredObject
+from ...objects.codecs import decode_versioned_object
 from .._serde import validate_digest
 
 _PLAN_KIND = "ordivon.host-guarded-mutation-plan"
@@ -93,6 +94,15 @@ class GuardedMutationPlan:
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> GuardedMutationPlan:
+        return decode_versioned_object(
+            value,
+            expected_kind=_PLAN_KIND,
+            decoders={1: cls._from_dict_v1},
+            label="GuardedMutationPlan",
+        )
+
+    @classmethod
+    def _from_dict_v1(cls, value: dict[str, Any]) -> GuardedMutationPlan:
         expected = {
             "schemaVersion",
             "kind",

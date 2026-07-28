@@ -32,6 +32,7 @@ class EventKind(StrEnum):
     TASK_STATE_CHANGED = "task.state-changed"
     TASK_FRONTIER_CHANGED = "task.frontier-changed"
     COGNITION_CONTEXT_COMPILED = "cognition.context-compiled"
+    COGNITION_INVOCATION_PREPARED = "cognition.invocation-prepared"
     COGNITION_DECISION_ADMITTED = "cognition.decision-admitted"
     RUNTIME_LINKED = "runtime.linked"
     RUNTIME_DISPATCH_PREPARED = "runtime.dispatch-prepared"

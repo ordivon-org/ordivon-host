@@ -5,23 +5,20 @@ import argparse
 import base64
 from datetime import datetime, timezone
 import hashlib
-import json
-import os
-import re
-import subprocess
 import time
-import uuid
 from typing import Any
 
-from anc_canonical import JsonValue, canonical_digest
-from ordivon_host import McpRuntimeClient
-from ordivon_host.runtime import (
-    RuntimeProtocolError,
-    RuntimeToolRejected,
-    RuntimeTransportError,
+from anc_canonical import JsonValue
+from ordivon_host.runtime import RuntimeToolRejected, RuntimeTransportError
+from ordivon_host.testing import (
+    RuntimeClientFactory,
+    ScenarioIdentity,
+    emit_receipt,
+    load_scenario_token,
+    restart_runtime,
+    service_state,
+    wait_runtime_ready,
 )
-
-_SERVICE = re.compile(r"^[A-Za-z0-9_.@-]+$")
 
 
 def parse_args() -> argparse.Namespace:
@@ -38,30 +35,24 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    if not _SERVICE.fullmatch(args.service):
-        raise SystemExit("service name contains unsupported characters")
     if args.sleep_seconds <= 0 or args.sleep_seconds > 30:
         raise SystemExit("sleep-seconds must be in (0, 30]")
-    token = os.environ.get("ORDIVON_BEARER_TOKEN")
-    if not token:
-        raise SystemExit("ORDIVON_BEARER_TOKEN is required")
-    stamp = int(time.time() * 1_000)
-    nonce = uuid.uuid4().hex[:12]
+    token = load_scenario_token()
+    identity = ScenarioIdentity.create("h6-active-restart")
+    stamp = identity.stamp_ms
+    nonce = identity.nonce
     workspace_id = f"h6-active-restart-{stamp}-{nonce}"
     relative_path = f"h6-active-restart-{stamp}-{nonce}.txt"
     content = f"active Runtime Job survived restart at {stamp}\n"
     encoded = base64.b64encode(content.encode("utf-8")).decode("ascii")
     client_request_id = f"request:h6-active-restart:{stamp}:{nonce}"
 
-    def client(label: str) -> McpRuntimeClient:
-        value = McpRuntimeClient(
-            args.endpoint,
-            token,
-            client_name=f"ordivon-h6-active-restart-{label}",
-            client_version="0.0.1",
-        )
-        value.initialize()
-        return value
+    factory = RuntimeClientFactory(
+        args.endpoint, token, "ordivon-h6-active-restart"
+    )
+
+    def client(label: str):
+        return factory.client(label, initialize=True)
 
     cleanup = client("cleanup")
     closed = False
@@ -140,17 +131,13 @@ def main() -> None:
                 )
         if pre_restart is None:
             raise AssertionError("Job did not enter working before restart")
-        service_before = _service_state(args.service)
+        service_before = service_state(args.service)
         time.sleep(min(0.2, args.sleep_seconds / 8))
         restart_started = time.perf_counter()
-        subprocess.run(
-            ["/usr/bin/systemctl", "restart", args.service],
-            check=True,
-            stdout=subprocess.DEVNULL,
-        )
-        _wait_runtime(args.service, args.endpoint, token)
+        restart_runtime(args.service)
+        wait_runtime_ready(args.service, factory)
         restart_elapsed_ms = int(round((time.perf_counter() - restart_started) * 1_000))
-        service_after = _service_state(args.service)
+        service_after = service_state(args.service)
 
         statuses = [str(pre_restart.get("status"))]
         final: dict[str, Any] | None = None
@@ -237,12 +224,7 @@ def main() -> None:
             "observedContentDigest": read.get("digest"),
             "checks": checks,
         }
-        receipt["integrity"] = {
-            "algorithm": "sha256",
-            "canonicalization": "ordivon-canonical-json-v1",
-            "payloadDigest": canonical_digest(receipt),
-        }
-        print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+        emit_receipt(receipt)
     finally:
         if not closed:
             try:
@@ -256,66 +238,6 @@ def main() -> None:
 
 def _digest_text(value: str) -> str:
     return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-def _service_state(service: str) -> dict[str, JsonValue]:
-    output = subprocess.run(
-        [
-            "/usr/bin/systemctl",
-            "show",
-            service,
-            "-p",
-            "MainPID",
-            "-p",
-            "ActiveState",
-            "-p",
-            "SubState",
-            "-p",
-            "ExecMainStartTimestampMonotonic",
-        ],
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-    ).stdout
-    values = dict(line.split("=", 1) for line in output.splitlines() if "=" in line)
-    return {
-        "mainPid": int(values.get("MainPID", "0")),
-        "activeState": values.get("ActiveState", ""),
-        "subState": values.get("SubState", ""),
-        "startTimestampMonotonic": values.get(
-            "ExecMainStartTimestampMonotonic", ""
-        ),
-    }
-
-
-def _wait_runtime(service: str, endpoint: str, token: str) -> None:
-    deadline = time.monotonic() + 20
-    last_error: Exception | None = None
-    while time.monotonic() < deadline:
-        active = (
-            subprocess.run(
-                ["/usr/bin/systemctl", "is-active", "--quiet", service],
-                check=False,
-            ).returncode
-            == 0
-        )
-        if active:
-            probe = McpRuntimeClient(
-                endpoint,
-                token,
-                timeout_seconds=1.0,
-                client_name="ordivon-h6-restart-readiness",
-                client_version="0.0.1",
-            )
-            try:
-                probe.initialize()
-                return
-            except (RuntimeTransportError, RuntimeProtocolError) as error:
-                last_error = error
-        time.sleep(0.05)
-    raise RuntimeError(
-        f"Runtime did not become MCP-ready: {service}: {last_error}"
-    )
 
 
 if __name__ == "__main__":

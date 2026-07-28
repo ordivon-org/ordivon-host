@@ -1,0 +1,138 @@
+{
+  "capturedAt": "2026-07-27T18:58:53.807867+00:00",
+  "checks": {
+    "allTasksTerminal": true,
+    "doctorHealthy": true,
+    "eventCountExact": true,
+    "inspectionMatches": true,
+    "objectCountExact": true,
+    "taskCountExact": true,
+    "threeFreshProcessesOpened": true
+  },
+  "doctor": {
+    "checks": [
+      {
+        "detail": "('ok',)",
+        "name": "sqlite.quick_check",
+        "status": "ok"
+      },
+      {
+        "detail": "3",
+        "name": "journal.schema",
+        "status": "ok"
+      },
+      {
+        "detail": "valid",
+        "name": "journal.invariants",
+        "status": "ok"
+      },
+      {
+        "detail": "full=True, hashed=100000, cached=0",
+        "name": "cas.references",
+        "status": "ok"
+      },
+      {
+        "detail": "0",
+        "name": "cas.orphans",
+        "status": "ok"
+      },
+      {
+        "detail": "active=0, expired=0",
+        "name": "journal.leases",
+        "status": "ok"
+      }
+    ],
+    "healthy": true,
+    "stateRoot": "/tmp/ordivon-host-scale-a8fe5f64b78e-sg4w34__"
+  },
+  "fixture": {
+    "buildElapsedMs": 8327,
+    "events": 100000,
+    "eventsPerTask": 100,
+    "objectBytes": 37743000,
+    "objectFiles": 100000,
+    "objects": 100000,
+    "sqliteBytes": 42237952,
+    "stateRoot": null,
+    "tasks": 1000
+  },
+  "hostRevision": "24334a6bbef446910cffef6cc559221cb99438da",
+  "inspection": {
+    "events": 100000,
+    "leases": 0,
+    "migrations": [],
+    "objectRefs": 100000,
+    "schemaVersion": 3,
+    "startupValidation": {
+      "cachedObjects": 100000,
+      "full": false,
+      "hashedObjects": 0,
+      "taskHeads": 1000
+    },
+    "stateRoot": "/tmp/ordivon-host-scale-a8fe5f64b78e-sg4w34__",
+    "tasks": 1000,
+    "tasksByState": {
+      "completed": 1000
+    },
+    "terminalTasks": 1000,
+    "validatedObjects": 100000
+  },
+  "integrity": {
+    "algorithm": "sha256",
+    "canonicalization": "ordivon-canonical-json-v1",
+    "payloadDigest": "sha256:e59482011b577bc55c410131003e3157dcc139e6ac06aa74619168d642c17ab1"
+  },
+  "kind": "ordivon.host-scale-measurement",
+  "queries": {
+    "doctorElapsedMs": 10818,
+    "inspectElapsedMs": 1657,
+    "invariantElapsedMs": 37,
+    "listElapsedMs": 9,
+    "showElapsedMs": 0
+  },
+  "schemaVersion": 1,
+  "startup": {
+    "freshProcessRuns": [
+      {
+        "elapsedMs": 10244,
+        "eventCount": 100000,
+        "maxRssKiB": 65700,
+        "objectCount": 100000,
+        "taskCount": 1000,
+        "validation": {
+          "cachedObjects": 0,
+          "full": false,
+          "hashedObjects": 100000,
+          "taskHeads": 1000
+        }
+      },
+      {
+        "elapsedMs": 1706,
+        "eventCount": 100000,
+        "maxRssKiB": 65700,
+        "objectCount": 100000,
+        "taskCount": 1000,
+        "validation": {
+          "cachedObjects": 100000,
+          "full": false,
+          "hashedObjects": 0,
+          "taskHeads": 1000
+        }
+      },
+      {
+        "elapsedMs": 1483,
+        "eventCount": 100000,
+        "maxRssKiB": 65700,
+        "objectCount": 100000,
+        "taskCount": 1000,
+        "validation": {
+          "cachedObjects": 100000,
+          "full": false,
+          "hashedObjects": 0,
+          "taskHeads": 1000
+        }
+      }
+    ],
+    "inProcessOpenElapsedMs": 1540
+  }
+}

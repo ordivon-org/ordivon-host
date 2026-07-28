@@ -4,24 +4,26 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import hashlib
-import json
-import os
-from pathlib import Path
-import shutil
-import tempfile
-import time
-import uuid
 
-from anc_canonical import JsonValue, canonical_digest
-from live_guarded_mutation import _jobs_for_request, _workspace_absent
+from anc_canonical import JsonValue
 from ordivon_host import (
     GuardedMutationHost,
     GuardedMutationPlan,
     HostStorage,
-    McpRuntimeClient,
     TaskState,
 )
 from ordivon_host.runtime import RuntimeToolRejected, RuntimeTransportError
+from ordivon_host.testing import (
+    RuntimeClientFactory,
+    ScenarioIdentity,
+    cleanup_state_root,
+    emit_receipt,
+    jobs_for_request,
+    load_scenario_token,
+    scenario_clock_ms,
+    scenario_state_root,
+    workspace_absent,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -42,37 +44,27 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    token = os.environ.get("ORDIVON_BEARER_TOKEN")
-    if not token:
-        raise SystemExit("ORDIVON_BEARER_TOKEN is required")
-    stamp = int(time.time() * 1_000)
-    nonce = uuid.uuid4().hex[:12]
-    task_token = f"live-commit-gap-{stamp}-{nonce}"
-    state_root = Path(
-        args.state_root
-        or tempfile.mkdtemp(prefix=f"ordivon-host-commit-gap-{nonce}-", dir="/tmp")
+    token = load_scenario_token()
+    identity = ScenarioIdentity.create("live-commit-gap")
+    task_token = identity.token
+    state_root = scenario_state_root(
+        args.state_root, prefix="commit-gap", identity=identity
     )
-    state_root.mkdir(parents=True, exist_ok=True)
     plan = GuardedMutationPlan(
         task_id=f"task:{task_token}",
         goal_id=f"goal:{task_token}",
         workspace_id=f"host-{task_token}",
         source_repo=args.source_repo,
         source_revision=args.source_revision,
-        relative_path=f"host-h6-commit-gap-{nonce}.txt",
+        relative_path=f"host-h6-commit-gap-{identity.nonce}.txt",
         content=args.content,
     )
 
-    def clock() -> int:
-        return int(time.time() * 1_000)
-
-    def client(label: str) -> McpRuntimeClient:
-        return McpRuntimeClient(
-            args.endpoint,
-            token,
-            client_name=f"ordivon-host-h6-commit-gap-{label}",
-            client_version="0.0.1",
-        )
+    factory = RuntimeClientFactory(
+        args.endpoint, token, "ordivon-host-h6-commit-gap"
+    )
+    client = factory.client
+    clock = scenario_clock_ms
 
     completed = False
     try:
@@ -115,8 +107,8 @@ def main() -> None:
             ).close(plan.task_id)
 
         audit = client("audit")
-        jobs = _jobs_for_request(audit, prepared.dispatch.client_request_id)
-        workspace_closed = _workspace_absent(audit, plan.workspace_id)
+        jobs = jobs_for_request(audit, prepared.dispatch.client_request_id)
+        workspace_closed = workspace_absent(audit, plan.workspace_id)
         with HostStorage(state_root) as storage:
             projection = storage.journal.get_task(plan.task_id)
             if projection is None:
@@ -163,13 +155,8 @@ def main() -> None:
                 "checks": checks,
                 "stateRoot": str(state_root) if args.keep_state else None,
             }
-            receipt["integrity"] = {
-                "algorithm": "sha256",
-                "canonicalization": "ordivon-canonical-json-v1",
-                "payloadDigest": canonical_digest(receipt),
-            }
             completed = True
-            print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+            emit_receipt(receipt)
     finally:
         if not completed:
             try:
@@ -183,8 +170,7 @@ def main() -> None:
                 )
             except (RuntimeToolRejected, RuntimeTransportError):
                 pass
-        if not args.keep_state:
-            shutil.rmtree(state_root, ignore_errors=True)
+        cleanup_state_root(state_root, keep=args.keep_state)
 
 
 if __name__ == "__main__":

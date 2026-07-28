@@ -2,12 +2,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from anc_canonical import JsonValue
 
 from .domain import EventAdmission, EventKind, HostEvent, StreamKind, TaskProjection
 from .journal import HostJournal, JournalCorruption
-from .objects import ContentAddressedStore, ObjectCorrupt, StoredObject
+from .objects import (
+    ContentAddressedStore,
+    ObjectCorrupt,
+    ObjectFileIdentity,
+    StoredObject,
+)
 
 _EVENT_PAYLOAD_KIND = "ordivon.host-task-event"
 
@@ -20,14 +26,34 @@ class TaskEventSnapshot:
     payload_digest: str
 
 
+@dataclass(frozen=True, slots=True)
+class ReferenceValidation:
+    object_refs: int
+    cached_objects: int
+    hashed_objects: int
+    task_heads: int
+    full: bool
+
+
 class HostStorage:
-    def __init__(self, root: str | Path) -> None:
+    def __init__(
+        self,
+        root: str | Path,
+        *,
+        validation_mode: Literal["cached", "full"] = "cached",
+        update_validation_cache: bool = True,
+    ) -> None:
+        if validation_mode not in {"cached", "full"}:
+            raise ValueError("Host validation mode must be cached or full")
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self.objects = ContentAddressedStore(self.root / "objects")
         self.journal = HostJournal(self.root / "host.sqlite3")
         try:
-            self.validate_references()
+            self.validation_summary = self.validate_references(
+                full=validation_mode == "full",
+                update_cache=update_validation_cache,
+            )
         except BaseException:
             self.journal.close()
             raise
@@ -44,20 +70,62 @@ class HostStorage:
     def put_object(self, value: JsonValue, *, kind: str) -> StoredObject:
         return self.objects.put(value, kind=kind)
 
-    def validate_references(self) -> None:
-        for expected in self.journal.object_refs():
-            actual = self.objects.inspect(expected.digest)
+    def validate_references(
+        self,
+        *,
+        full: bool = False,
+        update_cache: bool = True,
+    ) -> ReferenceValidation:
+        cached_objects = 0
+        hashed_objects = 0
+        total_objects = 0
+        pending: list[tuple[str, ObjectFileIdentity]] = []
+        for row in self.journal.object_reference_validation_rows():
+            total_objects += 1
+            expected = StoredObject(
+                row["digest"], int(row["byte_length"]), row["kind"]
+            )
+            current_identity = self.objects.identity(expected.digest)
+            cached_identity = self._cached_identity(row)
+            if (
+                not full
+                and cached_identity is not None
+                and cached_identity == current_identity
+                and current_identity.byte_length == expected.byte_length
+            ):
+                cached_objects += 1
+                continue
+            actual, verified_identity = self.objects.inspect_with_identity(
+                expected.digest
+            )
             if actual != expected:
                 raise JournalCorruption(
                     f"CAS metadata differs from Host Journal: {expected.digest}"
                 )
-        for task_id in self.journal.task_ids():
+            if update_cache:
+                pending.append((expected.digest, verified_identity))
+            hashed_objects += 1
+            if update_cache and len(pending) >= 2_000:
+                self.journal.record_object_validations(tuple(pending))
+                pending.clear()
+        if update_cache:
+            self.journal.record_object_validations(tuple(pending))
+
+        task_ids = self.journal.task_ids()
+        for task_id in task_ids:
             materialized = self.journal.get_task(task_id)
             rebuilt = self.rebuild_task(task_id)
             if materialized != rebuilt:
                 raise JournalCorruption(
                     f"Task projection differs from event head: {task_id}"
                 )
+        return ReferenceValidation(
+            object_refs=total_objects,
+            cached_objects=cached_objects,
+            hashed_objects=hashed_objects,
+            task_heads=len(task_ids),
+            full=full,
+        )
 
     def read_task_event(self, task_id: str) -> TaskEventSnapshot:
         head = self.journal.get_task_head(task_id)
@@ -135,3 +203,20 @@ class HostStorage:
             payload_object=stored,
             referenced_objects=referenced_objects,
         )
+
+    @staticmethod
+    def _cached_identity(row: object) -> ObjectFileIdentity | None:
+        device = row["device"]  # type: ignore[index]
+        if device is None:
+            return None
+        try:
+            return ObjectFileIdentity(
+                device=int(device),
+                inode=int(row["inode"]),  # type: ignore[index]
+                byte_length=int(row["validated_byte_length"]),  # type: ignore[index]
+                modified_at_ns=int(row["modified_at_ns"]),  # type: ignore[index]
+                changed_at_ns=int(row["changed_at_ns"]),  # type: ignore[index]
+                mode=int(row["mode"]),  # type: ignore[index]
+            )
+        except (TypeError, ValueError, KeyError, IndexError) as error:
+            raise JournalCorruption("object validation cache row is invalid") from error

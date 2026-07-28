@@ -2,21 +2,23 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
-from pathlib import Path
-import shutil
-import tempfile
-import time
-import uuid
 
 from ordivon_host import (
     DeterministicReadHost,
     HostStorage,
-    McpRuntimeClient,
     ReadTaskPlan,
 )
 from ordivon_host.runtime import RuntimeToolRejected
+from ordivon_host.testing import (
+    RuntimeClientFactory,
+    ScenarioIdentity,
+    cleanup_state_root,
+    emit_receipt,
+    load_scenario_token,
+    scenario_clock_ms,
+    scenario_state_root,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -37,17 +39,12 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    token = os.environ.get("ORDIVON_BEARER_TOKEN")
-    if not token:
-        raise SystemExit("ORDIVON_BEARER_TOKEN is required")
-    stamp = int(time.time() * 1_000)
-    state_root = Path(
-        args.state_root
-        or tempfile.mkdtemp(prefix=f"ordivon-host-read-{stamp}-", dir="/tmp")
+    token = load_scenario_token()
+    identity = ScenarioIdentity.create("live-read")
+    state_root = scenario_state_root(
+        args.state_root, prefix="read", identity=identity
     )
-    state_root.mkdir(parents=True, exist_ok=True)
-    nonce = uuid.uuid4().hex[:12]
-    task_token = f"live-read-{stamp}-{nonce}"
+    task_token = identity.token
     plan = ReadTaskPlan(
         task_id=f"task:{task_token}",
         goal_id=f"goal:{task_token}",
@@ -56,14 +53,10 @@ def main() -> None:
         source_revision=args.source_revision,
         relative_path=args.relative_path,
     )
-    client = McpRuntimeClient(
-        args.endpoint,
-        token,
-        client_name="ordivon-host-live-read",
-        client_version="0.0.1",
-    )
-    def clock() -> int:
-        return int(time.time() * 1_000)
+    client = RuntimeClientFactory(
+        args.endpoint, token, "ordivon-host-live-read"
+    ).client("run")
+    clock = scenario_clock_ms
     completed = False
     try:
         with HostStorage(state_root) as storage:
@@ -137,7 +130,7 @@ def main() -> None:
                 "stateRoot": str(state_root) if args.keep_state else None,
             }
             completed = True
-            print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+            emit_receipt(receipt)
     finally:
         if not completed:
             try:
@@ -151,8 +144,7 @@ def main() -> None:
                 )
             except RuntimeToolRejected:
                 pass
-        if not args.keep_state:
-            shutil.rmtree(state_root, ignore_errors=True)
+        cleanup_state_root(state_root, keep=args.keep_state)
 
 
 if __name__ == "__main__":

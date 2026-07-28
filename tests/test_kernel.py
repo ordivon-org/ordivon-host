@@ -10,6 +10,7 @@ from ordivon_host.kernel import (
     HostKernelError,
     TaskFrontierMismatch,
     TaskRevisionMismatch,
+    worker_owner_id,
 )
 
 
@@ -27,6 +28,12 @@ def kernel(storage: HostStorage) -> HostKernel:
 
 
 class HostKernelTests(unittest.TestCase):
+    def test_default_worker_identity_is_instance_unique(self) -> None:
+        first = worker_owner_id("host:test-worker")
+        second = worker_owner_id("host:test-worker")
+        self.assertNotEqual(first, second)
+        self.assertTrue(first.startswith("host:test-worker:pid-"))
+
     def test_create_lock_commit_and_reopen(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             with HostStorage(directory) as storage:

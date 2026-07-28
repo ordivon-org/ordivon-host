@@ -1,0 +1,157 @@
+{
+  "capturedAt": "2026-07-27T18:16:20.912761+00:00",
+  "checks": {
+    "allStructuredStepsCompleted": true,
+    "diffContainsSourceAndTest": true,
+    "freshHostStoragePerStage": true,
+    "oneExecPlanInvocation": true,
+    "oneRuntimeJobForRequest": true,
+    "originalRuntimeJobRecovered": true,
+    "responseDroppedAfterExecPlanAdmission": true,
+    "runtimeWorkspaceClosed": true,
+    "taskCompleted": true,
+    "twoFilesVerified": true,
+    "unknownPersisted": true
+  },
+  "checksPlan": [
+    {
+      "args": [
+        "-m",
+        "ruff",
+        "check",
+        "src/ordivon_host/ops/inspect.py",
+        "tests/test_operations.py"
+      ],
+      "cwdRelative": ".",
+      "env": {},
+      "executable": "/root/.local/bin/python3.12",
+      "id": "ruff",
+      "timeoutMs": 120000
+    },
+    {
+      "args": [
+        "-m",
+        "unittest",
+        "tests.test_operations"
+      ],
+      "cwdRelative": ".",
+      "env": {
+        "PYTHONPATH": "/root/projects/ordivon-computing/packages/ordivon-protocol/src:src"
+      },
+      "executable": "/root/.local/bin/python3.12",
+      "id": "operations-tests",
+      "timeoutMs": 120000
+    }
+  ],
+  "clientRequestId": "request:code-change:live-code-change-1785176179830-7e97648586d7:r1",
+  "completedRevision": 7,
+  "diffObjectDigest": "sha256:2b8db20a5e04accd14a1b4ecd2294850a81d36e6674c32a5ce2089f9f50cca74",
+  "dispatchId": "dispatch:live-code-change-1785176179830-7e97648586d7:exec-plan:r1",
+  "files": [
+    {
+      "content": "from __future__ import annotations\n\nfrom pathlib import Path\n\nfrom ..domain import TaskProjection, TaskState\nfrom ..journal.migrations import migration_history, schema_version\nfrom ..storage import HostStorage\n\n\ndef list_tasks(\n    storage: HostStorage,\n    *,\n    state: TaskState | None = None,\n    limit: int = 100,\n) -> tuple[TaskProjection, ...]:\n    if limit < 1 or limit > 10_000:\n        raise ValueError(\"Task list limit must be in [1, 10000]\")\n    if state is None:\n        rows = storage.journal.connection.execute(\n            \"SELECT task_id FROM task_projection \"\n            \"ORDER BY updated_at_ms DESC, task_id LIMIT ?\",\n            (limit,),\n        ).fetchall()\n    else:\n        rows = storage.journal.connection.execute(\n            \"SELECT task_id FROM task_projection WHERE state = ? \"\n            \"ORDER BY updated_at_ms DESC, task_id LIMIT ?\",\n            (state.value, limit),\n        ).fetchall()\n    tasks = tuple(storage.journal.get_task(row[\"task_id\"]) for row in rows)\n    if any(task is None for task in tasks):\n        raise RuntimeError(\"Task disappeared during list projection\")\n    return tuple(task for task in tasks if task is not None)\n\n\ndef inspect_state(root: str | Path) -> dict[str, object]:\n    state_root = Path(root)\n    if not (state_root / \"host.sqlite3\").is_file():\n        raise FileNotFoundError(state_root / \"host.sqlite3\")\n    with HostStorage(state_root) as storage:\n        tasks = list_tasks(storage, limit=10_000)\n        states: dict[str, int] = {}\n        for task in tasks:\n            states[task.state.value] = states.get(task.state.value, 0) + 1\n        lease_count = storage.journal.connection.execute(\n            \"SELECT COUNT(*) FROM leases\"\n        ).fetchone()[0]\n        return {\n            \"schemaVersion\": schema_version(storage.journal.connection),\n            \"stateRoot\": str(state_root),\n            \"events\": storage.journal.event_count(),\n            \"objectRefs\": storage.journal.object_ref_count(),\n            \"tasks\": len(tasks),\n            \"terminalTasks\": sum(task.state.terminal for task in tasks),\n            \"tasksByState\": dict(sorted(states.items())),\n            \"leases\": int(lease_count),\n            \"migrations\": list(migration_history(storage.journal.connection)),\n        }\n",
+      "expectedDigest": "sha256:eb6bc3d354d747152d57e404fec2fa9e4b1b7fbff76233a142b45823c3aff820",
+      "relativePath": "src/ordivon_host/ops/inspect.py",
+      "resultDigest": "sha256:170847e6e59dd1eb0bdfbe36d5f58b94b6bcd9f357766542255c3d8d51ed386b"
+    },
+    {
+      "content": "from __future__ import annotations\n\nfrom pathlib import Path\nimport tempfile\nimport unittest\n\nfrom ordivon_host import EventKind, HostStorage, TaskProjection, TaskState\nfrom ordivon_host.ops import (\n    create_backup,\n    doctor_state,\n    inspect_state,\n    plan_gc,\n    restore_backup,\n    verify_backup,\n)\n\n\ndef populate(root: Path) -> None:\n    with HostStorage(root) as storage:\n        storage.record_task_event(\n            event_id=\"event:ops-create\",\n            kind=EventKind.TASK_CREATED,\n            payload={\"purpose\": \"operations-test\"},\n            projection=TaskProjection(\n                task_id=\"task:ops\",\n                goal_id=\"goal:ops\",\n                state=TaskState.READY,\n                active_node_id=None,\n                ready_frontier=(\"node:ops\",),\n                revision=1,\n                updated_at_ms=1,\n            ),\n            expected_revision=0,\n        )\n\n\nclass HostOperationsTests(unittest.TestCase):\n    def test_inspect_doctor_and_gc_plan(self) -> None:\n        with tempfile.TemporaryDirectory() as directory:\n            root = Path(directory) / \"state\"\n            populate(root)\n            inspection = inspect_state(root)\n            self.assertEqual(inspection[\"schemaVersion\"], 2)\n            self.assertEqual(inspection[\"tasks\"], 1)\n            self.assertEqual(inspection[\"terminalTasks\"], 0)\n            report = doctor_state(root, now_ms=10)\n            self.assertTrue(report[\"healthy\"])\n            orphan = root / \"objects\" / (\"f\" * 64 + \".json\")\n            orphan.write_text(\"{}\")\n            plan = plan_gc(root)\n            self.assertEqual(plan[\"orphanedObjects\"], [orphan.name])\n            self.assertFalse(plan[\"deleteAllowed\"])\n\n    def test_backup_verify_restore_round_trip(self) -> None:\n        with tempfile.TemporaryDirectory() as directory:\n            base = Path(directory)\n            source = base / \"source\"\n            backup = base / \"backup\"\n            restored = base / \"restored\"\n            populate(source)\n            manifest = create_backup(source, backup, created_at_ms=1_000)\n            self.assertEqual(manifest[\"hostJournalSchemaVersion\"], 2)\n            verified = verify_backup(backup)\n            self.assertEqual(verified[\"kind\"], \"ordivon.host-backup-manifest\")\n            result = restore_backup(backup, restored)\n            self.assertTrue(result[\"restored\"])\n            self.assertEqual(inspect_state(restored)[\"tasks\"], 1)\n\n    def test_replace_restore_preserves_previous_state(self) -> None:\n        with tempfile.TemporaryDirectory() as directory:\n            base = Path(directory)\n            source = base / \"source\"\n            backup = base / \"backup\"\n            target = base / \"target\"\n            populate(source)\n            create_backup(source, backup)\n            with HostStorage(target):\n                pass\n            result = restore_backup(backup, target, replace=True)\n            previous = result[\"previousRoot\"]\n            self.assertIsInstance(previous, str)\n            self.assertTrue(Path(previous).is_dir())\n            self.assertEqual(inspect_state(target)[\"tasks\"], 1)\n\n    def test_backup_tampering_is_rejected(self) -> None:\n        with tempfile.TemporaryDirectory() as directory:\n            base = Path(directory)\n            source = base / \"source\"\n            backup = base / \"backup\"\n            populate(source)\n            create_backup(source, backup)\n            (backup / \"host.sqlite3\").write_bytes(b\"forged\")\n            with self.assertRaises(ValueError):\n                verify_backup(backup)\n",
+      "expectedDigest": "sha256:470bc542fdd4fa505acad5b59b7cbec8e3229b31c6d32a90558e868c3e3c2781",
+      "relativePath": "tests/test_operations.py",
+      "resultDigest": "sha256:b64118ccc875f3a5e7d7336ec3edac4c03137a7bb8c169974250a01f2f49194a"
+    }
+  ],
+  "generatedDiff": {
+    "diff": "diff --git a/src/ordivon_host/ops/inspect.py b/src/ordivon_host/ops/inspect.py\nindex c8f4f73..b4e9710 100644\n--- a/src/ordivon_host/ops/inspect.py\n+++ b/src/ordivon_host/ops/inspect.py\n@@ -51,6 +51,7 @@ def inspect_state(root: str | Path) -> dict[str, object]:\n             \"events\": storage.journal.event_count(),\n             \"objectRefs\": storage.journal.object_ref_count(),\n             \"tasks\": len(tasks),\n+            \"terminalTasks\": sum(task.state.terminal for task in tasks),\n             \"tasksByState\": dict(sorted(states.items())),\n             \"leases\": int(lease_count),\n             \"migrations\": list(migration_history(storage.journal.connection)),\ndiff --git a/tests/test_operations.py b/tests/test_operations.py\nindex faa1e82..397f2e8 100644\n--- a/tests/test_operations.py\n+++ b/tests/test_operations.py\n@@ -42,6 +42,7 @@ class HostOperationsTests(unittest.TestCase):\n             inspection = inspect_state(root)\n             self.assertEqual(inspection[\"schemaVersion\"], 2)\n             self.assertEqual(inspection[\"tasks\"], 1)\n+            self.assertEqual(inspection[\"terminalTasks\"], 0)\n             report = doctor_state(root, now_ms=10)\n             self.assertTrue(report[\"healthy\"])\n             orphan = root / \"objects\" / (\"f\" * 64 + \".json\")\n",
+    "untrackedPaths": []
+  },
+  "goalId": "goal:live-code-change-1785176179830-7e97648586d7",
+  "hostEventCount": 7,
+  "hostRevision": "5076e6b42bcb65ddd9a3615e9215ebae18279ec9",
+  "integrity": {
+    "algorithm": "sha256",
+    "canonicalization": "ordivon-canonical-json-v1",
+    "payloadDigest": "sha256:26125c1cc624cf8c0b585dd08d057580dc21d13ffabb586a5f90665b84439fe9"
+  },
+  "kind": "ordivon.host-live-code-change",
+  "matchingRuntimeJobs": [
+    {
+      "artifactCount": 3,
+      "artifactsAvailable": true,
+      "attemptId": "attempt-019fa4ca-c582-7841-8d79-6c491f31ab73",
+      "clientRequestId": "request:code-change:live-code-change-1785176179830-7e97648586d7:r1",
+      "createdAtMs": 1785176180098,
+      "cwdRelative": ".",
+      "durationMs": 427,
+      "executableName": "python3.12",
+      "exitCode": 0,
+      "finishedAtMs": 1785176180664,
+      "jobId": "job-019fa4ca-c582-7841-8d79-6c3f2a8a47f0",
+      "resultAvailable": true,
+      "sourceRevision": "5076e6b42bcb65ddd9a3615e9215ebae18279ec9",
+      "startedAtMs": 1785176180237,
+      "status": "succeeded",
+      "workspaceId": "host-live-code-change-1785176179830-7e97648586d7"
+    }
+  ],
+  "objectRefCount": 18,
+  "openedRevision": 2,
+  "outcome": {
+    "clientRequestId": "request:code-change:live-code-change-1785176179830-7e97648586d7:r1",
+    "diffObjectDigest": "sha256:2b8db20a5e04accd14a1b4ecd2294850a81d36e6674c32a5ce2089f9f50cca74",
+    "dispatchId": "dispatch:live-code-change-1785176179830-7e97648586d7:exec-plan:r1",
+    "goalId": "goal:live-code-change-1785176179830-7e97648586d7",
+    "jobId": "job-019fa4ca-c582-7841-8d79-6c3f2a8a47f0",
+    "kind": "ordivon.code-change-task-outcome",
+    "schemaVersion": 1,
+    "sourceRevision": "5076e6b42bcb65ddd9a3615e9215ebae18279ec9",
+    "status": "completed",
+    "taskId": "task:live-code-change-1785176179830-7e97648586d7",
+    "verificationDigest": "sha256:841f317ce827d4883c37706bba59b72538fb1350e5e7b79b21dc26356222a5fa",
+    "workspaceClosed": true,
+    "workspaceId": "host-live-code-change-1785176179830-7e97648586d7"
+  },
+  "reconciliation": [
+    {
+      "jobId": "job-019fa4ca-c582-7841-8d79-6c3f2a8a47f0",
+      "revision": 5,
+      "state": "verifying"
+    }
+  ],
+  "runtimeJobId": "job-019fa4ca-c582-7841-8d79-6c3f2a8a47f0",
+  "schemaVersion": 1,
+  "sourceRepo": "/root/projects/ordivon-host",
+  "sourceRevision": "5076e6b42bcb65ddd9a3615e9215ebae18279ec9",
+  "stateRoot": null,
+  "taskId": "task:live-code-change-1785176179830-7e97648586d7",
+  "unknownRevision": 4,
+  "verification": {
+    "accepted": true,
+    "completedSteps": 3,
+    "diffDigest": "sha256:ab0099cf43a7bce838f6000b69f3fcaac1a7e8eb4e13b3aacead9d8ebc087401",
+    "dispatchId": "dispatch:live-code-change-1785176179830-7e97648586d7:exec-plan:r1",
+    "fileResults": [
+      {
+        "accepted": true,
+        "expectedDigest": "sha256:170847e6e59dd1eb0bdfbe36d5f58b94b6bcd9f357766542255c3d8d51ed386b",
+        "observedDigest": "sha256:170847e6e59dd1eb0bdfbe36d5f58b94b6bcd9f357766542255c3d8d51ed386b",
+        "relativePath": "src/ordivon_host/ops/inspect.py",
+        "runtimeDigest": "sha256:170847e6e59dd1eb0bdfbe36d5f58b94b6bcd9f357766542255c3d8d51ed386b"
+      },
+      {
+        "accepted": true,
+        "expectedDigest": "sha256:b64118ccc875f3a5e7d7336ec3edac4c03137a7bb8c169974250a01f2f49194a",
+        "observedDigest": "sha256:b64118ccc875f3a5e7d7336ec3edac4c03137a7bb8c169974250a01f2f49194a",
+        "relativePath": "tests/test_operations.py",
+        "runtimeDigest": "sha256:b64118ccc875f3a5e7d7336ec3edac4c03137a7bb8c169974250a01f2f49194a"
+      }
+    ],
+    "jobId": "job-019fa4ca-c582-7841-8d79-6c3f2a8a47f0",
+    "kind": "ordivon.code-change-verification-receipt",
+    "schemaVersion": 1,
+    "totalSteps": 3
+  },
+  "verificationDigest": "sha256:841f317ce827d4883c37706bba59b72538fb1350e5e7b79b21dc26356222a5fa",
+  "verifiedRevision": 6,
+  "workspaceId": "host-live-code-change-1785176179830-7e97648586d7"
+}

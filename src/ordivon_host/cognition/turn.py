@@ -8,10 +8,15 @@ from anc_canonical import JsonValue
 
 from ..domain import EventKind, TaskProjection, TaskState
 from ..journal import JournalCorruption
-from ..kernel import HostKernel
+from ..kernel import HostKernel, worker_owner_id
 from ..objects import ObjectCorrupt, StoredObject
 from ..storage import HostStorage
-from .adapters import ModelAdapter
+from ..providers import (
+    ModelGateway,
+    ModelInvocationIntent,
+    ModelInvocationObservation,
+    ModelInvocationReceipt,
+)
 from .context import CognitionRequest, CompiledContext, ContextCompiler
 from .decision import DecisionAdmission, ModelDecision
 
@@ -68,10 +73,22 @@ class PreparedCognition:
 
 
 @dataclass(frozen=True, slots=True)
+class PreparedInvocation:
+    prepared: PreparedCognition
+    task_revision: int
+    intent_object: StoredObject
+    intent: ModelInvocationIntent
+
+
+@dataclass(frozen=True, slots=True)
 class CognitionTurnReceipt:
     task_id: str
     revision: int
     adapter_id: str
+    invocation_id: str
+    invocation_intent_digest: str
+    invocation_observation_digest: str
+    invocation_receipt_digest: str
     context_digest: str
     context_object_digest: str
     decision_object_digest: str
@@ -86,6 +103,10 @@ class CognitionTurnReceipt:
             "taskId": self.task_id,
             "revision": self.revision,
             "adapterId": self.adapter_id,
+            "invocationId": self.invocation_id,
+            "invocationIntentDigest": self.invocation_intent_digest,
+            "invocationObservationDigest": self.invocation_observation_digest,
+            "invocationReceiptDigest": self.invocation_receipt_digest,
             "contextDigest": self.context_digest,
             "contextObjectDigest": self.context_object_digest,
             "decisionObjectDigest": self.decision_object_digest,
@@ -101,16 +122,18 @@ class CognitionTurnHost:
         storage: HostStorage,
         *,
         clock_ms: Callable[[], int],
-        owner_id: str = "host:cognition-v0",
+        owner_id: str | None = None,
         lease_ttl_ms: int = 30_000,
     ) -> None:
-        if not owner_id or lease_ttl_ms < 1:
-            raise ValueError("Cognition Host owner and lease TTL are required")
+        if owner_id is not None and (not owner_id or owner_id != owner_id.strip()):
+            raise ValueError("explicit Host owner identity must be trimmed")
+        if lease_ttl_ms < 1:
+            raise ValueError("Cognition Host lease TTL must be positive")
         self.storage = storage
         self.kernel = HostKernel(
             storage,
             clock_ms=clock_ms,
-            owner_id=owner_id,
+            owner_id=owner_id or worker_owner_id("host:cognition-v1"),
             lease_ttl_ms=lease_ttl_ms,
         )
         self.compiler = ContextCompiler()
@@ -180,28 +203,52 @@ class CognitionTurnHost:
     def decide(
         self,
         prepared: PreparedCognition,
-        adapter: ModelAdapter,
+        gateway: ModelGateway,
         *,
         state_reader: Callable[[], AdmissionState],
     ) -> CognitionTurnReceipt:
-        decision = adapter.decide(prepared.context)
-        return self.admit_decision(
-            prepared,
+        gateway_id = getattr(gateway, "gateway_id", None) or getattr(
+            gateway, "adapter_id", None
+        )
+        if not isinstance(gateway_id, str) or not gateway_id:
+            raise ValueError("model gateway identity is required")
+        invocation = self.prepare_invocation(prepared, gateway_id=gateway_id)
+        invoke = getattr(gateway, "invoke", None) or getattr(gateway, "decide", None)
+        if invoke is None:
+            raise TypeError("model gateway has no invoke method")
+        decision = invoke(prepared.context)
+        evidence_reader = getattr(gateway, "evidence_metadata", None)
+        evidence = evidence_reader() if evidence_reader is not None else None
+        if evidence is None:
+            evidence = {}
+        if not isinstance(evidence, dict):
+            raise CognitionTurnError("model gateway evidence must be an object")
+        return self._admit_invocation(
+            invocation,
             decision,
-            adapter_id=adapter.adapter_id,
+            evidence=evidence,
             state_reader=state_reader,
         )
 
-    def admit_decision(
+    def prepare_invocation(
         self,
         prepared: PreparedCognition,
-        decision: ModelDecision,
         *,
-        adapter_id: str,
-        state_reader: Callable[[], AdmissionState],
-    ) -> CognitionTurnReceipt:
-        if not adapter_id or adapter_id != adapter_id.strip():
-            raise ValueError("Cognition adapter identity is required")
+        gateway_id: str,
+    ) -> PreparedInvocation:
+        if not gateway_id or gateway_id != gateway_id.strip():
+            raise ValueError("model gateway identity is required")
+        snapshot = self.storage.read_task_event(prepared.task_id)
+        if snapshot.event_kind is EventKind.COGNITION_INVOCATION_PREPARED:
+            existing = self._load_invocation_snapshot(prepared.task_id, snapshot)
+            if (
+                existing.prepared.context.digest != prepared.context.digest
+                or existing.intent.gateway_id != gateway_id
+            ):
+                raise CognitionSuperseded(
+                    "another model invocation is already prepared at this frontier"
+                )
+            return existing
         with self.kernel.locked_task(
             prepared.task_id,
             expected_revision=prepared.task_revision,
@@ -216,7 +263,89 @@ class CognitionTurnHost:
                 or latest.context.digest != prepared.context.digest
                 or latest.context_object.digest != prepared.context_object.digest
             ):
-                raise CognitionSuperseded("prepared Context was replaced before admission")
+                raise CognitionSuperseded("prepared Context changed before invocation")
+            invocation_id = (
+                f"invocation:{prepared.task_id.removeprefix('task:')}:"
+                f"context-r{prepared.task_revision}"
+            )
+            intent = ModelInvocationIntent(
+                invocation_id=invocation_id,
+                task_id=prepared.task_id,
+                context_digest=prepared.context.digest,
+                context_object_digest=prepared.context_object.digest,
+                gateway_id=gateway_id,
+            )
+            intent_object = self.storage.put_object(
+                intent.to_dict(), kind="model-invocation-intent"
+            )
+            projection = locked.commit(
+                event_id=self._event_id(
+                    prepared.task_id,
+                    "invocation",
+                    locked.projection.revision + 1,
+                ),
+                kind=EventKind.COGNITION_INVOCATION_PREPARED,
+                payload={
+                    "decisionNodeId": prepared.decision_node_id,
+                    "contextDigest": prepared.context.digest,
+                    "contextObjectDigest": prepared.context_object.digest,
+                    "invocationId": invocation_id,
+                    "gatewayId": gateway_id,
+                    "intentObjectDigest": intent_object.digest,
+                },
+                state=TaskState.WAITING,
+                frontier=(prepared.decision_node_id,),
+                referenced_objects=(prepared.context_object, intent_object),
+            ).projection
+        return PreparedInvocation(
+            prepared=prepared,
+            task_revision=projection.revision,
+            intent_object=intent_object,
+            intent=intent,
+        )
+
+    def load_invocation(self, task_id: str) -> PreparedInvocation:
+        snapshot = self.storage.read_task_event(task_id)
+        if snapshot.event_kind is not EventKind.COGNITION_INVOCATION_PREPARED:
+            raise CognitionTurnError("Task head is not a prepared model invocation")
+        return self._load_invocation_snapshot(task_id, snapshot)
+
+    def admit_decision(
+        self,
+        prepared: PreparedCognition,
+        decision: ModelDecision,
+        *,
+        adapter_id: str,
+        state_reader: Callable[[], AdmissionState],
+    ) -> CognitionTurnReceipt:
+        invocation = self.prepare_invocation(prepared, gateway_id=adapter_id)
+        return self._admit_invocation(
+            invocation,
+            decision,
+            evidence={"externalDecision": True},
+            state_reader=state_reader,
+        )
+
+    def _admit_invocation(
+        self,
+        invocation: PreparedInvocation,
+        decision: ModelDecision,
+        *,
+        evidence: dict[str, JsonValue],
+        state_reader: Callable[[], AdmissionState],
+    ) -> CognitionTurnReceipt:
+        prepared = invocation.prepared
+        with self.kernel.locked_task(
+            prepared.task_id,
+            expected_revision=invocation.task_revision,
+            expected_state=TaskState.WAITING,
+            expected_frontier=(prepared.decision_node_id,),
+            label="Cognition",
+            error_factory=self._kernel_error,
+        ) as locked:
+            latest = self._load_invocation_snapshot(prepared.task_id, locked.snapshot)
+            if latest.intent != invocation.intent:
+                raise CognitionSuperseded("model invocation changed before admission")
             state = state_reader()
             admitted = self.admission.admit(
                 prepared.context,
@@ -228,8 +357,26 @@ class CognitionTurnHost:
             decision_object = self.storage.put_object(
                 decision.to_dict(), kind="model-decision"
             )
+            observation = ModelInvocationObservation(
+                invocation_id=invocation.intent.invocation_id,
+                gateway_id=invocation.intent.gateway_id,
+                decision_object_digest=decision_object.digest,
+                evidence=evidence,
+            )
+            observation_object = self.storage.put_object(
+                observation.to_dict(), kind="model-invocation-observation"
+            )
             admission_object = self.storage.put_object(
                 admitted.to_dict(), kind="admitted-decision"
+            )
+            invocation_receipt = ModelInvocationReceipt(
+                invocation_id=invocation.intent.invocation_id,
+                intent_object_digest=invocation.intent_object.digest,
+                observation_object_digest=observation_object.digest,
+                admission_object_digest=admission_object.digest,
+            )
+            invocation_receipt_object = self.storage.put_object(
+                invocation_receipt.to_dict(), kind="model-invocation-receipt"
             )
             selected_node_id = self._selected_node(
                 prepared.task_id, admitted.action.action_id
@@ -245,23 +392,35 @@ class CognitionTurnHost:
                     "decisionNodeId": prepared.decision_node_id,
                     "selectedNodeId": selected_node_id,
                     "selectedActionId": admitted.action.action_id,
-                    "adapterId": adapter_id,
+                    "adapterId": invocation.intent.gateway_id,
+                    "invocationId": invocation.intent.invocation_id,
+                    "intentObjectDigest": invocation.intent_object.digest,
+                    "observationObjectDigest": observation_object.digest,
+                    "invocationReceiptDigest": invocation_receipt_object.digest,
                     "contextDigest": prepared.context.digest,
                     "contextObjectDigest": prepared.context_object.digest,
                     "decisionObjectDigest": decision_object.digest,
                     "admissionObjectDigest": admission_object.digest,
                 },
+                state=TaskState.READY,
                 frontier=(selected_node_id,),
                 referenced_objects=(
                     prepared.context_object,
+                    invocation.intent_object,
                     decision_object,
+                    observation_object,
                     admission_object,
+                    invocation_receipt_object,
                 ),
             ).projection
             return CognitionTurnReceipt(
                 task_id=prepared.task_id,
                 revision=projection.revision,
-                adapter_id=adapter_id,
+                adapter_id=invocation.intent.gateway_id,
+                invocation_id=invocation.intent.invocation_id,
+                invocation_intent_digest=invocation.intent_object.digest,
+                invocation_observation_digest=observation_object.digest,
+                invocation_receipt_digest=invocation_receipt_object.digest,
                 context_digest=prepared.context.digest,
                 context_object_digest=prepared.context_object.digest,
                 decision_object_digest=decision_object.digest,
@@ -269,6 +428,70 @@ class CognitionTurnHost:
                 selected_action_id=admitted.action.action_id,
                 selected_node_id=selected_node_id,
             )
+
+    def _load_invocation_snapshot(
+        self,
+        task_id: str,
+        snapshot,
+    ) -> PreparedInvocation:
+        data = snapshot.data
+        if not isinstance(data, dict):
+            raise JournalCorruption("model invocation event data must be an object")
+        object_digest = data.get("intentObjectDigest")
+        if not isinstance(object_digest, str):
+            raise JournalCorruption("model invocation intent digest is invalid")
+        value = self.storage.objects.get(
+            object_digest, expected_kind="model-invocation-intent"
+        )
+        if not isinstance(value, dict) or set(value) != {
+            "schemaVersion",
+            "kind",
+            "invocationId",
+            "taskId",
+            "contextDigest",
+            "contextObjectDigest",
+            "gatewayId",
+        }:
+            raise ObjectCorrupt("model invocation intent fields differ")
+        try:
+            intent = ModelInvocationIntent(
+                invocation_id=str(value["invocationId"]),
+                task_id=str(value["taskId"]),
+                context_digest=str(value["contextDigest"]),
+                context_object_digest=str(value["contextObjectDigest"]),
+                gateway_id=str(value["gatewayId"]),
+            )
+        except ValueError as error:
+            raise ObjectCorrupt("model invocation intent is invalid") from error
+        context_value = self.storage.objects.get(
+            intent.context_object_digest, expected_kind="compiled-context"
+        )
+        if not isinstance(context_value, dict):
+            raise ObjectCorrupt("model invocation Context must be an envelope")
+        try:
+            context = CompiledContext.from_dict(context_value)
+        except ValueError as error:
+            raise ObjectCorrupt("model invocation Context is invalid") from error
+        decision_node_id = data.get("decisionNodeId")
+        if (
+            intent.task_id != task_id
+            or context.digest != intent.context_digest
+            or not isinstance(decision_node_id, str)
+        ):
+            raise JournalCorruption("model invocation identities differ")
+        prepared = PreparedCognition(
+            task_id=task_id,
+            task_revision=snapshot.projection.revision - 1,
+            decision_node_id=decision_node_id,
+            context_object=self.storage.objects.inspect(intent.context_object_digest),
+            context=context,
+        )
+        return PreparedInvocation(
+            prepared=prepared,
+            task_revision=snapshot.projection.revision,
+            intent_object=self.storage.objects.inspect(object_digest),
+            intent=intent,
+        )
 
     def _load_prepared_snapshot(
         self,

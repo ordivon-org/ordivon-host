@@ -78,7 +78,7 @@ class McpRuntimeClientTests(unittest.TestCase):
         scripts = [
             lambda request: json_response(
                 request,
-                {"serverInfo": {"name": "ordivon-runtime-mcp", "version": "1"}},
+                {"protocolVersion": "2025-06-18", "serverInfo": {"name": "ordivon-runtime-mcp", "version": "1"}},
             ),
             lambda request: json_response(
                 request,
@@ -107,7 +107,7 @@ class McpRuntimeClientTests(unittest.TestCase):
                 {
                     "jsonrpc": "2.0",
                     "id": request["id"],
-                    "result": {"serverInfo": {"name": "runtime"}},
+                    "result": {"protocolVersion": "2025-06-18", "serverInfo": {"name": "runtime"}},
                 }
             )
             return Response(200, "text/event-stream", f"event: message\ndata: {message}\n\n".encode())
@@ -121,7 +121,7 @@ class McpRuntimeClientTests(unittest.TestCase):
             return Response(
                 200,
                 "application/json",
-                b'{"jsonrpc":"2.0","id":999,"result":{"serverInfo":{}}}',
+                b'{"jsonrpc":"2.0","id":999,"result":{"protocolVersion":"2025-06-18","serverInfo":{}}}',
             )
 
         with scripted_server([respond]) as (endpoint, _, _):
@@ -160,6 +160,30 @@ class McpRuntimeClientTests(unittest.TestCase):
         self.assertEqual(detail.field, "workspaceId")
         self.assertFalse(detail.retryable)
 
+    def test_protocol_version_mismatch_fails_closed(self) -> None:
+        with scripted_server([
+            lambda request: json_response(
+                request,
+                {"protocolVersion": "2024-11-05", "serverInfo": {"name": "runtime"}},
+            )
+        ]) as (endpoint, _, _):
+            with self.assertRaisesRegex(RuntimeProtocolError, "another MCP"):
+                McpRuntimeClient(endpoint, "secret").initialize()
+
+    def test_multiple_sse_messages_are_outside_stateless_profile(self) -> None:
+        def respond(request: dict[str, Any]) -> Response:
+            one = json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": {}})
+            two = json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": {}})
+            return Response(
+                200,
+                "text/event-stream",
+                f"data: {one}\n\ndata: {two}\n\n".encode(),
+            )
+
+        with scripted_server([respond]) as (endpoint, _, _):
+            with self.assertRaisesRegex(RuntimeProtocolError, "exactly one"):
+                McpRuntimeClient(endpoint, "secret").initialize()
+
     def test_http_failure_is_transport_error(self) -> None:
         def respond(_: dict[str, Any]) -> Response:
             return Response(503, "text/plain", b"offline")
@@ -172,7 +196,7 @@ class McpRuntimeClientTests(unittest.TestCase):
         def respond(request: dict[str, Any]) -> Response:
             return json_response(
                 request,
-                {"serverInfo": {"name": "x" * 100}},
+                {"protocolVersion": "2025-06-18", "serverInfo": {"name": "x" * 100}},
             )
 
         with scripted_server([respond]) as (endpoint, _, _):

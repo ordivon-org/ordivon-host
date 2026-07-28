@@ -10,16 +10,20 @@ This repository was extracted with Git history from `ordivon-computing/incubatio
 
 Current proven vertical slices:
 
-- deterministic Runtime read with independent digest verification;
-- persistent multi-candidate cognition with deterministic admission;
-- guarded mutation with durable Dispatch identity and conservative UNKNOWN reconciliation;
-- recovery across fresh Host processes and local Runtime control-plane restarts.
+- logical RepositoryRef-based Runtime read with Authority and independent digest verification;
+- persistent multi-candidate cognition with durable Model Invocation and deterministic admission;
+- guarded mutation with durable Dispatch identity, conservative UNKNOWN reconciliation, and persisted terminal failure;
+- logical RepositoryRef → Computing SourceChange Effect → CapabilityDecision → EffectBinding → Runtime Dispatch;
+- durable two-file source change through structured Runtime checks and exact structured diff verification;
+- conservative one-shot recovery assessment that never redispatches an uncertain Effect;
+- recovery across fresh Host processes and local Runtime control-plane restarts;
+- schema-v3 operational state, backup/restore, optional full-history Doctor, and measured 100,000-event behavior.
 
-See `ARCHITECTURE.md`, `CLOSURE.md`, and `evidence/` for exact boundaries and receipts.
+See `ARCHITECTURE.md`, `CLOSURE.md`, `docs/PRE_H7_CLOSURE.md`, `docs/P0_P1_ALIGNMENT.md`, `docs/P2_P3_EXPLORATION.md`, and `evidence/` for exact boundaries and receipts.
 
 ## Development
 
-Python 3.12 is required. The authoritative `ordivon-protocol` package remains in `ordivon-computing` and is pinned to an exact Git revision by `pyproject.toml`.
+Python 3.12 is required. The authoritative `ordivon-protocol` 0.2.0 package remains in `ordivon-computing` and is pinned to the exact unified Protocol revision by `pyproject.toml`.
 
 ```bash
 python3.12 -m venv .venv
@@ -29,6 +33,21 @@ python -m unittest discover -s tests
 ```
 
 Live scripts require a reachable Ordivon Runtime and are not part of default CI.
+
+## Operations
+
+After installation, the `ordivon-host` command provides state initialization, inspection, Task queries, Doctor checks, backup verification and restore, and read-only CAS garbage-collection planning:
+
+```bash
+ordivon-host --state-root /var/lib/ordivon/host init
+ordivon-host --state-root /var/lib/ordivon/host doctor
+ordivon-host --state-root /var/lib/ordivon/host doctor --history
+ordivon-host --state-root /var/lib/ordivon/host task assess TASK_ID
+ordivon-host --state-root /var/lib/ordivon/host task reconcile TASK_ID
+ordivon-host --state-root /var/lib/ordivon/host inspect
+```
+
+See `docs/OPERATIONS.md` for the schema migration, configuration, secret-loading, backup, and restore contracts.
 
 ## Repository layout
 

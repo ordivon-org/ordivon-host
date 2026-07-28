@@ -212,7 +212,7 @@ class CognitionTurnTests(unittest.TestCase):
                     LeaseProbeAdapter(directory),
                     state_reader=admission_state,
                 )
-                self.assertEqual(receipt.revision, 3)
+                self.assertEqual(receipt.revision, 4)
                 self.assertEqual(
                     receipt.selected_action_id,
                     "action:observe-original",
@@ -229,11 +229,14 @@ class CognitionTurnTests(unittest.TestCase):
                 self.assertTrue(
                     {
                         "compiled-context",
+                        "model-invocation-intent",
+                        "model-invocation-observation",
+                        "model-invocation-receipt",
                         "model-decision",
                         "admitted-decision",
                     }.issubset(kinds)
                 )
-                self.assertEqual(storage.journal.event_count(TASK_ID), 3)
+                self.assertEqual(storage.journal.event_count(TASK_ID), 4)
                 self.assertEqual(prepared.context.digest, receipt.context_digest)
 
     def test_provider_failure_leaves_prepared_context_as_task_head(self) -> None:
@@ -255,9 +258,14 @@ class CognitionTurnTests(unittest.TestCase):
                 current = storage.journal.get_task(TASK_ID)
                 self.assertIsNotNone(current)
                 assert current is not None
-                self.assertEqual(current.revision, 2)
+                self.assertEqual(current.revision, 3)
+                self.assertEqual(current.state, TaskState.WAITING)
                 self.assertEqual(current.ready_frontier, (DECISION_NODE,))
-                self.assertEqual(storage.journal.event_count(TASK_ID), 2)
+                self.assertEqual(storage.journal.event_count(TASK_ID), 3)
+                self.assertEqual(
+                    storage.read_task_event(TASK_ID).event_kind,
+                    EventKind.COGNITION_INVOCATION_PREPARED,
+                )
 
     def test_context_is_superseded_if_task_advances_during_model_call(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -269,7 +277,7 @@ class CognitionTurnTests(unittest.TestCase):
                     request=cognition_request(),
                     token_budget=4_000,
                 )
-                with self.assertRaisesRegex(CognitionSuperseded, "revision is 3"):
+                with self.assertRaisesRegex(CognitionSuperseded, "revision is 4"):
                     host(storage).decide(
                         prepared,
                         AdvancingAdapter(directory),
@@ -278,7 +286,7 @@ class CognitionTurnTests(unittest.TestCase):
                 current = storage.journal.get_task(TASK_ID)
                 self.assertIsNotNone(current)
                 assert current is not None
-                self.assertEqual(current.revision, 3)
+                self.assertEqual(current.revision, 4)
                 kinds = [value.kind for value in storage.journal.object_refs()]
                 self.assertNotIn("model-decision", kinds)
                 self.assertNotIn("admitted-decision", kinds)

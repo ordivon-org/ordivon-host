@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "kind": "ordivon.host-protocol-closeout-evidence",
+  "date": "2026-07-28",
+  "computing": {
+    "revision": "fb213ceac5c326e79b53a3122e320b976869e1af",
+    "protocolVersion": "0.2.0",
+    "protocolWheel": {
+      "filename": "ordivon_protocol-0.2.0-py3-none-any.whl",
+      "sha256": "f76f48842343d0664b5d8d18a6f4782986650c82410944ecdfbbcb6163b83843"
+    },
+    "tests": {
+      "protocolPackage": 9,
+      "externalSemanticContract": 41,
+      "semanticCore": 100,
+      "taskContinuation": 20,
+      "hostIncubator": 77,
+      "rustCanonicalVectors": 5
+    }
+  },
+  "host": {
+    "baseRevision": "61876406a871086c6ffc23fb479909c698e724bd",
+    "protocolPin": "fb213ceac5c326e79b53a3122e320b976869e1af",
+    "hostWheel": {
+      "filename": "ordivon_host-0.1.0-py3-none-any.whl",
+      "sha256": "7776cbc2bb0f5040b5cec25d7a207b9e9fa60e9a471fb2bda4febdb59e9049d2"
+    },
+    "tests": 133,
+    "installedWheelSmoke": true,
+    "cliSmoke": true
+  },
+  "delivery": {
+    "pushed": false,
+    "pullRequestCreated": false,
+    "merged": false,
+    "deployed": false
+  }
+}

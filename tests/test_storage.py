@@ -229,6 +229,8 @@ class HostStorageTests(unittest.TestCase):
                 first = storage.journal.acquire_lease(
                     "task:journal-test", owner_id="host:a", now_ms=10, ttl_ms=100
                 )
+                self.assertEqual(storage.journal.lease_records(), (first,))
+                self.assertEqual(storage.journal.quick_check(), ("ok",))
                 with self.assertRaises(LeaseHeld):
                     storage.journal.acquire_lease(
                         "task:journal-test", owner_id="host:b", now_ms=20, ttl_ms=100
@@ -282,6 +284,60 @@ class HostStorageTests(unittest.TestCase):
                 path.write_text('{"value":2}')
                 with self.assertRaises(ObjectCorrupt):
                     storage.objects.get(stored.digest)
+
+    def test_validation_cache_skips_unchanged_historical_object_hashes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with HostStorage(directory) as storage:
+                storage.record_task_event(
+                    event_id="event:create",
+                    kind=EventKind.TASK_CREATED,
+                    payload={"revision": 1},
+                    projection=projection(1),
+                    expected_revision=0,
+                )
+            with HostStorage(directory) as first_reopen:
+                self.assertEqual(first_reopen.validation_summary.hashed_objects, 1)
+                self.assertEqual(first_reopen.validation_summary.cached_objects, 0)
+                self.assertEqual(first_reopen.journal.object_validation_count(), 1)
+            with HostStorage(directory) as second_reopen:
+                self.assertEqual(second_reopen.validation_summary.hashed_objects, 0)
+                self.assertEqual(second_reopen.validation_summary.cached_objects, 1)
+                self.assertEqual(second_reopen.validation_summary.task_heads, 1)
+
+    def test_full_validation_rehashes_cached_objects(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with HostStorage(directory) as storage:
+                storage.record_task_event(
+                    event_id="event:create",
+                    kind=EventKind.TASK_CREATED,
+                    payload={"revision": 1},
+                    projection=projection(1),
+                    expected_revision=0,
+                )
+            with HostStorage(directory):
+                pass
+            with HostStorage(directory, validation_mode="full") as full:
+                self.assertTrue(full.validation_summary.full)
+                self.assertEqual(full.validation_summary.hashed_objects, 1)
+                self.assertEqual(full.validation_summary.cached_objects, 0)
+
+    def test_cached_object_metadata_change_forces_hash_and_rejects_tampering(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with HostStorage(directory) as storage:
+                storage.record_task_event(
+                    event_id="event:create",
+                    kind=EventKind.TASK_CREATED,
+                    payload={"revision": 1},
+                    projection=projection(1),
+                    expected_revision=0,
+                )
+                digest = storage.journal.object_refs()[0].digest
+            with HostStorage(directory):
+                pass
+            path = Path(directory) / "objects" / f"{digest[7:]}.json"
+            path.write_text('{"forged":true}')
+            with self.assertRaises(ObjectCorrupt):
+                HostStorage(directory)
 
     def test_separate_process_recovers_projection_without_session_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

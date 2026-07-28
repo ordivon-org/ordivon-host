@@ -7,7 +7,7 @@ from pathlib import Path
 import sqlite3
 from typing import Iterator
 
-from . import _schema
+from .migrations import SchemaMigrationError, initialize_schema
 from ..domain import (
     EventAdmission,
     EventKind,
@@ -16,7 +16,7 @@ from ..domain import (
     TaskProjection,
     TaskState,
 )
-from ..objects import StoredObject
+from ..objects import ObjectFileIdentity, StoredObject
 
 
 class HostJournalError(RuntimeError):
@@ -70,8 +70,10 @@ class HostJournal:
             self.connection.execute("PRAGMA busy_timeout = 5000")
             self.connection.execute("PRAGMA journal_mode = WAL")
             self.connection.execute("PRAGMA synchronous = FULL")
-            self.connection.executescript(_schema.SCHEMA)
-            self._validate_schema_version()
+            try:
+                initialize_schema(self.connection, self.path)
+            except SchemaMigrationError as error:
+                raise JournalCorruption(str(error)) from error
             self.validate_invariants()
         except BaseException:
             self.connection.close()
@@ -247,6 +249,59 @@ class HostJournal:
             for row in rows
         )
 
+    def object_reference_validation_rows(self) -> sqlite3.Cursor:
+        return self.connection.execute(
+            "SELECT r.digest, r.byte_length, r.kind, "
+            "v.device, v.inode, v.byte_length AS validated_byte_length, "
+            "v.modified_at_ns, v.changed_at_ns, v.mode "
+            "FROM object_refs r LEFT JOIN object_validation v ON v.digest = r.digest "
+            "ORDER BY r.digest"
+        )
+
+    def record_object_validations(
+        self,
+        values: tuple[tuple[str, ObjectFileIdentity], ...],
+    ) -> None:
+        if not values:
+            return
+        with self._transaction():
+            self.connection.executemany(
+                "INSERT INTO object_validation("
+                "digest, device, inode, byte_length, modified_at_ns, changed_at_ns, mode"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(digest) DO UPDATE SET "
+                "device = excluded.device, inode = excluded.inode, "
+                "byte_length = excluded.byte_length, "
+                "modified_at_ns = excluded.modified_at_ns, "
+                "changed_at_ns = excluded.changed_at_ns, mode = excluded.mode",
+                (
+                    (digest, *identity.to_sql())
+                    for digest, identity in values
+                ),
+            )
+
+    def object_validation_count(self) -> int:
+        row = self.connection.execute(
+            "SELECT COUNT(*) AS count FROM object_validation"
+        ).fetchone()
+        return int(row["count"])
+
+    def quick_check(self) -> tuple[str, ...]:
+        rows = self.connection.execute("PRAGMA quick_check").fetchall()
+        return tuple(str(row[0]) for row in rows)
+
+    def task_count(self) -> int:
+        row = self.connection.execute(
+            "SELECT COUNT(*) AS count FROM task_projection"
+        ).fetchone()
+        return int(row["count"])
+
+    def task_counts_by_state(self) -> dict[str, int]:
+        rows = self.connection.execute(
+            "SELECT state, COUNT(*) AS count FROM task_projection GROUP BY state ORDER BY state"
+        ).fetchall()
+        return {str(row["state"]): int(row["count"]) for row in rows}
+
     def task_ids(self) -> tuple[str, ...]:
         rows = self.connection.execute(
             "SELECT task_id FROM task_projection ORDER BY task_id"
@@ -271,6 +326,21 @@ class HostJournal:
             )
         except (TypeError, ValueError) as error:
             raise JournalCorruption(f"Task event head is invalid: {task_id}") from error
+
+    def lease_records(self) -> tuple[LeaseRecord, ...]:
+        rows = self.connection.execute(
+            "SELECT task_id, owner_id, revision, expires_at_ms "
+            "FROM leases ORDER BY task_id"
+        ).fetchall()
+        return tuple(
+            LeaseRecord(
+                task_id=row["task_id"],
+                owner_id=row["owner_id"],
+                revision=int(row["revision"]),
+                expires_at_ms=int(row["expires_at_ms"]),
+            )
+            for row in rows
+        )
 
     def acquire_lease(
         self,
@@ -351,6 +421,16 @@ class HostJournal:
                 f"event stream kind differs from stream: {kind_mismatch['event_id']}"
             )
 
+        missing_projection = self.connection.execute(
+            "SELECT s.stream_id FROM streams s LEFT JOIN task_projection p "
+            "ON p.task_id = s.stream_id "
+            "WHERE s.stream_kind = 'task' AND p.task_id IS NULL LIMIT 1"
+        ).fetchone()
+        if missing_projection is not None:
+            raise JournalCorruption(
+                f"Task stream has no projection: {missing_projection['stream_id']}"
+            )
+
         projection_mismatch = self.connection.execute(
             "SELECT p.task_id FROM task_projection p JOIN streams s ON s.stream_id = p.task_id "
             "WHERE s.stream_kind != 'task' OR s.revision != p.revision LIMIT 1"
@@ -364,13 +444,6 @@ class HostJournal:
             "SELECT task_id FROM task_projection ORDER BY task_id"
         ):
             self.get_task(row["task_id"])
-
-    def _validate_schema_version(self) -> None:
-        row = self.connection.execute(
-            "SELECT value FROM host_metadata WHERE key = 'schema_version'"
-        ).fetchone()
-        if row is None or row["value"] != "1":
-            raise JournalCorruption("unsupported Host Journal schema version")
 
     def _admit_object(self, value: StoredObject, first_seen_at_ms: int) -> None:
         existing = self.connection.execute(

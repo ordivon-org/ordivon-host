@@ -1,3 +1,15 @@
+from .code_change import (
+    CodeChangeDispatch,
+    CodeChangeError,
+    CodeChangeHost,
+    CodeChangePlan,
+    CodeChangeStep,
+    CodeChangeSuperseded,
+    CodeChangeVerificationError,
+    CodeFileReplacement,
+    ExecutionCheck,
+    PreparedCodeChange,
+)
 from .mutation import (
     DispatchIntent,
     GuardedMutationHost,
@@ -18,15 +30,25 @@ from .read_task import (
 )
 
 __all__ = [
+    "CodeChangeDispatch",
+    "CodeChangeError",
+    "CodeChangeHost",
+    "CodeChangePlan",
+    "CodeChangeStep",
+    "CodeChangeSuperseded",
+    "CodeChangeVerificationError",
+    "CodeFileReplacement",
+    "DeterministicReadHost",
     "DispatchIntent",
+    "ExecutionCheck",
     "GuardedMutationHost",
     "GuardedMutationPlan",
     "MutationStep",
     "MutationSuperseded",
     "MutationTaskError",
     "MutationVerificationError",
+    "PreparedCodeChange",
     "PreparedMutation",
-    "DeterministicReadHost",
     "ReadObservation",
     "ReadTaskPlan",
     "ReadTaskStep",

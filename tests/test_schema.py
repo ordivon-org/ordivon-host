@@ -28,7 +28,7 @@ def create_task(directory: str) -> None:
 
 
 class HostSchemaTests(unittest.TestCase):
-    def test_graph_and_recovery_tables_exist_without_second_journal(self) -> None:
+    def test_owned_tables_exist_without_second_journal(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             with HostStorage(directory) as storage:
                 names = {
@@ -42,15 +42,27 @@ class HostSchemaTests(unittest.TestCase):
                         "events",
                         "streams",
                         "task_projection",
-                        "task_nodes",
-                        "task_edges",
-                        "runtime_links",
-                        "wakeups",
                         "leases",
                         "object_refs",
+                        "object_validation",
+                        "schema_migrations",
                     }.issubset(names)
                 )
+                self.assertTrue(
+                    {"task_nodes", "task_edges", "runtime_links", "wakeups"}.isdisjoint(names)
+                )
                 self.assertNotIn("semantic_journal", names)
+
+    def test_task_stream_without_projection_is_detected_on_reopen(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            create_task(directory)
+            connection = sqlite3.connect(f"{directory}/host.sqlite3")
+            connection.execute("PRAGMA foreign_keys = OFF")
+            connection.execute("DELETE FROM task_projection")
+            connection.commit()
+            connection.close()
+            with self.assertRaisesRegex(JournalCorruption, "no projection"):
+                HostStorage(directory)
 
     def test_projection_tampering_is_detected_on_reopen(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
