@@ -211,6 +211,9 @@ class TaskReconciler:
 
 
 def _workload(storage: HostStorage, snapshot: TaskEventSnapshot) -> str:
+    descriptor = storage.read_task_descriptor(snapshot.projection.task_id)
+    if descriptor is not None:
+        return descriptor.workload_id
     if snapshot.event_kind.value.startswith("cognition."):
         return "cognition"
     if not isinstance(snapshot.data, dict):
