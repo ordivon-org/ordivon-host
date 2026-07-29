@@ -1,23 +1,32 @@
 # Ordivon Host
 
-Persistent Agent Host control plane for Ordivon.
+Persistent coordination and commitment plane for Ordivon.
 
-Ordivon Host owns durable goals, tasks, Host events and projections, bounded cognition contexts, candidate admission, Effect proposals, Runtime Dispatch identities, verification receipts, and task outcomes. It treats model sessions and Runtime processes as replaceable execution dependencies rather than owners of task continuity.
+Ordivon Host owns durable Goals, Tasks, Host events and projections, bounded cognition Contexts, proposal compilation or admission, Effect commitments, Runtime Dispatch identities, verification receipts, participant-routed decisions, and Task outcomes. It treats model sessions and Runtime processes as replaceable dependencies rather than owners of work continuity.
+
+The Host controls durable work and external commitment lifecycles. It does not own model intelligence, domain-world truth, physical execution, or a permanent hierarchy among participants.
 
 ## Status
 
-This repository was extracted with Git history from `ordivon-computing/incubation/host-v0` after the H2-H6 architectural gates passed. It is an independently versioned engineering prototype, not yet a general production workflow engine or multi-Agent scheduler.
+This repository was extracted with Git history from `ordivon-computing/incubation/host-v0` after the H2-H6 architectural gates passed. It is an independently versioned engineering prototype, not yet a general production workflow engine, policy platform, or multi-Agent scheduler.
 
 Current proven vertical slices:
 
 - logical RepositoryRef-based Runtime read with Authority and independent digest verification;
-- persistent multi-candidate cognition with durable Model Invocation and deterministic admission;
+- closed-choice deterministic cognition with two to eight exact CandidateActions;
+- open ActionProposal cognition with no prebuilt action menu, durable Model Invocation, Host-owned lowering, and structured rejection;
+- explicit `owner_trusted` and `public_bounded` capability profiles, with consequence admission remaining separate from physical reach;
+- participant-aware DecisionRequest generation for shared, foreign-owned, or non-reversible proposals;
+- a live Codex proposal lowered into one verified Runtime repository read across fresh Host state opens;
 - guarded mutation with durable Dispatch identity, conservative UNKNOWN reconciliation, and persisted terminal failure;
 - logical RepositoryRef → Computing SourceChange Effect → CapabilityDecision → EffectBinding → Runtime Dispatch;
 - durable two-file source change through structured Runtime checks and exact structured diff verification;
 - conservative one-shot recovery assessment that never redispatches an uncertain Effect;
+- MCP Session lifecycle support without persisting transport sessions as Task truth;
 - recovery across fresh Host processes and local Runtime control-plane restarts;
 - schema-v3 operational state, backup/restore, optional full-history Doctor, and measured 100,000-event behavior.
+
+The closed-choice path remains a useful deterministic and closed-domain profile. It is no longer treated as the only possible cognition interface. See `docs/H_SERIES_OPEN_PROPOSAL.md` for the first open-proposal boundary.
 
 See `ARCHITECTURE.md`, `CLOSURE.md`, `docs/PRE_H7_CLOSURE.md`, `docs/P0_P1_ALIGNMENT.md`, `docs/P2_P3_EXPLORATION.md`, and `evidence/` for exact boundaries and receipts.
 

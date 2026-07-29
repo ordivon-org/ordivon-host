@@ -1,0 +1,68 @@
+{
+  "closedChoiceBaseline": {
+    "acceptedOutcome": true,
+    "byteLength": 2747,
+    "candidateCount": 3,
+    "estimatedTokens": 687,
+    "sourceEvidence": "evidence/live-cognition-cf9e2d02-20260727T013411z.json"
+  },
+  "comparison": {
+    "contextByteReductionBasisPoints": 4579,
+    "contextEstimatedTokenReductionBasisPoints": 4570,
+    "hostAdmissionIsNotProviderBottleneck": true,
+    "openPathAddedAcceptedUnenumeratedAction": true
+  },
+  "decision": {
+    "addGenericPlannerOrPolicyPlatform": false,
+    "promoteToSharedProtocol": false,
+    "retainClosedChoiceProfile": true,
+    "retainOpenProposalAsBoundedHostLocalProfile": true
+  },
+  "integrity": {
+    "algorithm": "sha256",
+    "canonicalization": "ordivon-canonical-json-v1",
+    "payloadDigest": "sha256:02112d72c60829bb07fa723081b0bd7ca80d5e9f57e29ccf41acaca0c028f629"
+  },
+  "kind": "ordivon.host-h-series-open-proposal-cost-benefit",
+  "limitations": [
+    "Closed-choice Provider token usage was not retained for the Codex baseline.",
+    "The historical 1611-token figure belongs to Hermes and is not comparable with the current Codex Harness.",
+    "Codex inputTokens include provider and Harness overhead beyond the 373-token estimated Host Context.",
+    "One repository-read workload does not justify Protocol promotion or universal open planning."
+  ],
+  "openProposal": {
+    "acceptedOutcome": true,
+    "byteLength": 1489,
+    "contextPrepareElapsedMs": 1,
+    "estimatedTokens": 373,
+    "hasActionMenu": false,
+    "proposalAdmissionElapsedMs": 4,
+    "providerElapsedMs": 20839,
+    "providerInputTokens": 15944,
+    "providerOutputTokens": 378,
+    "runtimeStepElapsedMs": [
+      78,
+      7,
+      108
+    ],
+    "sourceEvidence": "evidence/host-live-open-proposal-20260729.json"
+  },
+  "rejectionAndResponsibilityEvidence": {
+    "decisionRequestDoesNotDispatch": true,
+    "deterministicTests": "tests/test_open_proposal.py",
+    "sharedOrForeignConsequenceCreatesDecisionRequest": true,
+    "structuredRejections": [
+      "wrong_context",
+      "wrong_task",
+      "wrong_profile",
+      "unknown_resource",
+      "stale_resource",
+      "unsupported_intent",
+      "unsupported_method",
+      "unsupported_selector",
+      "invalid_selector",
+      "capability_denied"
+    ]
+  },
+  "schemaVersion": 1
+}

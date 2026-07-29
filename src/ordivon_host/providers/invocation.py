@@ -72,6 +72,36 @@ class ModelInvocationObservation:
 
 
 @dataclass(frozen=True, slots=True)
+class ModelInvocationOutputObservation:
+    invocation_id: str
+    gateway_id: str
+    output_kind: str
+    output_object_digest: str
+    evidence: dict[str, JsonValue]
+
+    def __post_init__(self) -> None:
+        if not self.invocation_id.startswith("invocation:"):
+            raise ValueError("model invocation output identity is invalid")
+        if not self.gateway_id or self.gateway_id != self.gateway_id.strip():
+            raise ValueError("model invocation output gateway is required")
+        if not self.output_kind or self.output_kind != self.output_kind.strip():
+            raise ValueError("model invocation output kind is required")
+        _digest(self.output_object_digest)
+        validate_json_value(self.evidence)
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return {
+            "schemaVersion": 1,
+            "kind": "ordivon.model-invocation-output-observation",
+            "invocationId": self.invocation_id,
+            "gatewayId": self.gateway_id,
+            "outputKind": self.output_kind,
+            "outputObjectDigest": self.output_object_digest,
+            "evidence": self.evidence,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ModelInvocationReceipt:
     invocation_id: str
     intent_object_digest: str

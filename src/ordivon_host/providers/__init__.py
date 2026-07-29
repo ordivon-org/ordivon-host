@@ -20,11 +20,13 @@ __all__ = [
     "ScriptedPreferenceAdapter",
     "ModelInvocationIntent",
     "ModelInvocationObservation",
+    "ModelInvocationOutputObservation",
     "ModelInvocationReceipt",
 ]
 
 from .invocation import (
     ModelInvocationIntent,
     ModelInvocationObservation,
+    ModelInvocationOutputObservation,
     ModelInvocationReceipt,
 )

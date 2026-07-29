@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ordivon-host"
 version = "0.1.0"
-description = "Persistent Agent Host control plane for Ordivon."
+description = "Persistent Agent coordination and commitment plane for Ordivon."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = { file = "LICENSE" }
