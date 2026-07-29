@@ -19,6 +19,13 @@ from .context import (
     block_from_payload,
     estimate_tokens,
 )
+from .decision_request import (
+    DecisionRequestLifecycle,
+    DecisionResponse,
+    DecisionResponseKind,
+    EvidenceItem,
+    EvidenceRichDecisionRequest,
+)
 from .decision import (
     AdmittedDecision,
     DecisionAdmission,
@@ -40,12 +47,27 @@ from .proposal import (
     ResourceBinding,
     Reversibility,
 )
+from .mutation_proposal import (
+    LoweredMutationProposal,
+    MutationProposalResolution,
+    RepositoryMutationProposalCompiler,
+)
 from .proposal_adapters import CodexCliProposalAdapter, ProposalAdapterError
 from .proposal_turn import (
     OpenProposalHost,
     OpenProposalReceipt,
     ProposalGateway,
     ScriptedProposalGateway,
+)
+from .provenance import (
+    ClaimStatus,
+    ContextInvalidationState,
+    ContextSourceBinding,
+    SelectionMethod,
+    SourceValidity,
+    TrustClass,
+    evaluate_source,
+    provenance_block,
 )
 from .turn import (
     AdmissionState,
@@ -58,6 +80,22 @@ from .turn import (
 
 __all__ = [
     "ActionProposal",
+    "ClaimStatus",
+    "ContextInvalidationState",
+    "ContextSourceBinding",
+    "DecisionRequestLifecycle",
+    "DecisionResponse",
+    "DecisionResponseKind",
+    "EvidenceItem",
+    "EvidenceRichDecisionRequest",
+    "LoweredMutationProposal",
+    "MutationProposalResolution",
+    "RepositoryMutationProposalCompiler",
+    "SelectionMethod",
+    "SourceValidity",
+    "TrustClass",
+    "evaluate_source",
+    "provenance_block",
     "AdmissionState",
     "AdmittedDecision",
     "BlockKind",

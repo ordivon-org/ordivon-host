@@ -168,10 +168,25 @@ This slice does not create:
 - automatic lowering for mutation, network, finance, security, or Game actions;
 - a promoted Protocol object.
 
-DecisionRequest response semantics remain deliberately unimplemented. Approval of shared or irreversible consequences requires a concrete participant-commitment model and a second workload; inventing it inside the repository-read slice would be premature.
+The default repository-read `OpenProposalHost` still stops at a persisted DecisionRequest and does not consume a response. Round 1 adds a Host-local immutable response lifecycle for experiments and products, but integrating it into this read-only path remains unjustified without a consequential second workload.
 
 ## Promotion and deletion rule
 
 The open path earns broader use only if additional real workloads show more accepted outcomes or less human interruption without weakening evidence and recovery.
 
 If it merely adds ambiguity, token cost, or duplicated workload code, retain the closed-choice profile and delete the generalization.
+
+## Round 1 research extensions
+
+The core work-system comparison adds three Host-local extensions without
+broadening the default open-proposal execution path:
+
+- source-bound Context provenance and explicit invalidation;
+- an evidence-rich, expiring, revocable DecisionRequest lifecycle;
+- a bounded repository mutation proposal compiler that reuses
+  `GuardedMutationHost` but is not registered in `OpenProposalHost`.
+
+A compact operator handoff projection exposes UNKNOWN work as
+`reconcile-existing-dispatch`. These extensions remain product and experiment
+objects. Promotion requires evidence beyond revision-filtered retrieval, static
+consequence policy, idempotency/audit, and durable workflow state.
