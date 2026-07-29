@@ -37,6 +37,7 @@ from .engine import (
     ReadTaskPlan,
     ReadTaskStep,
 )
+from .handoff import OperatorHandoffCapsule, operator_handoff
 from .journal import HostJournal, LeaseHeld, RevisionConflict
 from .kernel import (
     HostKernel,
@@ -102,6 +103,7 @@ __all__ = [
     "McpRuntimeClient",
     "MutationStep",
     "ObservationEnvelope",
+    "OperatorHandoffCapsule",
     "OwnershipRule",
     "PreparedCodeChange",
     "PreparedMutation",
@@ -131,6 +133,7 @@ __all__ = [
     "discover_execution_runtime_catalog",
     "load_config",
     "owner_of",
+    "operator_handoff",
     "RecoveryAction",
     "RecoveryAssessment",
     "RecoveryResult",
