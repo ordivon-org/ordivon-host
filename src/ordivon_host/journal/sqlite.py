@@ -308,6 +308,21 @@ class HostJournal:
         ).fetchall()
         return tuple(row["task_id"] for row in rows)
 
+    def tasks_for_goal(self, goal_id: str) -> tuple[TaskProjection, ...]:
+        if not goal_id.startswith("goal:") or goal_id != goal_id.strip():
+            raise ValueError("Goal identity must start with goal:")
+        rows = self.connection.execute(
+            "SELECT task_id FROM task_projection WHERE goal_id = ? ORDER BY task_id",
+            (goal_id,),
+        ).fetchall()
+        tasks: list[TaskProjection] = []
+        for row in rows:
+            task = self.get_task(row["task_id"])
+            if task is None:  # pragma: no cover - same table query
+                raise JournalCorruption("Goal query returned a missing Task")
+            tasks.append(task)
+        return tuple(tasks)
+
     def get_task_head(self, task_id: str) -> TaskHead | None:
         row = self.connection.execute(
             "SELECT e.stream_id, e.event_kind, e.payload_digest, e.stream_revision "

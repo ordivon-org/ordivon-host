@@ -23,16 +23,19 @@ Current proven vertical slices:
 - durable two-file source change through structured Runtime checks and exact structured diff verification;
 - conservative one-shot recovery assessment that never redispatches an uncertain Effect;
 - MCP Session lifecycle support without persisting transport sessions as Task truth;
+- executor-neutral Dispatch / Observation / Verification lifecycle with a Runtime adapter;
+- immutable TaskDescriptor identity and Goal-scoped Task revision snapshots;
+- idempotent per-Task application of one joint VerificationReceipt with multiple result items;
 - recovery across fresh Host processes and local Runtime control-plane restarts;
 - schema-v3 operational state, backup/restore, optional full-history Doctor, and measured 100,000-event behavior.
 
 The closed-choice path remains a useful deterministic and closed-domain profile. It is no longer treated as the only possible cognition interface. See `docs/H_SERIES_OPEN_PROPOSAL.md` for the first open-proposal boundary.
 
-See `ARCHITECTURE.md`, `CLOSURE.md`, `docs/PRE_H7_CLOSURE.md`, `docs/P0_P1_ALIGNMENT.md`, `docs/P2_P3_EXPLORATION.md`, and `evidence/` for exact boundaries and receipts.
+See `ARCHITECTURE.md`, `CLOSURE.md`, `docs/PRE_H7_CLOSURE.md`, `docs/P0_P1_ALIGNMENT.md`, `docs/P2_P3_EXPLORATION.md`, `docs/H_SERIES_OPEN_PROPOSAL.md`, `docs/GAME_WORKLOAD_P0_P2.md`, and `evidence/` for exact boundaries and receipts.
 
 ## Development
 
-Python 3.12 is required. The authoritative `ordivon-protocol` 0.2.0 package remains in `ordivon-computing` and is pinned to the exact unified Protocol revision by `pyproject.toml`.
+Python 3.12 is required. The authoritative `ordivon-protocol` 0.3.0 package remains in `ordivon-computing` and is pinned to the exact unified Protocol revision by `pyproject.toml`.
 
 ```bash
 python3.12 -m venv .venv

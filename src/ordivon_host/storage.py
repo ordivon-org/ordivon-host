@@ -4,9 +4,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from anc_canonical import JsonValue
+from anc_canonical import JsonValue, canonical_digest
 
-from .domain import EventAdmission, EventKind, HostEvent, StreamKind, TaskProjection
+from .domain import (
+    EventAdmission,
+    EventKind,
+    HostEvent,
+    StreamKind,
+    TaskDescriptor,
+    TaskProjection,
+)
 from .journal import HostJournal, JournalCorruption
 from .objects import (
     ContentAddressedStore,
@@ -69,6 +76,53 @@ class HostStorage:
 
     def put_object(self, value: JsonValue, *, kind: str) -> StoredObject:
         return self.objects.put(value, kind=kind)
+
+    def task_descriptor_digest(self, task_id: str) -> str:
+        snapshot = self.read_task_event(task_id)
+        data = snapshot.data
+        if not isinstance(data, dict):
+            raise JournalCorruption(f"Task event data is not an object: {task_id}")
+        digest = data.get("descriptorDigest")
+        if not isinstance(digest, str):
+            raise KeyError(f"Task has no durable descriptor: {task_id}")
+        return digest
+
+    def task_descriptor_object_digest(self, task_id: str) -> str:
+        snapshot = self.read_task_event(task_id)
+        data = snapshot.data
+        if not isinstance(data, dict):
+            raise JournalCorruption(f"Task event data is not an object: {task_id}")
+        digest = data.get("descriptorObjectDigest")
+        if not isinstance(digest, str):
+            raise KeyError(f"Task has no durable descriptor object: {task_id}")
+        stored = self.objects.inspect(digest)
+        if stored.kind != "task-descriptor":
+            raise JournalCorruption(f"Task descriptor object kind differs: {task_id}")
+        return digest
+
+    def read_task_descriptor(self, task_id: str) -> TaskDescriptor | None:
+        try:
+            semantic_digest = self.task_descriptor_digest(task_id)
+            object_digest = self.task_descriptor_object_digest(task_id)
+        except KeyError:
+            return None
+        value = self.objects.get(object_digest, expected_kind="task-descriptor")
+        if not isinstance(value, dict):
+            raise ObjectCorrupt("TaskDescriptor object must be an object")
+        try:
+            descriptor = TaskDescriptor.from_dict(value)
+        except ValueError as error:
+            raise ObjectCorrupt("TaskDescriptor object is invalid") from error
+        if canonical_digest(descriptor.to_dict()) != semantic_digest:
+            raise JournalCorruption("TaskDescriptor semantic digest differs")
+        projection = self.journal.get_task(task_id)
+        if (
+            projection is None
+            or descriptor.task_id != projection.task_id
+            or descriptor.goal_id != projection.goal_id
+        ):
+            raise JournalCorruption("TaskDescriptor identity differs from projection")
+        return descriptor
 
     def validate_references(
         self,
