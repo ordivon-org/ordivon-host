@@ -149,6 +149,8 @@ resumable SSE: false
 
 The client validates the negotiated protocol version, caches initialization, and rejects multiple SSE data messages. This removes the prior ambiguity between a deliberately stateless Ordivon Runtime profile and complete stateful MCP support.
 
+> **H-series successor note:** production Runtime later adopted the standard MCP Session lifecycle. `docs/H_SERIES_OPEN_PROPOSAL.md` and the current `ARCHITECTURE.md` are authoritative for Session identity, `notifications/initialized`, and empty SSE heartbeat handling. This paragraph remains the historical P1 boundary.
+
 ## Compatibility boundary
 
 - Existing terminal Host history remains readable.

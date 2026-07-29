@@ -26,12 +26,12 @@ class OwnershipRule:
 
 
 _RULES = (
-    OwnershipRule("goal", ComponentOwner.HOST, "The Host preserves user intent across cognition processes."),
+    OwnershipRule("goal", ComponentOwner.HOST, "The Host preserves participant purpose and commitments across cognition processes."),
     OwnershipRule("task-node", ComponentOwner.HOST, "The Host coordinates semantic progress and readiness."),
     OwnershipRule("host-event", ComponentOwner.HOST, "The Host event stream is the semantic control truth."),
     OwnershipRule("context-manifest", ComponentOwner.HOST, "Context is compiled from durable task state."),
     OwnershipRule("model-invocation", ComponentOwner.HOST, "Providers are replaceable cognition transports."),
-    OwnershipRule("effect-proposal", ComponentOwner.HOST, "The Host admits candidate changes before execution."),
+    OwnershipRule("effect-proposal", ComponentOwner.HOST, "The Host compiles or admits proposals into explicit commitments before execution."),
     OwnershipRule("effect-binding", ComponentOwner.HOST, "The Host binds semantic intent to a current Tool contract."),
     OwnershipRule("verification-receipt", ComponentOwner.HOST, "Task completion is independent from Runtime termination."),
     OwnershipRule("workspace", ComponentOwner.RUNTIME, "The Runtime owns physical workspace identity and isolation."),

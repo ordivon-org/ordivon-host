@@ -149,8 +149,26 @@ class CognitionTurnHost:
     ) -> PreparedCognition:
         if request.task_id != task_id:
             raise ValueError("CognitionRequest belongs to another Task")
-        current = self._require_decision_frontier(task_id, decision_node_id)
         context = self.compiler.compile(request, token_budget=token_budget)
+        return self.prepare_compiled(
+            task_id=task_id,
+            decision_node_id=decision_node_id,
+            context=context,
+            token_budget=token_budget,
+        )
+
+    def prepare_compiled(
+        self,
+        *,
+        task_id: str,
+        decision_node_id: str,
+        context: CompiledContext,
+        token_budget: int,
+    ) -> PreparedCognition:
+        payload_task_id = context.payload.get("taskId")
+        if payload_task_id != task_id:
+            raise ValueError("CompiledContext belongs to another Task")
+        current = self._require_decision_frontier(task_id, decision_node_id)
         snapshot = self.storage.read_task_event(task_id)
         if snapshot.event_kind is EventKind.COGNITION_CONTEXT_COMPILED:
             existing = self._load_prepared_snapshot(task_id, snapshot)

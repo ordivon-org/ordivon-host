@@ -1,0 +1,106 @@
+{
+  "capturedAt": "2026-07-29T02:07:23.158088+00:00",
+  "checks": {
+    "childCompleted": true,
+    "freshStorageOpenPerStep": true,
+    "hostGeneratedChildTask": true,
+    "hostLoweredProposal": true,
+    "modelProposedAction": true,
+    "openContextHasNoActionMenu": true,
+    "parentCompleted": true,
+    "runtimeWorkspaceClosed": true
+  },
+  "childEventCount": 4,
+  "childFinalRevision": 4,
+  "childFinalState": "completed",
+  "childTaskId": "task:open-proposal-1785290822085-90aa1a0a4745:read-a855d9855d53183a",
+  "context": {
+    "byteLength": 1489,
+    "digest": "sha256:d8b21432d1a88b7125926d476fb9c3b3bb23aadf449cac43eacced5318d7ac00",
+    "estimatedTokens": 373,
+    "hasActionMenu": false,
+    "prepareElapsedMs": 1
+  },
+  "goalId": "goal:open-proposal-1785290822085-90aa1a0a4745",
+  "hostEventCount": 5,
+  "integrity": {
+    "algorithm": "sha256",
+    "canonicalization": "ordivon-canonical-json-v1",
+    "payloadDigest": "sha256:a1d503bddc4fc88bb584f2d68bd8e7fad0d06dcf1cd0e26b776efb028f8c954a"
+  },
+  "kind": "ordivon.host-live-open-proposal",
+  "parentFinalRevision": 5,
+  "parentFinalState": "completed",
+  "proposal": {
+    "affectedParticipantRefs": [
+      "participant:local-owner"
+    ],
+    "affectedResourceRefs": [
+      "repository:live-open-proposal"
+    ],
+    "candidateMethod": "workspace.read",
+    "consequenceClass": "private-reversible",
+    "contextDigest": "sha256:d8b21432d1a88b7125926d476fb9c3b3bb23aadf449cac43eacced5318d7ac00",
+    "expectedResult": "Verified current content of README.md at revision 332f30c84f50ca755f7f41ac827da5bc46b67b6c.",
+    "intent": "observe",
+    "kind": "ordivon.action-proposal",
+    "preconditions": [
+      "repository:live-open-proposal is available at revision 332f30c84f50ca755f7f41ac827da5bc46b67b6c",
+      "README.md exists in the repository and is readable"
+    ],
+    "proposalId": "proposal:read-readme",
+    "rationale": "Reading README.md directly advances the Goal while remaining a private, reversible observation.",
+    "requestedProfileId": "profile:owner-trusted-local-v1",
+    "reversibility": "reversible",
+    "schemaVersion": 1,
+    "target": {
+      "kind": "repository-file",
+      "resourceRef": "repository:live-open-proposal",
+      "revision": "332f30c84f50ca755f7f41ac827da5bc46b67b6c",
+      "selector": {
+        "maxBytes": 1048576,
+        "relativePath": "README.md"
+      }
+    },
+    "taskId": "task:open-proposal-1785290822085-90aa1a0a4745",
+    "verificationPlan": "Confirm the read targets README.md in repository:live-open-proposal at revision 332f30c84f50ca755f7f41ac827da5bc46b67b6c and return the bytes exactly as read."
+  },
+  "proposalAdapter": {
+    "adapter": "codex-cli-open-proposal",
+    "cachedInputTokens": 0,
+    "elapsedMs": 20839,
+    "ephemeral": true,
+    "inputTokens": 15944,
+    "model": "configured",
+    "outputTokens": 378,
+    "persistentSessionRetained": false,
+    "sandbox": "read-only",
+    "toolsExposedByHost": []
+  },
+  "proposalAdmissionElapsedMs": 4,
+  "proposalDigest": "sha256:a855d9855d53183a618eaed45f3bb08b69b6f114461c4fff7ae71a6843189f9c",
+  "resolutionKind": "lowered",
+  "schemaVersion": 1,
+  "stateRoot": null,
+  "stepReceipts": [
+    {
+      "completed": false,
+      "elapsedMs": 78,
+      "frontier": "node:open-proposal-1785290822085-90aa1a0a4745:read-a855d9855d53183a:read",
+      "revision": 2
+    },
+    {
+      "completed": false,
+      "elapsedMs": 7,
+      "frontier": "node:open-proposal-1785290822085-90aa1a0a4745:read-a855d9855d53183a:close",
+      "revision": 3
+    },
+    {
+      "completed": true,
+      "elapsedMs": 108,
+      "frontier": null,
+      "revision": 4
+    }
+  ],
+  "taskId": "task:open-proposal-1785290822085-90aa1a0a4745"
+}

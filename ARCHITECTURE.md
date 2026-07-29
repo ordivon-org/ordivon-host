@@ -1,29 +1,32 @@
-# Ordivon Host v0 boundary
+# Ordivon Host architecture boundary
 
 This architecture was falsified and reduced in the Computing incubator before the independent repository was created. The extracted repository retains the proven v0 boundary while product and operational work proceed as separately reviewable changes.
 
-`docs/P0_P1_ALIGNMENT.md` records the post-audit correctness and stack-alignment changes. Where this historical v0 document conflicts with that record, the P0/P1 document is authoritative. H7 remains frozen.
+`docs/P0_P1_ALIGNMENT.md` records the post-audit correctness and stack-alignment changes. `docs/H_SERIES_OPEN_PROPOSAL.md` records the first open-cognition extension. Where this historical derivation conflicts with either later record, the later evidence-backed record is authoritative. A universal H7 scheduler remains frozen.
 
 ## Ownership
 
-- **Host** owns goals, task nodes, Host events and projections, context compilation, model invocation, candidate decisions, Effect proposals, Tool bindings, verification receipts, and task outcomes.
-- **Runtime** owns workspaces, committed physical jobs, Runtime attempts, process state, retained output, artifacts, cancellation, and physical recovery.
-- **Computing** owns protocol definitions, reference behavior, conformance vectors, experiments, and evidence.
-- **Provider sessions** are replaceable cognition transports and never own task continuity.
+- **Host** owns Goals, Tasks, Host events and projections, Context compilation, ModelInvocation identity, proposal compilation or closed-choice admission, Effect commitments, Tool bindings, verification receipts, participant-routed decisions, and Task outcomes.
+- **Runtime** owns Workspaces, committed physical Jobs, Runtime Attempts, process state, retained output, Artifacts, cancellation, and physical recovery.
+- **Domain systems** own authoritative world state, transition rules, domain coordination policy, and domain-specific verification sufficiency.
+- **Computing** owns promoted protocol definitions, reference behavior, conformance vectors, experiments, and evidence.
+- **Provider and MCP sessions** are replaceable transport state and never own Task continuity.
 - **Git** owns repository history and source revisions.
 
-## v0 constraints
+The Host controls durable work and external commitments. It does not own model intelligence, domain truth, physical execution, or a permanent hierarchy among participants.
+
+## v0 constraints retained
 
 - one SQLite Host journal;
-- one materialized task projection derived in the same transaction;
+- one materialized Task projection derived in the same transaction;
 - immutable objects written before journal references are committed;
-- at most one active writer per task;
-- graph-shaped task data with a single running node;
+- at most one active writer per Task;
+- Task-local frontier state with a single running node;
 - deterministic progress before model invocation;
-- no automatic redispatch after an uncertain external effect;
+- no automatic redispatch after an uncertain external Effect;
 - TaskCapsule is an export/checkpoint, not the primary database;
 - no independent Semantic Journal;
-- no multi-Agent, distributed scheduler, provider router, Web UI, or general workflow DSL.
+- no distributed scheduler, provider router, Web UI, or general workflow DSL.
 
 ## Durable state protocol
 
@@ -59,7 +62,7 @@ Expected consequences:
 
 ## Minimal HostKernel
 
-H2 read, H3 cognition, and H4 guarded mutation share one mechanical transition kernel. The Kernel owns only the invariants that were independently repeated by all three workloads:
+Read, cognition, guarded mutation, and open proposal workloads share one mechanical transition kernel. The Kernel owns only the invariants independently repeated by those workloads:
 
 ```text
 read current Task projection and event head
@@ -70,17 +73,17 @@ read current Task projection and event head
 → release the lease on success or failure
 ```
 
-`HostKernel` and `LockedTask` therefore own lease lifetime, monotonic timestamps, current-state admission, one-transition-per-lock enforcement, and atomic event/projection commit. Workload code still owns Context compilation, candidate admission, Effect and Binding construction, Runtime calls, delivery classification, reconciliation, independent verification, and TaskOutcome semantics.
+`HostKernel` and `LockedTask` therefore own lease lifetime, monotonic timestamps, current-state admission, one-transition-per-lock enforcement, and atomic event/projection commit. Workload code still owns Context compilation, proposal lowering or candidate admission, Effect and Binding construction, Runtime calls, delivery classification, reconciliation, independent verification, and TaskOutcome semantics.
 
 The Kernel preserves these boundaries:
 
 - it is not a workflow DSL, scheduler, DAG engine, provider router, Runtime adapter, or policy engine;
 - it never invokes a Provider or Runtime Tool;
 - workload-specific public exceptions are preserved through explicit error mapping;
-- `workspace.exec`, asynchronous Job observation, and Provider invocation remain outside the Task lease;
+- external execution and Provider invocation remain outside the Task lease;
 - deterministic coordination and verification operations may remain inside a short transition until real latency data proves a need to split them;
 - one locked transition may append at most one Host event;
-- the existing H2, H3, and H4 workloads remain regression specifications for Kernel behavior.
+- existing workloads remain regression specifications for Kernel behavior.
 
 ## Deterministic Runtime read slice
 
@@ -108,14 +111,14 @@ The slice preserves these invariants:
 - presentation-only Tool metadata does not change catalog identity, while schemas and execution metadata do;
 - semantic objects are admitted into the Host Journal transaction as references, not copied into the projection.
 
-This slice deliberately does not use the research Authority/Attestation chain or admit a reusable Fact. A verified read completes with a `VerificationReceipt` and `TaskOutcome`; Fact promotion remains a separate cross-Task decision.
+This slice deliberately does not admit a reusable Fact. A verified read completes with a `VerificationReceipt` and `TaskOutcome`; Fact promotion remains a separate cross-Task decision.
 
-## Persistent multi-candidate cognition
+## Closed-choice deterministic cognition profile
 
-Cognition is split across two durable boundaries:
+The first cognition profile is split across two durable boundaries:
 
 ```text
-compile bounded Context
+compile bounded Context with two to eight exact CandidateActions
 → persist Context and release the Task lease
 → invoke any replaceable Provider outside the lease
 → reacquire the Task lease
@@ -124,25 +127,68 @@ compile bounded Context
 → persist the decision, admission, and selected frontier together
 ```
 
-A `ContextBlock` binds its typed payload to a source digest, priority, freshness class, and required/optional status. The compiler always includes required blocks or fails; optional blocks are selected deterministically under a token budget. The resulting `CompiledContext` carries two to eight exact candidate actions, forbidden completed Effects, unresolved Dispatches, and a content digest.
+This profile remains appropriate when the legal action set is already closed, for deterministic fixtures, and for recovery tests. It is no longer treated as the only general cognition interface.
 
-The Cognition boundary preserves these invariants:
+The profile preserves these invariants:
 
 - Provider sessions, transcripts, tools, and hidden reasoning are not Task state;
-- the Provider receives one immutable `CompiledContext` and returns one structured `ModelDecision`;
 - a Context can be recovered by a fresh Host process before Provider invocation;
 - the Task lease is not held while an external model call runs;
 - a decision for another Context or an invented action is rejected;
 - action, Effect, Binding, Dispatch, and world identities must be copied exactly;
 - current world drift and newly completed Effects are rechecked at admission time;
 - an unresolved Dispatch blocks another Effect or premature completion;
-- observing a Dispatch must target the exact unresolved Dispatch;
 - if another entry point advances the Task during model execution, the old decision is superseded;
 - model invocation intent is durable before the external Gateway call;
-- Provider failure leaves the prepared Invocation as the durable WAITING Task head;
-- Codex and Hermes physical invocation live behind the Provider Gateway port; their sessions remain disposable.
+- Provider failure leaves the prepared Invocation as the durable WAITING Task head.
 
-The Host may compare multiple Provider decisions against the same persistent Context before admitting one. Provider agreement is evidence about replaceability, not authority to bypass admission.
+## Open proposal cognition profile
+
+The first open profile removes `allowedActions` from Context:
+
+```text
+Goal + Context + ResourceBindings + capability profile
+→ ActionProposal from a replaceable model
+→ Host checks identity, revision, ownership, reversibility, and consequence
+→ lower, create DecisionRequest, or reject
+```
+
+The model may state semantic intent, target, rationale, preconditions, affected participants, expected result, candidate method, and verification plan. It may not assign Effect, Binding, Dispatch, Runtime request, capability grant, or completion identities.
+
+Only one lowerer is currently proven:
+
+```text
+private reversible repository-file observation
+→ existing DeterministicReadHost
+→ verified workspace.read
+```
+
+Shared, foreign-owned, irreversible, and unknown-consequence proposals do not self-authorize. They create a `DecisionRequest` addressed to the responsible participant. A human is one possible participant, not a hard-coded universal recipient.
+
+The profile proves:
+
+- Context contains resources and constraints but no prebuilt action menu;
+- ModelInvocationIntent is durable before the model call;
+- the Provider runs outside the Task lease and retains no Task continuity;
+- stale resource revisions and wrong profiles are rejected structurally;
+- a child Task committed before the parent resolution is reused after recovery;
+- repeated admission after response loss returns the retained receipt;
+- parent completion follows the verified child TaskOutcome;
+- MCP Session identity remains disposable transport state.
+
+The profile is Host-local and experimental. No universal planning language or promoted Protocol object is implied.
+
+## Capability and consequence separation
+
+Capability profiles express the semantic and resource reach available to a participant. Consequence admission decides whether that reach may be committed for the current proposal.
+
+```text
+physical credentials
++ capability profile
+≠ automatic permission for every external consequence
+```
+
+`owner_trusted` admits Agent semantic actions on private repository resources. `public_bounded` admits repository-file observation only. Both still pass through proposal consequence classification and domain verification.
 
 ## Guarded mutation and uncertain delivery
 
@@ -174,34 +220,34 @@ The mutation boundary preserves these invariants:
 - exact content and digest verification must succeed before TaskOutcome;
 - the dirty test Workspace is force-closed only after evidence is retained.
 
-The v0 workload deliberately allows only one root-level file created with `O_EXCL`. This is a falsifiable recovery slice, not a general mutation DSL or shell workflow engine.
+The workload deliberately allows only one root-level file created with `O_EXCL`. This is a falsifiable recovery slice, not a general mutation DSL or shell workflow engine.
 
-## H6 empirical recovery boundary
+## MCP transport lifecycle
 
-Repeated live work exposed three mechanisms that were not visible from unit tests alone:
-
-1. Reconstructing one Dispatch identity by scanning every historical Runtime Job is semantically safe but scales with total Registry history. At 5,644 production Jobs, two 57-page scans dominated one guarded mutation. Runtime therefore exposes an optional exact `clientRequestId` filter backed by its durable Job index. The Host discovers this capability from the published `task.list` input schema, consumes every filtered page, and still rejects non-object Jobs, mismatched request identities, repeated cursors, excessive pagination, and conflicting Job identities. Older Runtime schemas retain the complete-scan path rather than relying on error-message inference.
-2. `systemctl is-active` is not a readiness proof. A restarted Runtime may be active before its MCP socket accepts initialization. Restart recovery waits for both service activity and a successful MCP `initialize` before attempting reconciliation.
-3. Millisecond timestamps are ordering hints, not unique identities. Concurrent live harnesses collided when Task and Workspace IDs were derived only from wall-clock milliseconds. Live Task, Workspace, Dispatch test, and request identities therefore include an independent UUID nonce.
-
-The live fault matrix now distinguishes four recovery windows:
+The production Runtime uses the standard MCP Session lifecycle:
 
 ```text
-response accepted but lost
-→ persist UNKNOWN and reconcile the original Job
-
-physical execution completed but Host response admission never happened
-→ recover from the prepared Dispatch without adding an UNKNOWN event
-
-Runtime process restarted after UNKNOWN
-→ wait for MCP readiness, then reconcile the same durable Job
-
-Runtime process restarted while the Job is working
-→ Runner and Attempt continue independently; the new Runtime projects the same Job to terminal state
+initialize
+→ retain Mcp-Session-Id as in-memory transport state
+→ notifications/initialized
+→ bounded request/response operations
 ```
 
-These results prove the tested local systemd/SQLite/Workspace path only. They do not establish arbitrary host reboot recovery, remote Runtime recovery, database corruption recovery, distributed scheduling, or automatic redispatch safety for unkeyed effects.
+Empty SSE heartbeat data frames are ignored; multiple non-empty JSON-RPC messages remain outside the supported profile. MCP Session identity is never persisted in Goal, Task, Context, Effect, or recovery state. A new Host process establishes a new transport session and continues from durable Host and Runtime identities.
+
+## Empirical recovery boundary
+
+Repeated live work exposed mechanisms not visible from unit tests alone:
+
+1. Runtime Job reconstruction should use an exact durable `clientRequestId` filter when published by the Tool contract rather than scanning all history.
+2. `systemctl is-active` is not a readiness proof; recovery waits for both service activity and a successful MCP initialization.
+3. Millisecond timestamps are ordering hints, not unique identities; live workload identities include an independent nonce.
+4. Production MCP may emit an empty SSE heartbeat before the JSON-RPC response; ignoring the empty frame preserves strict single-response semantics.
+
+These results prove the tested local systemd/SQLite/Workspace path only. They do not establish arbitrary host reboot recovery, remote Runtime recovery, database corruption recovery, distributed scheduling, or automatic redispatch safety for unkeyed Effects.
 
 ## Promotion rule
 
-Code moves from `research/experiments` into `packages` only after an invariant has deterministic conformance coverage. The Host incubation gates were satisfied by the H4-H6 guarded-mutation and asynchronous Runtime-recovery evidence. This directory is retained as the exact Computing closeout source for history-preserving extraction into `ordivon-host`; subsequent Host product work belongs in that repository rather than extending the incubator in place.
+A Host-local concept moves toward shared Protocol only after at least two materially different workloads demonstrate the same non-bypassable invariant. Open ActionProposal, capability profiles, and participant DecisionRequest remain Host-local until that threshold is met.
+
+A mechanism that adds ambiguity or cost without increasing accepted verified outcomes should be deleted rather than promoted.

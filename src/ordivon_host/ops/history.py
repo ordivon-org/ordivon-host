@@ -31,12 +31,16 @@ _CAS_DIGEST_KEYS = frozenset(
         "verificationDigest",
         "diffObjectDigest",
         "outcomeDigest",
+        "childOutcomeDigest",
         "contextObjectDigest",
         "decisionObjectDigest",
         "admissionObjectDigest",
         "intentObjectDigest",
         "observationObjectDigest",
         "invocationReceiptDigest",
+        "proposalObjectDigest",
+        "resolutionObjectDigest",
+        "outputObservationDigest",
     }
 )
 

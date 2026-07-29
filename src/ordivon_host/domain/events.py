@@ -34,6 +34,7 @@ class EventKind(StrEnum):
     COGNITION_CONTEXT_COMPILED = "cognition.context-compiled"
     COGNITION_INVOCATION_PREPARED = "cognition.invocation-prepared"
     COGNITION_DECISION_ADMITTED = "cognition.decision-admitted"
+    COGNITION_PROPOSAL_RESOLVED = "cognition.proposal-resolved"
     RUNTIME_LINKED = "runtime.linked"
     RUNTIME_DISPATCH_PREPARED = "runtime.dispatch-prepared"
     RUNTIME_OUTCOME_UNKNOWN = "runtime.outcome-unknown"
