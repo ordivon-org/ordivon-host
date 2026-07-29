@@ -13,7 +13,14 @@ from .errors import (
     RuntimeTransportError,
 )
 from .jobs import find_jobs_by_client_request, tool_accepts_property
-from .mcp import McpRuntimeClient, PROTOCOL_VERSION, parse_http_response
+from .mcp import (
+    McpRuntimeClient,
+    ORDIVON_SESSION_MCP_PROFILE,
+    ORDIVON_STATELESS_MCP_PROFILE,
+    PROTOCOL_VERSION,
+    McpTransportProfile,
+    parse_http_response,
+)
 from .workspaces import (
     ensure_workspace,
     ensure_workspace_closed,
@@ -40,5 +47,6 @@ __all__ = [
     "parse_http_response",
     "tool_accepts_property",
     "McpTransportProfile",
+    "ORDIVON_SESSION_MCP_PROFILE",
     "ORDIVON_STATELESS_MCP_PROFILE",
 ]

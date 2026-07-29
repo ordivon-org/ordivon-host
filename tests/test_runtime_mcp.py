@@ -22,6 +22,7 @@ class Response:
     status: int
     content_type: str
     body: bytes
+    headers: dict[str, str] | None = None
 
 
 def json_response(request: dict[str, Any], result: dict[str, Any]) -> Response:
@@ -48,13 +49,23 @@ def scripted_server(
             request = json.loads(self.rfile.read(length))
             requests.append(request)
             headers.append({key.lower(): value for key, value in self.headers.items()})
-            if not scripts:
+            if request.get("method") == "notifications/initialized":
+                response = Response(202, "text/plain", b"")
+            elif not scripts:
                 response = Response(500, "text/plain", b"unexpected request")
             else:
                 response = scripts.pop(0)(request)
             self.send_response(response.status)
             self.send_header("Content-Type", response.content_type)
             self.send_header("Content-Length", str(len(response.body)))
+            extra_headers = dict(response.headers or {})
+            if (
+                request.get("method") == "initialize"
+                and "Mcp-Session-Id" not in extra_headers
+            ):
+                extra_headers["Mcp-Session-Id"] = "session:test"
+            for key, value in extra_headers.items():
+                self.send_header(key, value)
             self.end_headers()
             self.wfile.write(response.body)
 
@@ -97,9 +108,18 @@ class McpRuntimeClientTests(unittest.TestCase):
         self.assertEqual(initialized["serverInfo"]["name"], "ordivon-runtime-mcp")
         self.assertEqual(tools[0]["name"], "workspace.read")
         self.assertEqual(result, {"content": "hello"})
-        self.assertEqual([request["id"] for request in requests], [1, 2, 3])
+        self.assertEqual(
+            [request["id"] for request in requests if "id" in request],
+            [1, 2, 3],
+        )
+        self.assertEqual(
+            [request["method"] for request in requests],
+            ["initialize", "notifications/initialized", "tools/list", "tools/call"],
+        )
         self.assertEqual(headers[0]["authorization"], "Bearer secret")
         self.assertEqual(headers[0]["mcp-protocol-version"], "2025-06-18")
+        self.assertEqual(headers[1]["mcp-session-id"], "session:test")
+        self.assertEqual(headers[2]["mcp-session-id"], "session:test")
 
     def test_sse_response_is_decoded(self) -> None:
         def respond(request: dict[str, Any]) -> Response:
@@ -115,6 +135,28 @@ class McpRuntimeClientTests(unittest.TestCase):
         with scripted_server([respond]) as (endpoint, _, _):
             result = McpRuntimeClient(endpoint, "secret").initialize()
         self.assertEqual(result["serverInfo"]["name"], "runtime")
+
+    def test_session_profile_requires_session_identity(self) -> None:
+        def respond(request: dict[str, Any]) -> Response:
+            return Response(
+                200,
+                "application/json",
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": request["id"],
+                        "result": {
+                            "protocolVersion": "2025-06-18",
+                            "serverInfo": {"name": "runtime"},
+                        },
+                    }
+                ).encode(),
+                headers={"Mcp-Session-Id": ""},
+            )
+
+        with scripted_server([respond]) as (endpoint, _, _):
+            with self.assertRaisesRegex(RuntimeProtocolError, "Session identity"):
+                McpRuntimeClient(endpoint, "secret").initialize()
 
     def test_response_id_mismatch_fails_closed(self) -> None:
         def respond(_: dict[str, Any]) -> Response:
@@ -169,6 +211,28 @@ class McpRuntimeClientTests(unittest.TestCase):
         ]) as (endpoint, _, _):
             with self.assertRaisesRegex(RuntimeProtocolError, "another MCP"):
                 McpRuntimeClient(endpoint, "secret").initialize()
+
+    def test_empty_sse_heartbeat_is_ignored(self) -> None:
+        def respond(request: dict[str, Any]) -> Response:
+            message = json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": request["id"],
+                    "result": {
+                        "protocolVersion": "2025-06-18",
+                        "serverInfo": {"name": "runtime"},
+                    },
+                }
+            )
+            return Response(
+                200,
+                "text/event-stream",
+                f"data:\n\ndata: {message}\n\n".encode(),
+            )
+
+        with scripted_server([respond]) as (endpoint, _, _):
+            result = McpRuntimeClient(endpoint, "secret").initialize()
+        self.assertEqual(result["serverInfo"]["name"], "runtime")
 
     def test_multiple_sse_messages_are_outside_stateless_profile(self) -> None:
         def respond(request: dict[str, Any]) -> Response:
