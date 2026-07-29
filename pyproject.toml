@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = { file = "LICENSE" }
 dependencies = [
-  "ordivon-protocol @ git+https://github.com/zycxfyh/ordivon-computing.git@93ab43e#subdirectory=packages/ordivon-protocol",
+  "ordivon-protocol @ git+https://github.com/zycxfyh/ordivon-computing.git@ca5af401eda77d1081487c2df07ce9d94003719e#subdirectory=packages/ordivon-protocol",
 ]
 
 [project.scripts]
