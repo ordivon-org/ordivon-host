@@ -31,7 +31,7 @@ Current proven vertical slices:
 
 The closed-choice path remains a useful deterministic and closed-domain profile. It is no longer treated as the only possible cognition interface. See `docs/H_SERIES_OPEN_PROPOSAL.md` for the first open-proposal boundary.
 
-See `ARCHITECTURE.md`, `CLOSURE.md`, `docs/PRE_H7_CLOSURE.md`, `docs/P0_P1_ALIGNMENT.md`, `docs/P2_P3_EXPLORATION.md`, `docs/H_SERIES_OPEN_PROPOSAL.md`, `docs/GAME_WORKLOAD_P0_P2.md`, and `evidence/` for exact boundaries and receipts.
+See `ARCHITECTURE.md`, `CLOSURE.md`, `docs/PRE_H7_CLOSURE.md`, `docs/P0_P1_ALIGNMENT.md`, `docs/P2_P3_EXPLORATION.md`, `docs/H_SERIES_OPEN_PROPOSAL.md`, `docs/GAME_WORKLOAD_P0_P2.md`, [`docs/harness-boundary-stage1.md`](docs/harness-boundary-stage1.md), and `evidence/` for exact boundaries, active experiment design, and receipts.
 
 ## Development
 
