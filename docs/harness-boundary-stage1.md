@@ -1,7 +1,15 @@
 # Harness Boundary Stage 1
 
-Status: implementation design for `ordivon-host#14`  
+Status: H1 contracts and transitions implemented; H2–H5 remain experimental work
 Canonical experiment: `ordivon-computing/research/experiments/harness-boundary-v0/`
+
+## H1 implementation result
+
+H1 now provides strict, content-addressed `TaskAttemptDescriptor`, `HarnessAssignment`, `HarnessRunReceipt`, `CompletionProposal`, capability-manifest, and completion-decision codecs; four Task event kinds; durable Assignment-generation fencing; Host-owned completion adjudication; and version-2 operator handoff projection fields.
+
+The implementation deliberately retains the existing schema-v3 journal. It adds no Assignment table, Run table, scheduler, Harness service, provider Session store, Runtime coupling, or `ordivon-harness` repository. A successful Harness process remains insufficient for Task completion: stale generation, missing evidence or Artifacts, unresolved Effects, and unresolved `UNKNOWN` state are rejected before the acceptance verifier can commit `TaskOutcome`.
+
+Eight deterministic H1 tests cover strict round trips, capability admission, idempotent replay, fresh Context on replacement, stale CompletionProposal rejection, missing Artifact rejection, unresolved `UNKNOWN`, exactly-once accepted completion, handoff projection, and fresh-process recovery. All H1 objects remain deletion-tested candidates until the live H3–H5 trials establish retained value.
 
 ## Objective
 

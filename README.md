@@ -27,6 +27,7 @@ Current proven vertical slices:
 - immutable TaskDescriptor identity and Goal-scoped Task revision snapshots;
 - idempotent per-Task application of one joint VerificationReceipt with multiple result items;
 - recovery across fresh Host processes and local Runtime control-plane restarts;
+- Host-local Harness H1 contracts with durable Assignment generation, stale CompletionProposal rejection, required-Artifact and unresolved-UNKNOWN checks, and fresh-process recovery without a second database;
 - schema-v3 operational state, backup/restore, optional full-history Doctor, and measured 100,000-event behavior.
 
 The closed-choice path remains a useful deterministic and closed-domain profile. It is no longer treated as the only possible cognition interface. See `docs/H_SERIES_OPEN_PROPOSAL.md` for the first open-proposal boundary.

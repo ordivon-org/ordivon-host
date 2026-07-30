@@ -24,6 +24,12 @@ class OperatorHandoffCapsule:
     dispatch_object_digest: str | None
     backend_job_id: str | None
     outcome_object_digest: str | None
+    task_attempt_id: str | None
+    assignment_id: str | None
+    assignment_generation: int | None
+    harness_run_id: str | None
+    completion_proposal_id: str | None
+    completion_decision_id: str | None
     must_not_repeat_object_digests: tuple[str, ...]
     next_admissible: tuple[str, ...]
 
@@ -33,7 +39,7 @@ class OperatorHandoffCapsule:
 
     def to_dict(self) -> dict[str, JsonValue]:
         return {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "kind": "ordivon.operator-handoff-capsule",
             "taskId": self.task_id,
             "goalId": self.goal_id,
@@ -49,35 +55,43 @@ class OperatorHandoffCapsule:
             "dispatchObjectDigest": self.dispatch_object_digest,
             "backendJobId": self.backend_job_id,
             "outcomeObjectDigest": self.outcome_object_digest,
+            "taskAttemptId": self.task_attempt_id,
+            "assignmentId": self.assignment_id,
+            "assignmentGeneration": self.assignment_generation,
+            "harnessRunId": self.harness_run_id,
+            "completionProposalId": self.completion_proposal_id,
+            "completionDecisionId": self.completion_decision_id,
             "mustNotRepeatObjectDigests": list(self.must_not_repeat_object_digests),
             "nextAdmissible": list(self.next_admissible),
         }
 
 
+def _optional_string(data: dict[str, JsonValue], field: str) -> str | None:
+    value = data.get(field)
+    return value if isinstance(value, str) else None
+
+
+def _optional_int(data: dict[str, JsonValue], field: str) -> int | None:
+    value = data.get(field)
+    return value if type(value) is int else None
+
+
 def operator_handoff(storage: HostStorage, task_id: str) -> OperatorHandoffCapsule:
     snapshot = storage.read_task_event(task_id)
     data = snapshot.data if isinstance(snapshot.data, dict) else {}
-    descriptor_digest = data.get("descriptorDigest")
-    if descriptor_digest is not None and not isinstance(descriptor_digest, str):
-        descriptor_digest = None
-    proposal_digest = data.get("proposalDigest")
-    if proposal_digest is not None and not isinstance(proposal_digest, str):
-        proposal_digest = None
-    decision_request_id = data.get("decisionRequestId")
-    if decision_request_id is not None and not isinstance(decision_request_id, str):
-        decision_request_id = None
-    child_task_id = data.get("childTaskId")
-    if child_task_id is not None and not isinstance(child_task_id, str):
-        child_task_id = None
-    dispatch_digest = data.get("dispatchDigest")
-    if dispatch_digest is not None and not isinstance(dispatch_digest, str):
-        dispatch_digest = None
-    job_id = data.get("jobId")
-    if job_id is not None and not isinstance(job_id, str):
-        job_id = None
-    outcome_digest = data.get("outcomeDigest")
-    if outcome_digest is not None and not isinstance(outcome_digest, str):
-        outcome_digest = None
+    descriptor_digest = _optional_string(data, "descriptorDigest")
+    proposal_digest = _optional_string(data, "proposalDigest")
+    decision_request_id = _optional_string(data, "decisionRequestId")
+    child_task_id = _optional_string(data, "childTaskId")
+    dispatch_digest = _optional_string(data, "dispatchDigest")
+    job_id = _optional_string(data, "jobId")
+    outcome_digest = _optional_string(data, "outcomeDigest")
+    task_attempt_id = _optional_string(data, "taskAttemptId")
+    assignment_id = _optional_string(data, "assignmentId")
+    assignment_generation = _optional_int(data, "assignmentGeneration")
+    harness_run_id = _optional_string(data, "harnessRunId")
+    completion_proposal_id = _optional_string(data, "completionProposalId")
+    completion_decision_id = _optional_string(data, "completionDecisionId")
     must_not_repeat: list[str] = []
     effect_digest = data.get("effectDigest")
     if isinstance(effect_digest, str) and snapshot.event_kind in {
@@ -90,6 +104,17 @@ def operator_handoff(storage: HostStorage, task_id: str) -> OperatorHandoffCapsu
         must_not_repeat.append(effect_digest)
     if snapshot.event_kind in {EventKind.EFFECT_OUTCOME_UNKNOWN, EventKind.RUNTIME_OUTCOME_UNKNOWN}:
         next_admissible = ("reconcile-existing-dispatch",)
+    elif snapshot.event_kind is EventKind.HARNESS_ASSIGNMENT_COMMITTED:
+        next_admissible = ("run-current-harness-assignment",)
+    elif snapshot.event_kind is EventKind.HARNESS_RUN_RECORDED:
+        next_admissible = ("replace-harness-or-propose-completion",)
+    elif snapshot.event_kind is EventKind.COMPLETION_PROPOSED:
+        next_admissible = ("adjudicate-completion-proposal",)
+    elif (
+        snapshot.event_kind is EventKind.COMPLETION_DECIDED
+        and data.get("completionAccepted") is False
+    ):
+        next_admissible = ("continue-current-harness-assignment",)
     elif snapshot.projection.state is TaskState.BLOCKED and decision_request_id is not None:
         next_admissible = ("resolve-decision-request",)
     elif snapshot.projection.ready_frontier:
@@ -113,6 +138,12 @@ def operator_handoff(storage: HostStorage, task_id: str) -> OperatorHandoffCapsu
         dispatch_object_digest=dispatch_digest,
         backend_job_id=job_id,
         outcome_object_digest=outcome_digest,
+        task_attempt_id=task_attempt_id,
+        assignment_id=assignment_id,
+        assignment_generation=assignment_generation,
+        harness_run_id=harness_run_id,
+        completion_proposal_id=completion_proposal_id,
+        completion_decision_id=completion_decision_id,
         must_not_repeat_object_digests=tuple(must_not_repeat),
         next_admissible=tuple(next_admissible),
     )
