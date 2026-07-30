@@ -1,6 +1,6 @@
 # Harness Boundary Stage 1
 
-Status: H1 contracts and transitions implemented; H2–H5 remain experimental work
+Status: H1 and H2 implemented; H3–H5 remain experimental work
 Canonical experiment: `ordivon-computing/research/experiments/harness-boundary-v0/`
 
 ## H1 implementation result
@@ -10,6 +10,14 @@ H1 now provides strict, content-addressed `TaskAttemptDescriptor`, `HarnessAssig
 The implementation deliberately retains the existing schema-v3 journal. It adds no Assignment table, Run table, scheduler, Harness service, provider Session store, Runtime coupling, or `ordivon-harness` repository. A successful Harness process remains insufficient for Task completion: stale generation, missing evidence or Artifacts, unresolved Effects, and unresolved `UNKNOWN` state are rejected before the acceptance verifier can commit `TaskOutcome`.
 
 Eight deterministic H1 tests cover strict round trips, capability admission, idempotent replay, fresh Context on replacement, stale CompletionProposal rejection, missing Artifact rejection, unresolved `UNKNOWN`, exactly-once accepted completion, handoff projection, and fresh-process recovery. All H1 objects remain deletion-tested candidates until the live H3–H5 trials establish retained value.
+
+## H2 implementation result
+
+H2 adds one Host-local `runtime_refs.py` module. It produces four sorted opaque `ordivon.host` references for Task, Task Attempt, Assignment, and Harness Run; derives an Assignment- and run-bound `clientRequestId`; and builds the existing Runtime `workspace.exec` request without adding a Dispatch object, service, database table, or Runtime-specific Task state.
+
+The Harness Run reference uses a stable pre-completion binding digest derived from Assignment identity, generation, Harness identity, manifest, Context, Tool catalog, and Harness Run ID. Runtime work can therefore be correlated before the final `HarnessRunReceipt` exists. The final receipt later records the actual Runtime Job and terminal-evidence Artifact.
+
+The live receipt [`../evidence/harness-h2-runtime-r2-live-d50f609-20260731.json`](../evidence/harness-h2-runtime-r2-live-d50f609-20260731.json) proves one real Host request against the active Runtime: exact replay returned the original Job, changed Assignment generation and digest were rejected as idempotency conflicts, terminal evidence retained the exact four Host references, a fresh client recovered the original Job, Runtime made no semantic-completion claim, Host recorded the Runtime Job in `HarnessRunReceipt`, and the Workspace was closed. Three deterministic H2 tests cover canonical ordering, digest and request identity, replacement generation, and invalid request rejection.
 
 ## Objective
 
