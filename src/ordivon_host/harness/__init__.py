@@ -16,6 +16,14 @@ from .models import (
     HarnessRunReceipt,
     TaskAttemptDescriptor,
 )
+from .runtime_refs import (
+    HostRuntimeReference,
+    build_harness_workspace_exec_request,
+    harness_run_runtime_binding_digest,
+    harness_runtime_client_request_id,
+    host_runtime_references,
+    task_runtime_binding_digest,
+)
 
 __all__ = [
     "CommittedHarnessAssignment",
@@ -28,8 +36,14 @@ __all__ = [
     "HarnessLifecycleError",
     "HarnessRunReceipt",
     "HarnessSuperseded",
+    "HostRuntimeReference",
     "PreparedHarnessAttempt",
     "ProposedCompletion",
     "RecordedHarnessRun",
     "TaskAttemptDescriptor",
+    "build_harness_workspace_exec_request",
+    "harness_run_runtime_binding_digest",
+    "harness_runtime_client_request_id",
+    "host_runtime_references",
+    "task_runtime_binding_digest",
 ]
