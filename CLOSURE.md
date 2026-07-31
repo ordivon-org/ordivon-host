@@ -35,3 +35,7 @@ The machine-readable closure is `evidence/h6-production-closure-20260727.json`.
 ## Boundary
 
 This closeout does not claim a production-ready general Agent Host. It closes the architectural incubator and establishes a traceable starting point for the independent repository.
+
+## Subsequent closure records
+
+The first-party bare-model Harness read-only lifecycle was later closed through OH1–OH5. See [`docs/ORDIVON_HARNESS_OH1_OH5_CLOSEOUT.md`](docs/ORDIVON_HARNESS_OH1_OH5_CLOSEOUT.md) for the final capability matrix, verified invariants, retained structural debt and gated effectful continuation route.

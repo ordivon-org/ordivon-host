@@ -32,11 +32,12 @@ Current proven vertical slices:
 - Codex App Server H3 with a provider-faithful stdio driver, durable Thread/Turn and Tool-lifecycle evidence, Runtime-owned process execution, interrupt support, raw-event digest retention, and a live read-only Harness Run that leaves semantic completion with Host;
 - Hermes ACP H4 with a provider-faithful JSON-RPC stdio driver, Session provenance, cancel and fail-closed client-request handling, read-only Tool observation, usage and thought-event digest retention, and a live Runtime-owned Harness Run that leaves semantic completion with Host;
 - Harness H5 with both live Codex↔Hermes mid-Task replacement orders, one stable Task Attempt, fresh Assignment generation and Context, Artifact-first completion, stale-generation and missing-Artifact rejection, response-loss recovery without redispatch, and explicit rejection of a shared Provider lifecycle;
+- first-party Ordivon Harness OH1–OH5 with a real DeepSeek bare-model loop, Assignment-scoped Runtime ACI, durable Task/Run/Verification contracts, fresh-Host completion, conservative Runtime UNKNOWN fencing, and evidence-backed read-only process-loss abandonment;
 - schema-v3 operational state, backup/restore, optional full-history Doctor, and measured 100,000-event behavior.
 
 The closed-choice path remains a useful deterministic and closed-domain profile. It is no longer treated as the only possible cognition interface. See `docs/H_SERIES_OPEN_PROPOSAL.md` for the first open-proposal boundary.
 
-See `ARCHITECTURE.md`, `CLOSURE.md`, `docs/PRE_H7_CLOSURE.md`, `docs/P0_P1_ALIGNMENT.md`, `docs/P2_P3_EXPLORATION.md`, `docs/H_SERIES_OPEN_PROPOSAL.md`, `docs/GAME_WORKLOAD_P0_P2.md`, [`docs/harness-boundary-stage1.md`](docs/harness-boundary-stage1.md), [`docs/harness-boundary-h5-decision.md`](docs/harness-boundary-h5-decision.md), and `evidence/` for exact boundaries, experiment decisions, and receipts.
+See `ARCHITECTURE.md`, `CLOSURE.md`, [`docs/ORDIVON_HARNESS_OH1_OH5_CLOSEOUT.md`](docs/ORDIVON_HARNESS_OH1_OH5_CLOSEOUT.md), `docs/ordivon-harness-v0.md`, `docs/PRE_H7_CLOSURE.md`, `docs/P0_P1_ALIGNMENT.md`, `docs/P2_P3_EXPLORATION.md`, `docs/H_SERIES_OPEN_PROPOSAL.md`, `docs/GAME_WORKLOAD_P0_P2.md`, [`docs/harness-boundary-stage1.md`](docs/harness-boundary-stage1.md), [`docs/harness-boundary-h5-decision.md`](docs/harness-boundary-h5-decision.md), and `evidence/` for exact boundaries, experiment decisions, and receipts.
 
 ## Development
 
