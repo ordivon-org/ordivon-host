@@ -2,6 +2,8 @@
 
 Status: OH0–OH5 native Run recovery and safe abandonment implemented and verified
 
+This document is the chronological experiment record. The final capability matrix, code ownership, retained debt and future promotion gates are authoritative in [`ORDIVON_HARNESS_OH1_OH5_CLOSEOUT.md`](ORDIVON_HARNESS_OH1_OH5_CLOSEOUT.md).
+
 ## Purpose
 
 Ordivon Harness is Ordivon's first-party Agent Harness backend for bare model APIs and local inference endpoints. It consumes one Host-owned `HarnessAssignment`, runs a bounded model–Tool–Observation loop, lowers Assignment-scoped Tool Calls through Ordivon Runtime, and returns Run evidence for Host adjudication.
