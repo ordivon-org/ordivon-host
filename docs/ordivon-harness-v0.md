@@ -1,6 +1,6 @@
 # Ordivon Harness v0
 
-Status: OH0–OH3 first live bare-model loop implemented and verified
+Status: OH0–OH4 native Run Contract and Host lifecycle implemented and verified
 
 ## Purpose
 
@@ -192,6 +192,101 @@ The model conclusion was not used as the acceptance oracle. The script reread th
 
 After rebasing onto Host `main` revision `79507fb6a000d241df19947de550610ebef6b8b1`, the deterministic suite contains 226 passing tests, including nine focused OH3 tests.
 
+## OH4 native Run Contract closure
+
+OH4 closes the Host control-plane gap left by OH3. A native Run is no longer assembled in memory after the fact. Four Host-owned CAS objects are committed around the existing H1–H5 boundary:
+
+```text
+TaskContract
+ToolGrant
+NativeHarnessRunContract
+CompletionVerification
+```
+
+The authoritative flow is now:
+
+```text
+TaskContract
+→ TaskAttemptDescriptor
+→ HarnessContextCompiler
+→ CompiledContext CAS
+→ HarnessAssignment + ToolGrant + native Harness Run identity
+→ fresh Host reload
+→ model–Tool–Observation loop
+→ Trace / ToolObservations / conclusion / HarnessRunReceipt CAS
+→ fresh Host reload
+→ Host-derived CompletionProposal
+→ persisted CompletionVerification
+→ CompletionDecision / TaskOutcome
+→ final fresh Host reload
+```
+
+One Assignment generation authorizes exactly one native `harnessRunId`. The Run identity exists before any Provider or Runtime activity and is included in Runtime foreign references together with the Task Contract, Tool Grant, Assignment, Task Attempt and native Run Contract digests. Replacing a Run requires a new Assignment generation.
+
+### Task Contract and Context separation
+
+`TaskContract` owns the durable objective, acceptance criteria, constraints, resource bindings and consequence policy. `CompiledContext` remains a bounded cognition snapshot derived from that Contract. Provider prompts receive a semantic projection rather than the complete CAS envelope.
+
+This removes the previous ambiguity where Context simultaneously acted as both the authoritative Task definition and the model input representation.
+
+### Assignment-scoped Tool Grant
+
+The Runtime catalog still proves what the connected Runtime can execute. `ToolGrant` separately proves what the current Assignment exposes to the model. Native Assignments default to an explicit subset and resource scope.
+
+The OH4 ACI adds:
+
+```text
+run_check(checkId)
+```
+
+A check binds an identity to an exact executable, arguments, working directory, environment and resource bounds before the model call. Generic `run_in_workspace` remains available only when `allowOpaqueExec` is explicitly granted. Read and mutation paths are checked before the Runtime boundary. `observe_job` and `read_artifact` can target only identities already observed in the current Run.
+
+The historical H1–H5 direct-driver profile remains compatible and retains its original receipt boundary. Strict Trace-derived Job and Artifact provenance is mandatory only for native Ordivon Runs.
+
+### Durable Run provenance
+
+The Host now persists:
+
+```text
+HarnessTrace
+each ToolObservation
+AgentRunConclusion
+HarnessRunReceipt schema v2
+CompletionVerification
+```
+
+`HarnessRunReceipt` v2 permits a native Run with no Provider Session, retains an exact `terminationCode`, and keeps an optional continuation reference. The decoder continues to accept v1 receipts from existing Codex and Hermes lifecycle records.
+
+Runtime Job and Artifact references in a native receipt must be exactly derivable from persisted Tool Observations. A model-provided evidence string does not become authoritative provenance. `propose_native_completion()` derives Host object evidence from the retained Trace and Observations.
+
+The independent verifier result is stored as a complete `CompletionVerification` CAS object. `CompletionDecision.verificationDigest` binds that object rather than an unrecoverable transient JSON value.
+
+### Capability precision
+
+The first-party manifest no longer overclaims `interrupt=true`. It declares `ordivon.interrupt-between-turns.v0`, which matches the actual cancellation boundary: the Loop checks cancellation between model and Tool operations but does not promise in-flight HTTP interruption.
+
+## OH4 live evidence
+
+The frozen live evidence at `evidence/ordivon-harness-oh4-deepseek-live-20260801.json` exercised the production DeepSeek and Runtime path with three fresh-Host reopen boundaries. The legacy OH3 live launcher was removed because it manually assembled committed objects and no longer represented the authoritative architecture. The historical OH3 evidence remains retained.
+
+```text
+source revision              fb10eae6c178eb76dda51ab1baeb258da4682c38
+model calls                  2
+Tool calls                   1
+termination code             candidate_completed
+observed heading             # Ordivon Host
+final Task revision          5
+CompletionVerification       persisted and reloadable
+final fresh-Host state       completed
+independent acceptance       true
+```
+
+The live Provider usage was approximately 4,643 total tokens across two calls, compared with 6,434 in OH3. The reduced prompt projection lowered this simple workload by about 28% while adding stronger Host bindings.
+
+The live proof closes durable Contract, Assignment, Run receipt, Trace, Observation, Verification and Outcome recovery for the tested read-only workload. It does not claim in-flight model-session continuation, recovery of an unrecorded provisional Runtime Job, arbitrary reboot recovery, or effectful external-action safety.
+
+After OH4 implementation, the deterministic Host suite contains 231 passing tests, including four focused native Contract, ToolGrant and fresh-Host lifecycle tests.
+
 ## Non-goals for v0
 
 - persistent Provider Session;
@@ -206,8 +301,8 @@ After rebasing onto Host `main` revision `79507fb6a000d241df19947de550610ebef6b8
 
 ## Promotion and deletion
 
-OH3 has passed the first bare-model gate: two real model calls, one production Runtime Tool action, one Observation returned to the second model call, and an independently accepted result. This proves the controlled loop exists; it does not yet prove broad workload value or production maturity.
+OH4 has passed the native control-plane gate: the Host commits the Task Contract, Assignment-scoped authority and Run identity before execution; persists the full read-only Run evidence; independently verifies the result; and reloads the final TaskOutcome from a fresh process. This proves one complete native read-only lifecycle, not broad workload value or production maturity.
 
-Promotion beyond OH3 requires a materially different workload, durable Trace/Receipt storage through the Host boundary, fault injection against Provider and Runtime uncertainty, and a cost comparison against one-shot and mature external Harness paths.
+Promotion beyond OH4 requires a materially different mutation workload, fault injection against in-flight Provider and Runtime uncertainty, explicit abandoned-Run cleanup, and a cost comparison against one-shot and mature external Harness paths.
 
 The prototype is deleted or narrowed if one-shot gateways or mature external Harnesses provide equal correctness, recovery and portability at lower permanent cost and no bare/local-model consumer remains.

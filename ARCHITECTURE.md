@@ -6,7 +6,7 @@ This architecture was falsified and reduced in the Computing incubator before th
 
 ## Ownership
 
-- **Host** owns Goals, Tasks, Host events and projections, Context compilation, ModelInvocation identity, proposal compilation or closed-choice admission, Effect commitments, Tool bindings, verification receipts, participant-routed decisions, and Task outcomes.
+- **Host** owns Goals, Tasks, Task Contracts, Host events and projections, Context compilation, ModelInvocation identity, Harness Assignments and native Run intent, Assignment-scoped Tool Grants, proposal compilation or closed-choice admission, Effect commitments, Tool bindings, retained Run evidence, verification receipts, participant-routed decisions, and Task outcomes.
 - **Runtime** owns Workspaces, committed physical Jobs, Runtime Attempts, process state, retained output, Artifacts, cancellation, and physical recovery.
 - **Domain systems** own authoritative world state, transition rules, domain coordination policy, and domain-specific verification sufficiency.
 - **Computing** owns promoted protocol definitions, reference behavior, conformance vectors, experiments, and evidence.
@@ -177,6 +177,29 @@ The profile proves:
 - MCP Session identity remains disposable transport state.
 
 The profile is Host-local and experimental. No universal planning language or promoted Protocol object is implied.
+
+## Native Harness Run contract
+
+The first-party bare-model Harness retains the H1–H5 Host boundary but closes its native control plane before execution:
+
+```text
+TaskContract + TaskAttemptDescriptor
+→ CompiledContext CAS
+→ HarnessAssignment + ToolGrant + NativeHarnessRunContract
+→ Provider / Runtime activity
+→ persisted Trace + ToolObservations + conclusion + HarnessRunReceipt
+→ Host-derived CompletionProposal
+→ persisted CompletionVerification
+→ CompletionDecision / TaskOutcome
+```
+
+One native Assignment generation authorizes one durable Harness Run identity. The Assignment event commits the Task Contract, Tool Grant and Run Contract object references before any Provider or Runtime call. A fresh Host can therefore reconstruct the Run identity and authority without Provider process state.
+
+The Runtime catalog expresses connected physical capability; `ToolGrant` expresses the smaller Assignment-authorized model surface. Native Runs expose only granted Tools and paths. Prebound `run_check(checkId)` is preferred to opaque execution. Generic `run_in_workspace` requires an explicit opaque-exec grant. Observation Jobs and Artifacts remain accessible only after their identities have appeared in the current Run.
+
+The Host persists the complete native Trace, each Tool Observation, the model Run conclusion and the v2 Run receipt. Job and Artifact references must be derivable from those Observations. Model-declared evidence is advisory; the Host compiles the CompletionProposal from retained Run objects. Independent verifier output is retained as a `CompletionVerification` object before TaskOutcome.
+
+The first-party capability manifest declares cancellation between Turns rather than claiming in-flight Provider interruption. Provider Session continuation, exact recovery of an unrecorded provisional Runtime Job, parallel Tools, compaction, subagents and effectful external actions remain outside this verified slice.
 
 ## Capability and consequence separation
 

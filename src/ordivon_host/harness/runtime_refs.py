@@ -13,8 +13,11 @@ _REFERENCE_TYPES = {
     "dispatch",
     "effect",
     "harness_run",
+    "native_run_contract",
     "task",
     "task_attempt",
+    "task_contract",
+    "tool_grant",
 }
 
 
@@ -119,19 +122,29 @@ def harness_run_runtime_binding_digest(
     if not harness_run_id.startswith("harness-run:"):
         raise ValueError("Harness Run identity must start with harness-run:")
     assignment = committed.assignment
-    return canonical_digest(
-        {
-            "schemaVersion": 1,
-            "kind": "ordivon.harness-run-runtime-binding",
-            "harnessRunId": harness_run_id,
-            "assignmentId": assignment.assignment_id,
-            "assignmentGeneration": assignment.generation,
-            "harnessId": assignment.target_harness_id,
-            "harnessManifestDigest": assignment.harness_manifest_digest,
-            "contextDigest": assignment.context_object_digest,
-            "toolCatalogDigest": assignment.tool_catalog_digest,
-        }
-    )
+    native = committed.native_run_contract
+    if native is not None and native.harness_run_id != harness_run_id:
+        raise ValueError("Harness Run identity differs from native Run Contract")
+    value: dict[str, JsonValue] = {
+        "schemaVersion": 1,
+        "kind": "ordivon.harness-run-runtime-binding",
+        "harnessRunId": harness_run_id,
+        "assignmentId": assignment.assignment_id,
+        "assignmentGeneration": assignment.generation,
+        "harnessId": assignment.target_harness_id,
+        "harnessManifestDigest": assignment.harness_manifest_digest,
+        "contextDigest": assignment.context_object_digest,
+        "toolCatalogDigest": assignment.tool_catalog_digest,
+    }
+    if native is not None:
+        value.update(
+            {
+                "nativeRunContractDigest": native.digest,
+                "taskContractDigest": native.task_contract_digest,
+                "toolGrantDigest": native.tool_grant_digest,
+            }
+        )
+    return canonical_digest(value)
 
 
 def host_runtime_references(
@@ -139,7 +152,7 @@ def host_runtime_references(
     harness_run_id: str,
 ) -> tuple[HostRuntimeReference, ...]:
     assignment = committed.assignment
-    references = (
+    references: tuple[HostRuntimeReference, ...] = (
         HostRuntimeReference(
             "task",
             assignment.task_id,
@@ -163,6 +176,28 @@ def host_runtime_references(
             digest=harness_run_runtime_binding_digest(committed, harness_run_id),
         ),
     )
+    if committed.native_run_contract is not None:
+        native = committed.native_run_contract
+        assert committed.task_contract is not None
+        assert committed.tool_grant is not None
+        references += (
+            HostRuntimeReference(
+                "task_contract",
+                committed.task_contract.contract_id,
+                digest=committed.task_contract.digest,
+            ),
+            HostRuntimeReference(
+                "tool_grant",
+                committed.tool_grant.tool_grant_id,
+                digest=committed.tool_grant.digest,
+            ),
+            HostRuntimeReference(
+                "native_run_contract",
+                native.harness_run_id,
+                generation=str(native.assignment_generation),
+                digest=native.digest,
+            ),
+        )
     return tuple(sorted(references, key=lambda value: value.sort_key))
 
 

@@ -88,13 +88,17 @@ class OrdivonHarnessOH1Tests(unittest.TestCase):
     def test_first_party_manifest_is_conservative_and_stable(self) -> None:
         manifest = ordivon_harness_manifest()
         self.assertEqual(manifest.harness_id, "ordivon-harness-v0")
-        self.assertEqual(manifest.protocol_revision, "oh3")
-        self.assertTrue(manifest.interrupt)
+        self.assertEqual(manifest.protocol_revision, "oh4")
+        self.assertFalse(manifest.interrupt)
         self.assertTrue(manifest.tool_events)
         self.assertFalse(manifest.persistent_session)
         self.assertFalse(manifest.compaction)
         self.assertIn("ordivon.explicit-unknown.v0", manifest.extensions)
         self.assertIn("ordivon.deepseek-turn-adapter.v0", manifest.extensions)
+        self.assertIn("ordivon.interrupt-between-turns.v0", manifest.extensions)
+        self.assertIn("ordivon.native-run-contract.v0", manifest.extensions)
+        self.assertIn("ordivon.tool-grant.v0", manifest.extensions)
+        self.assertIn("ordivon.run-provenance.v0", manifest.extensions)
         self.assertTrue(manifest.digest.startswith("sha256:"))
 
     def test_scripted_loop_runs_tool_observation_then_candidate_completion(self) -> None:
