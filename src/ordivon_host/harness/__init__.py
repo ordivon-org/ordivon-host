@@ -9,6 +9,17 @@ from .codex_app import (
     CodexAppTurnHandle,
     CodexAppTurnResult,
 )
+from .hermes_acp import (
+    HermesACPDriver,
+    HermesACPError,
+    HermesACPExited,
+    HermesACPNormalizedEvent,
+    HermesACPPromptHandle,
+    HermesACPPromptResult,
+    HermesACPProtocolError,
+    HermesACPSession,
+    HermesACPTimeout,
+)
 from .host import (
     CommittedHarnessAssignment,
     HarnessLifecycleError,
@@ -46,6 +57,15 @@ __all__ = [
     "CodexAppThread",
     "CodexAppTurnHandle",
     "CodexAppTurnResult",
+    "HermesACPDriver",
+    "HermesACPError",
+    "HermesACPExited",
+    "HermesACPNormalizedEvent",
+    "HermesACPPromptHandle",
+    "HermesACPPromptResult",
+    "HermesACPProtocolError",
+    "HermesACPSession",
+    "HermesACPTimeout",
     "CommittedHarnessAssignment",
     "CompletionDecision",
     "CompletionDecisionReceipt",
