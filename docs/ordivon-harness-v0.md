@@ -1,6 +1,6 @@
 # Ordivon Harness v0
 
-Status: OH0–OH2 skeleton implemented and locally verified
+Status: OH0–OH3 first live bare-model loop implemented and verified
 
 ## Purpose
 
@@ -109,6 +109,89 @@ cleanup         temporary Workspace closed in a finally path
 
 A deliberately undersized `FULL` read was returned as a structured `not_committed` rejection rather than `unknown`; increasing the bound produced an observed reading. This exercises both the rejection and success paths without creating a second physical execution.
 
+## OH3 shared Context profile
+
+OH3 does not introduce another Context container. It reuses the existing shared types:
+
+```text
+ContextBlock
+ContextManifest
+CompiledContext
+```
+
+The three current compilation profiles are distinct producers of the same durable envelope:
+
+```text
+ContextCompiler         → ordivon.compiled-context
+OpenContextCompiler     → ordivon.open-compiled-context
+HarnessContextCompiler  → ordivon.harness-compiled-context
+```
+
+The closed profile retains an exact action menu for bounded deterministic decisions. The open profile requests one `ActionProposal` without `allowedActions`. The Harness profile freezes structured objective and acceptance objects, constraints, selected Context blocks, and unresolved Dispatch identities for a multi-turn model–Tool–Observation Run. It contains no prebuilt action menu.
+
+The construction order is deliberately acyclic:
+
+```text
+TaskAttemptDescriptor + HarnessContextRequest
+→ HarnessContextCompiler
+→ CompiledContext
+→ Host CAS object digest
+→ HarnessAssignment
+→ OrdivonInputCompiler
+→ provider-neutral system/user messages
+```
+
+The Input Compiler verifies Task, Task Attempt, objective digest, acceptance digest, and the exact CAS object digest before presenting the Assignment to a model.
+
+## OH3 DeepSeek Turn Adapter
+
+The first live Adapter uses the official DeepSeek Chat Completions surface with the stable `deepseek-v4-flash` model identifier.
+
+The retained v0 request profile is intentionally narrow:
+
+```text
+thinking      disabled
+streaming     disabled
+tool_choice   required
+session       none
+auto retry    none
+```
+
+Runtime Tools are translated to Provider function definitions. A Harness-private `submit_run_conclusion` function ends a Run without granting Task completion authority. The Adapter fails closed on malformed JSON, unavailable Tool names, mixed Runtime/conclusion calls, duplicate conclusions, inconsistent finish reasons, oversized responses, and Provider transport failures.
+
+The API key is loaded only from a mode-`0600` non-symlink secret file, is excluded from dataclass representation, and is sent only in the Authorization header. It is not included in prompts, request bodies, traces, or evidence files.
+
+## OH3 live evidence
+
+The frozen read-only dogfood at `evidence/ordivon-harness-oh3-deepseek-live-20260801.json` exercised:
+
+```text
+Host-compiled structured Context
+→ DeepSeek model call 1
+→ read_workspace Tool Call
+→ production Runtime Observation
+→ DeepSeek model call 2
+→ submit_run_conclusion
+→ independent heading extraction and acceptance
+```
+
+The accepted run retained:
+
+```text
+source revision        79507fb6a000d241df19947de550610ebef6b8b1
+Runtime catalog        sha256:22ae1290ee472e9ffd6d9af67a2e5ced1f007e7d58f01f7c6a9ccfee5405a3f8
+model calls            2
+Tool calls             1
+Observation status     observed
+model conclusion       candidate_completed
+independent heading    # Ordivon Host
+independent acceptance true
+```
+
+The model conclusion was not used as the acceptance oracle. The script reread the Runtime Observation, extracted the first Markdown heading, and compared it with the frozen expected value. The temporary Runtime Workspace was closed in a `finally` path.
+
+After rebasing onto Host `main` revision `79507fb6a000d241df19947de550610ebef6b8b1`, the deterministic suite contains 226 passing tests, including nine focused OH3 tests.
+
 ## Non-goals for v0
 
 - persistent Provider Session;
@@ -123,6 +206,8 @@ A deliberately undersized `FULL` read was returned as a structured `not_committe
 
 ## Promotion and deletion
 
-The skeleton advances to a real bare-model Adapter only if OH0–OH2 remain smaller than the duplicated semantics they prevent. The first live Run must include at least two model calls and one Runtime Tool action, bind all identities to a receipt, and leave semantic completion to Host verification.
+OH3 has passed the first bare-model gate: two real model calls, one production Runtime Tool action, one Observation returned to the second model call, and an independently accepted result. This proves the controlled loop exists; it does not yet prove broad workload value or production maturity.
 
-The prototype is deleted if one-shot gateways or mature external Harnesses provide equal correctness, recovery and portability at lower permanent cost and no bare/local-model consumer exists.
+Promotion beyond OH3 requires a materially different workload, durable Trace/Receipt storage through the Host boundary, fault injection against Provider and Runtime uncertainty, and a cost comparison against one-shot and mature external Harness paths.
+
+The prototype is deleted or narrowed if one-shot gateways or mature external Harnesses provide equal correctness, recovery and portability at lower permanent cost and no bare/local-model consumer remains.
