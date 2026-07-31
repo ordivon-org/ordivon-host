@@ -23,8 +23,8 @@ jobs:
           python -m pip install -e .
       - name: Static checks
         run: |
-          python -m compileall -q src tests scripts
-          ruff check src tests scripts
+          python -m compileall -q src tests scripts evals
+          ruff check src tests scripts evals
       - name: Deterministic tests
         run: python -m unittest discover -s tests
       - name: Build wheel
