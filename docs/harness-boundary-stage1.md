@@ -1,6 +1,6 @@
 # Harness Boundary Stage 1
 
-Status: H1–H3 implemented; H4–H5 remain experimental work
+Status: H1–H4 implemented; H5 remains experimental work
 Canonical experiment: `ordivon-computing/research/experiments/harness-boundary-v0/`
 
 ## H1 implementation result
@@ -29,6 +29,18 @@ The live receipt [`../evidence/codex-app-h3-live-64ab44b-20260731.json`](../evid
 
 The existing one-shot `CodexCliModelGateway` remains a distinct baseline: it uses one ephemeral subprocess and retains no Thread identity, interrupt surface, Tool lifecycle, or raw provider-event digest. App Server provides those capabilities at higher protocol, event-volume, and token cost. H3 therefore provisionally retains the direct Codex driver but does not yet justify a shared cross-provider adapter; H4 and H5 must determine whether useful lifecycle code actually repeats across Hermes ACP and replacement trajectories.
 
+## H4 implementation result
+
+H4 adds a provider-faithful Hermes ACP v1 JSON-RPC stdio driver without depending on the ACP Python SDK. It performs `initialize`, `session/new`, `session/prompt`, and `session/cancel`; handles interleaved responses and `session/update` notifications; retains Session identity and Hermes provenance; observes Tool, usage, message, and thought events; and rejects all server-initiated permission, filesystem, terminal, or Tool requests by default. Raw Tool input, output, and file content are represented only by canonical digests. `agent_thought_chunk` text never enters a serialized result, Host object, receipt, or handoff; only event counts and payload digests remain.
+
+Five deterministic protocol tests cover capability projection, full and start-only Tool streams, usage, thought-text exclusion, result round-trip, `HarnessRunReceipt` construction, cancellation, and fail-closed server requests. The start-only fixture was added after the first live Runtime trajectory showed that Hermes 0.18.0 may terminate a successful Prompt after a `tool_call` without emitting the later `tool_call_update`. H4 therefore treats Tool observation plus terminal Prompt response as the reliable Provider contract and preserves richer completion updates when they arrive without inventing them when they do not.
+
+The live receipt [`../evidence/hermes-acp-h4-live-3d9a559-20260731.json`](../evidence/hermes-acp-h4-live-3d9a559-20260731.json) records one Runtime-managed read-only Hermes ACP Harness Run from implementation revision `3d9a55904c735b388d8acf617262f0322174ba9a`. Runtime owned the `uv → worker → hermes acp → read_file` process tree and retained one Job, Attempt, stdout, stderr, execution-result, and terminal-evidence Artifact. Hermes Agent 0.18.0 created Session `eb31426a-d8a8-4814-bf01-38c02f48c8e4`, used `deepseek:deepseek-v4-pro`, observed one read Tool for `runtime_refs.py`, emitted 689 Provider messages, 449 thought chunks, 234 message chunks, two usage updates, and completed with `end_turn`. Host admitted the resulting `HarnessRunReceipt`, preserved Runtime and Provider evidence, projected the Run through operator handoff, and left the Task in `waiting` with no `TaskOutcome`.
+
+The existing one-shot `HermesCliModelGateway` remains the simpler baseline. ACP adds durable Provider Session identity, provenance, cancellation, Tool observations, usage, raw-event hashing, and multi-Prompt process capability, but the bounded inspection still consumed 35,992 total tokens and produced a large event stream. The direct Hermes driver is retained provisionally through H5.
+
+A cross-provider audit found only limited useful repetition between the 841-line Codex driver and 947-line Hermes driver: exact-line Jaccard similarity was approximately 0.275, and most shared lines were subprocess, queue, validation, serialization, and receipt mechanics. Their lifecycle semantics differ materially: Codex uses Thread/Turn/Item notifications and a distinct terminal Turn event; Hermes uses standard JSON-RPC Session/Prompt responses, bidirectional requests, thought streams, and optional Tool completion updates. Extracting a shared adapter now would delete little provider code while obscuring real differences, so no `adapter.py`, common Session format, or shared event runtime is created. H5 replacement trajectories remain the next evidence gate.
+
 ## Objective
 
 Prove or delete a Host-local Harness boundary by running one durable Task through Codex App Server and Hermes ACP, replacing the Harness mid-Task, and validating completion against Host and Runtime evidence.
@@ -56,11 +68,11 @@ The existing Task lease remains a transition lock. Its revision is not the durab
 src/ordivon_host/harness/
   __init__.py
   models.py          immutable v0 objects and capability manifest
-  adapter.py         candidate common lifecycle only after H4/H5 evidence
   host.py            Assignment, Run, proposal, and completion transitions
   runtime_refs.py    Runtime foreign-reference builder
   codex_app.py       provider-faithful Codex App Server direct driver
-  hermes_acp.py      planned provider-faithful Hermes ACP direct driver
+  hermes_acp.py      provider-faithful Hermes ACP direct driver
+  adapter.py         not created; shared lifecycle remains an H5 candidate
 ```
 
 The direct drivers expose provider protocols faithfully. The adapter layer maps only the lifecycle required by the experiment.
@@ -223,9 +235,7 @@ It does not export hidden reasoning or make a Codex thread authoritative for Tas
 
 ## Hermes ACP driver
 
-Use the installed Hermes ACP adapter, which currently advertises load, resume, fork, prompt, cancel, Tool-call updates, usage, and MCP support.
-
-Minimal mapping:
+The installed Hermes Agent 0.18.0 implements ACP v1 over standard JSON-RPC stdio. The direct driver uses the following minimal mapping:
 
 ```text
 initialize
@@ -233,12 +243,13 @@ session/new
 session/prompt
 session/update
 session/cancel
-session/load or session/resume as observed optional capabilities
 ```
 
-The driver records Session ID, ACP/version capability response, model/provider, MCP catalog, Tool-call updates, usage, and stop reason.
+Load, resume, fork, image, approval, filesystem, terminal, and MCP capabilities are retained in the Provider manifest when advertised. H4 does not invoke those broader methods or expose client-side filesystem and terminal capabilities. Every server-initiated request fails closed.
 
-Hermes history and checkpoints remain provider-local evidence. Replacement uses fresh Host Context rather than importing those internals into the common contract.
+The driver records Session ID, protocol and agent revision, model/provider, Session provenance, Tool observations, usage, terminal stop reason, and raw Provider-message digest. Tool completion updates are retained when sent but are not assumed to be mandatory. Thought text and raw Tool content are excluded from serialized evidence.
+
+Hermes persisted history, load, resume, and fork remain Provider-local capabilities. Replacement uses a fresh Host Assignment and Context rather than importing Hermes history into the common contract.
 
 ## Direct baselines
 
@@ -334,7 +345,7 @@ Completed with a provider-faithful direct driver, fake-server lifecycle tests, i
 
 ### H4 — Hermes ACP
 
-Implement direct driver and adapter with protocol fixtures, then one live smoke run.
+Completed with a provider-faithful JSON-RPC direct driver, full and sparse Tool-stream fixtures, cancellation and fail-closed server-request coverage, thought-digest-only evidence, and one Runtime-managed live read-only Harness Run. Shared adapter extraction remains deferred.
 
 ### H5 — replacement and faults
 
