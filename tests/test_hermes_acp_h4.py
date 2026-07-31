@@ -94,6 +94,17 @@ def _write_fake_server(root: Path) -> Path:
                             }}
                         }}
                     }})
+                elif method == "session/set_mode":
+                    if message["params"].get("modeId") not in {{
+                        "default", "accept_edits", "dont_ask"
+                    }}:
+                        emit({{
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {{"code": -32602, "message": "invalid mode"}}
+                        }})
+                    else:
+                        emit({{"jsonrpc": "2.0", "id": request_id, "result": {{}}}})
                 elif method == "session/prompt":
                     prompt = message["params"]["prompt"][0]["text"]
                     if "WAIT_FOR_CANCEL" in prompt:
@@ -335,6 +346,20 @@ class HermesACPH4Tests(unittest.TestCase):
                 self.assertEqual(receipt.event_digest, result.raw_message_digest)
                 self.assertEqual(receipt.runtime_job_refs, ("job:hermes-acp-h4",))
                 self.assertEqual(receipt.usage["thoughtEventCount"], 1)
+
+    def test_session_mode_is_explicit_provider_local_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake = _write_fake_server(root)
+            with HermesACPDriver(
+                working_directory=root,
+                executable=sys.executable,
+                acp_args=(str(fake),),
+                timeout_seconds=5,
+            ) as driver:
+                session = driver.start_session()
+                result = driver.set_session_mode(session.session_id, "accept_edits")
+            self.assertEqual(result, {})
 
     def test_terminal_prompt_can_complete_after_start_only_tool_observation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

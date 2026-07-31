@@ -580,6 +580,18 @@ class HermesACPDriver:
             message_start_index=message_start,
         )
 
+    def set_session_mode(
+        self,
+        session_id: str,
+        mode_id: str,
+    ) -> dict[str, JsonValue]:
+        _text(session_id, "Hermes ACP Session identity")
+        _text(mode_id, "Hermes ACP Session mode")
+        return self._request(
+            "session/set_mode",
+            {"sessionId": session_id, "modeId": mode_id},
+        )
+
     def start_prompt(self, session: HermesACPSession, prompt: str) -> HermesACPPromptHandle:
         _text(prompt, "Hermes ACP prompt")
         request_id = self._next_request_id
