@@ -36,6 +36,8 @@ _RULES = (
     OwnershipRule("task-contract", ComponentOwner.HOST, "The Host preserves the authoritative objective, acceptance criteria, constraints, and consequence policy independently from model Context projection."),
     OwnershipRule("tool-grant", ComponentOwner.HOST, "The Host binds one Assignment to an explicit model-visible Tool and resource scope."),
     OwnershipRule("native-harness-run-contract", ComponentOwner.HOST, "The Host commits the native Harness Run identity before Provider or Runtime activity."),
+    OwnershipRule("native-run-recovery-assessment", ComponentOwner.HOST, "The Host preserves cleanup evidence and unresolved UNKNOWN state after a native Run process disappears."),
+    OwnershipRule("native-run-abandonment", ComponentOwner.HOST, "The Host alone decides when a lost native Run is safely terminated and replaceable."),
     OwnershipRule("harness-trace", ComponentOwner.HOST, "The Host retains Run evidence while the Harness owns only the live model loop."),
     OwnershipRule("completion-verification", ComponentOwner.HOST, "The Host persists independent acceptance evidence before producing TaskOutcome."),
     OwnershipRule("model-invocation", ComponentOwner.HOST, "Providers are replaceable cognition transports."),

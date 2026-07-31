@@ -1,0 +1,65 @@
+{
+  "abandonmentDigest": "sha256:a8864d58a294f44edca4295d4fbf03ed16dc45e7bb5339afe29aeb9e824f54c0",
+  "abandonmentObjectDigest": "sha256:9e30a4d0f5a513bd0e1b9a6079d00d58d2cda8820c9b14df4f2c94194f4c871e",
+  "accepted": true,
+  "completionDecisionDigest": "sha256:1c06588a9265a91b95ccd3ea79dee78df0654de74c3a23b184bcc879909d1251",
+  "completionVerificationDigest": "sha256:a9ad8584ad9315751c80a5fa72aa07e1f7cc75f34b064f2798b6cef42b817896",
+  "contextObjectDigest": "sha256:0a03546e4231255c0b1118904b5296b8a3c40d338f71d57ed0bd26bebbca4c9f",
+  "expectedHeading": "# Ordivon Host",
+  "finalTaskRevision": 8,
+  "finalTaskState": "completed",
+  "generationOneAssignmentId": "assignment:oh5-live-recovery:attempt-1:g1",
+  "generationOneRunId": "harness-run:oh5-live-recovery:attempt-1:g1",
+  "generationOneToolCalls": 1,
+  "generationTwoAssignmentId": "assignment:oh5-live-recovery:attempt-1:g2",
+  "generationTwoModelCalls": 2,
+  "generationTwoReceiptDigest": "sha256:f1d557311fafe56144b5bb92b893c1842a3060c5f47df45ff141a965e2c6300c",
+  "generationTwoRunId": "harness-run:oh5-live-recovery:attempt-1:g2",
+  "generationTwoToolCalls": 1,
+  "generationTwoTraceDigest": "sha256:7a9ee3f4e4a696f80ff317d161758816a7e3d436d742c1f8181dcc7b9daa684d",
+  "kind": "ordivon.harness-oh5-live-recovery-evidence",
+  "observedHeading": "# Ordivon Host",
+  "outcomeDigest": "sha256:75d1e4eae5ec6d2b40ff035e71fabc4137451437db575fae6455dba43860ae52",
+  "recoveryAssessmentDigest": "sha256:c0fa759a7404f740ea1b0e255f437d2c509e63625e2750caaeedbd5abdb75869",
+  "recoveryAssessmentObjectDigest": "sha256:15f4bfb728aeb37d6fd68fe2e859e9c9d0a425270280dffff303945a3740e375",
+  "recoveryWorkspaceStatus": "closed",
+  "runtimeCatalogDigest": "sha256:4cd3713dfbb9eaa6dbbce3c9725f46923e1e2247719987258a2ada4b1811b8f9",
+  "schemaVersion": 1,
+  "sourceRevision": "264d96cb2325e4a418c98459e05c74d482001fd8",
+  "staleResultObjectCountUnchanged": true,
+  "staleResultRejected": true,
+  "taskContractDigest": "sha256:b7c9f57d8b4a92a6837db0e8a7e22ac9b7d056641484e38c02f8c9d6113ef383",
+  "usage": {
+    "modelCalls": 2,
+    "observationBytes": 6389,
+    "providerUsage": [
+      {
+        "completion_tokens": 57,
+        "prompt_cache_hit_tokens": 0,
+        "prompt_cache_miss_tokens": 1454,
+        "prompt_tokens": 1454,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "providerModel": "deepseek-v4-flash",
+        "providerRequestMode": "non-thinking",
+        "systemFingerprint": "fp_a18b46594c_prod0820_fp8_kvcache_20260402",
+        "total_tokens": 1511
+      },
+      {
+        "completion_tokens": 196,
+        "prompt_cache_hit_tokens": 1408,
+        "prompt_cache_miss_tokens": 1552,
+        "prompt_tokens": 2960,
+        "prompt_tokens_details": {
+          "cached_tokens": 1408
+        },
+        "providerModel": "deepseek-v4-flash",
+        "providerRequestMode": "non-thinking",
+        "systemFingerprint": "fp_a18b46594c_prod0820_fp8_kvcache_20260402",
+        "total_tokens": 3156
+      }
+    ],
+    "toolCalls": 1
+  }
+}

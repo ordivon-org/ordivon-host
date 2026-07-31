@@ -36,6 +36,8 @@ class EventKind(StrEnum):
     COGNITION_DECISION_ADMITTED = "cognition.decision-admitted"
     COGNITION_PROPOSAL_RESOLVED = "cognition.proposal-resolved"
     HARNESS_ASSIGNMENT_COMMITTED = "harness.assignment-committed"
+    HARNESS_RUN_RECOVERY_RECORDED = "harness.run-recovery-recorded"
+    HARNESS_RUN_ABANDONED = "harness.run-abandoned"
     HARNESS_RUN_RECORDED = "harness.run-recorded"
     COMPLETION_PROPOSED = "completion.proposed"
     COMPLETION_DECIDED = "completion.decided"

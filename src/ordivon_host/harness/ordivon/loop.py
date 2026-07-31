@@ -13,6 +13,7 @@ from .model import (
     AgentRunConclusion,
     AgentTurnAdapter,
     AgentTurnAdapterError,
+    AgentTurnFailureCode,
     AgentTurnRequest,
 )
 from .tools import ToolBridge, ToolBridgeError, ToolObservation
@@ -24,6 +25,10 @@ class RunStopCode(str, Enum):
     BUDGET_EXHAUSTED = "budget_exhausted"
     CANCELLED = "cancelled"
     PROVIDER_FAILED = "provider_failed"
+    PROVIDER_TIMEOUT = "provider_timeout"
+    PROVIDER_TRANSPORT_FAILED = "provider_transport_failed"
+    PROVIDER_REJECTED = "provider_rejected"
+    PROVIDER_UNAVAILABLE = "provider_unavailable"
     INVALID_TOOL_CALL = "invalid_tool_call"
     RUNTIME_UNKNOWN = "runtime_unknown"
     INVALID_MODEL_OUTPUT = "invalid_model_output"
@@ -204,7 +209,16 @@ class OrdivonAgentLoop:
             try:
                 result = self.adapter.invoke(request)
             except AgentTurnAdapterError as error:
-                return stop(RunStopCode.PROVIDER_FAILED, detail=str(error))
+                stop_code = {
+                    AgentTurnFailureCode.FAILED: RunStopCode.PROVIDER_FAILED,
+                    AgentTurnFailureCode.TIMEOUT: RunStopCode.PROVIDER_TIMEOUT,
+                    AgentTurnFailureCode.TRANSPORT_FAILED: (
+                        RunStopCode.PROVIDER_TRANSPORT_FAILED
+                    ),
+                    AgentTurnFailureCode.REJECTED: RunStopCode.PROVIDER_REJECTED,
+                    AgentTurnFailureCode.UNAVAILABLE: RunStopCode.PROVIDER_UNAVAILABLE,
+                }[error.failure_code]
+                return stop(stop_code, detail=str(error))
             except (TypeError, ValueError) as error:
                 return stop(RunStopCode.INVALID_MODEL_OUTPUT, detail=str(error))
             if result.model_id != self.adapter.model_id:
