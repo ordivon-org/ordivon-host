@@ -1,0 +1,70 @@
+{
+  "acceptanceContract": {
+    "assertions": [
+      "visible allocation suite passes",
+      "hidden generalization suite passes",
+      "SPEC.md and test_allocation.py are unchanged",
+      "no path outside allocation.py and artifacts is changed",
+      "required completion Artifact is present and valid"
+    ],
+    "requiredArtifacts": [
+      "artifacts/completion.json"
+    ],
+    "verifierId": "HARNESS-REPO-REPAIR-001-verifier",
+    "verifierRevision": "1"
+  },
+  "allowedCapabilities": [
+    "read_workspace",
+    "mutate_workspace",
+    "diff_workspace",
+    "run_in_workspace",
+    "read_artifact"
+  ],
+  "budgetProfile": {
+    "maxInputTokens": 1000000,
+    "maxModelCalls": 8,
+    "maxObservationBytes": 1048576,
+    "maxOutputTokens": 100000,
+    "maxRuntimeJobs": 8,
+    "maxToolCalls": 20,
+    "maxWallTimeMs": 600000
+  },
+  "expertTimeEstimateMinutes": null,
+  "family": "repository_repair",
+  "initialState": {
+    "environmentDigest": "sha256:f138518c20e3fea3e1a6f88478e78ab73da92fda22b882516c1cc48ad6943453",
+    "fixturePath": "fixtures/harness-replacement-repository-repair-v1",
+    "sourceRepositoryId": "ordivon-host",
+    "sourceRevision": "b4bc43a4ea7eb1e7771644d507bc4a3a39b4e741"
+  },
+  "integrity": {
+    "algorithm": "sha256",
+    "canonicalization": "ordivon-canonical-json-v1",
+    "payloadDigest": "sha256:a841ff3e6f6d0796d4e5e0fbc1595abad1a43833eace4bcd71f406889693eb4b"
+  },
+  "kind": "ordivon.evaluation-task",
+  "knownLimitations": [
+    "The Task is a compact deterministic repair and does not measure broad repository navigation or long-horizon planning.",
+    "An empirical human expert-time baseline has not yet been measured.",
+    "The R2 QA gate validates source behavior and isolation; completion Artifact validation remains part of the R3 runner and Host acceptance path."
+  ],
+  "labels": [
+    "harness-v0",
+    "repository-repair",
+    "deterministic",
+    "track-r"
+  ],
+  "objective": "Repair allocate_units so it implements the specified largest-remainder method, preserves the public API and protected files, emits a completion Artifact, and passes visible and hidden outcome verification.",
+  "oracle": {
+    "digest": "sha256:9d0689dcd19c64382cc4c2a68e72f9cc1970eb476af49daf1f2898cf1f7fb76f",
+    "kind": "reference-source",
+    "path": "evals/harness-repository-repair-001/oracle/allocation.py"
+  },
+  "reproducibility": {
+    "cleanRebuildTrials": 3,
+    "requiredAgreement": 3
+  },
+  "schemaVersion": 1,
+  "taskId": "HARNESS-REPO-REPAIR-001",
+  "taskVersion": 1
+}
