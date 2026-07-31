@@ -132,17 +132,18 @@ def _write_fake_server(root: Path) -> Path:
                             "locations": [{{"path": "target.py", "line": 1}}],
                             "rawInput": {{"path": "target.py"}}
                         }})
-                        update({{
-                            "sessionUpdate": "tool_call_update",
-                            "toolCallId": "tool:read:1",
-                            "kind": "read",
-                            "status": "completed",
-                            "content": [{{
-                                "type": "content",
-                                "content": {{"type": "text", "text": "def target(): pass"}}
-                            }}],
-                            "rawOutput": "def target(): pass"
-                        }})
+                        if "START_ONLY_TOOL" not in prompt:
+                            update({{
+                                "sessionUpdate": "tool_call_update",
+                                "toolCallId": "tool:read:1",
+                                "kind": "read",
+                                "status": "completed",
+                                "content": [{{
+                                    "type": "content",
+                                    "content": {{"type": "text", "text": "def target(): pass"}}
+                                }}],
+                                "rawOutput": "def target(): pass"
+                            }})
                         update({{
                             "sessionUpdate": "agent_message_chunk",
                             "content": {{"type": "text", "text": "H4_"}}
@@ -334,6 +335,28 @@ class HermesACPH4Tests(unittest.TestCase):
                 self.assertEqual(receipt.event_digest, result.raw_message_digest)
                 self.assertEqual(receipt.runtime_job_refs, ("job:hermes-acp-h4",))
                 self.assertEqual(receipt.usage["thoughtEventCount"], 1)
+
+    def test_terminal_prompt_can_complete_after_start_only_tool_observation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake = _write_fake_server(root)
+            with HermesACPDriver(
+                working_directory=root,
+                executable=sys.executable,
+                acp_args=(str(fake),),
+                timeout_seconds=5,
+                clock_ms=itertools.count(1_500, 10).__next__,
+            ) as driver:
+                result = driver.run_prompt("START_ONLY_TOOL")
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(result.provider_stop_reason, "end_turn")
+            self.assertEqual(result.update_type_counts["tool_call"], 1)
+            self.assertNotIn("tool_call_update", result.update_type_counts)
+            self.assertEqual(len(result.tool_items), 1)
+            self.assertEqual(result.tool_items[0]["kind"], "read")
+            self.assertEqual(result.tool_items[0]["status"], "in_progress")
+            self.assertIn("tool_started", [event.kind for event in result.normalized_events])
+            self.assertNotIn("tool_finished", [event.kind for event in result.normalized_events])
 
     def test_cancel_maps_to_session_cancel_and_interrupted_status(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

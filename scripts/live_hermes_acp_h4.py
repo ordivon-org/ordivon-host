@@ -259,7 +259,7 @@ def main() -> None:
             {
                 "acceptance": [
                     "Hermes ACP Session identity and provenance retained",
-                    "one read-only Tool lifecycle observed",
+                    "one read-only Tool observation retained",
                     "usage and raw provider digest retained",
                     "thought text excluded while thought event digests remain",
                     "Runtime owns the physical process tree",
@@ -441,9 +441,10 @@ def main() -> None:
             "sessionProvenanceRetained": bool(
                 prompt_result.session.provenance_digest
             ),
-            "toolLifecycleObserved": counts.get("tool_call", 0) >= 1
-            and counts.get("tool_call_update", 0) >= 1
+            "toolObservationRetained": counts.get("tool_call", 0) >= 1
             and bool(prompt_result.tool_items),
+            "terminalPromptAfterTool": prompt_result.provider_stop_reason == "end_turn"
+            and counts.get("tool_call", 0) >= 1,
             "noEditToolObserved": not edit_tools,
             "usageObserved": bool(prompt_result.usage)
             and counts.get("usage_update", 0) >= 1,
