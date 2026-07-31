@@ -1,0 +1,479 @@
+{
+  "assignmentGeneration": 1,
+  "assignmentId": "assignment:live-hermes-acp-h4-1785462084499-06007aab1269:attempt-1:g1",
+  "capturedAt": "2026-07-31T01:41:53.442783+00:00",
+  "checks": {
+    "freshClientRecoveredJob": true,
+    "handoffProjectsHarnessRun": true,
+    "hermesPromptCompleted": true,
+    "hostRecordedHarnessRun": true,
+    "noEditToolObserved": true,
+    "noRuntimeSemanticCompletionClaim": true,
+    "oneShotBaselineRemainsDistinct": true,
+    "rawProviderDigestRetained": true,
+    "runtimeJobSucceeded": true,
+    "runtimeOwnedProcessTree": true,
+    "sessionIdentityRetained": true,
+    "sessionProvenanceRetained": true,
+    "taskNotSemanticallyCompleted": true,
+    "terminalEvidenceBoundSource": true,
+    "terminalEvidenceRetainedHostReferences": true,
+    "terminalPromptAfterTool": true,
+    "thoughtTextExcluded": true,
+    "toolObservationRetained": true,
+    "usageObserved": true,
+    "workerChecksPassed": true
+  },
+  "goalId": "goal:live-hermes-acp-h4-1785462084499-06007aab1269",
+  "harnessRunId": "harness-run:live-hermes-acp-h4-1785462084499-06007aab1269:hermes:1",
+  "host": {
+    "handoff": {
+      "assignmentGeneration": 1,
+      "assignmentId": "assignment:live-hermes-acp-h4-1785462084499-06007aab1269:attempt-1:g1",
+      "backendJobId": null,
+      "childTaskId": null,
+      "completionDecisionId": null,
+      "completionProposalId": null,
+      "decisionRequestId": null,
+      "descriptorDigest": null,
+      "dispatchObjectDigest": null,
+      "eventKind": "harness.run-recorded",
+      "eventPayloadDigest": "sha256:0eee36815b1e82dedf276b4fe7f841c939f9616109d9f7a464548e3d2acb29ec",
+      "goalId": "goal:live-hermes-acp-h4-1785462084499-06007aab1269",
+      "harnessRunId": "harness-run:live-hermes-acp-h4-1785462084499-06007aab1269:hermes:1",
+      "kind": "ordivon.operator-handoff-capsule",
+      "mustNotRepeatObjectDigests": [],
+      "nextAdmissible": [
+        "replace-harness-or-propose-completion"
+      ],
+      "outcomeObjectDigest": null,
+      "proposalDigest": null,
+      "readyFrontier": [
+        "node:live-hermes-acp-h4-1785462084499-06007aab1269:run"
+      ],
+      "schemaVersion": 2,
+      "taskAttemptId": "task-attempt:live-hermes-acp-h4-1785462084499-06007aab1269:1",
+      "taskId": "task:live-hermes-acp-h4-1785462084499-06007aab1269",
+      "taskRevision": 3,
+      "taskState": "waiting"
+    },
+    "recordedRun": {
+      "artifactRefs": [
+        {
+          "digest": "sha256:f6596cac3a169c4cd56dbde8541795ee90c93f55fe4d8229d0f2785ab6d5cf59",
+          "kind": "execution_result",
+          "ref": "runtime-artifact:attempt-019fb5d5-5453-7551-9c72-4f6325309966.result"
+        },
+        {
+          "digest": "sha256:410c7cf5ddd8e612795050dc6f9f2d08cebf0a5659c073a2547411c7fb668bcf",
+          "kind": "stderr",
+          "ref": "runtime-artifact:attempt-019fb5d5-5453-7551-9c72-4f6325309966.stderr"
+        },
+        {
+          "digest": "sha256:0c149a3baa60324d3a64fe49dd7280e1eb7161a9d0fe47917ddf3c4fdc589be5",
+          "kind": "stdout",
+          "ref": "runtime-artifact:attempt-019fb5d5-5453-7551-9c72-4f6325309966.stdout"
+        },
+        {
+          "digest": "sha256:8ef4291c10199b32a85fe7454b2e9cc18c5f7c9baafd801a59b3fa789fda02b1",
+          "kind": "terminal_evidence",
+          "ref": "runtime-artifact:attempt-019fb5d5-5453-7551-9c72-4f6325309966.terminal-evidence.8ef4291c10199b32a85fe7454b2e9cc18c5f7c9baafd801a59b3fa789fda02b1"
+        },
+        {
+          "digest": "sha256:ea3b458bcadce2b477514c0407174b40b670275b13f2146862a947848e6ce869",
+          "kind": "hermes-acp-h4-worker-result",
+          "ref": "host-object:sha256:b9cb3ce625b26b2d8ec5064625de903c9578f79ca31891088d08215e62e0b803"
+        }
+      ],
+      "assignmentGeneration": 1,
+      "assignmentId": "assignment:live-hermes-acp-h4-1785462084499-06007aab1269:attempt-1:g1",
+      "contextDigest": "sha256:f8ac5c2391913b9fee5ed2e9285c8d514db21cb1c130697449ad620090a361ad",
+      "eventDigest": "sha256:4bd0628a876ca5c7c3626dd6e70c4f769ff6f127f1b355de8daedd7b0320a154",
+      "finishedAtMs": 1785462113009,
+      "harnessId": "harness:hermes-acp",
+      "harnessRevision": "0.18.0",
+      "harnessRunId": "harness-run:live-hermes-acp-h4-1785462084499-06007aab1269:hermes:1",
+      "kind": "ordivon.harness-run-receipt",
+      "manifestDigest": "sha256:806b8f8c065c67bdc24c173042551edab91b69602b074bd797da90fa887fef64",
+      "runtimeJobRefs": [
+        "job-019fb5d5-5453-7551-9c72-4f5a37021cf3"
+      ],
+      "schemaVersion": 1,
+      "sessionRef": "hermes-acp-session:eb31426a-d8a8-4814-bf01-38c02f48c8e4",
+      "startedAtMs": 1785462091973,
+      "stopReason": "completed",
+      "toolCatalogDigest": "sha256:0e104fe35ed09a0931ff20032a79c92c0763b3e058ddd4b92caef826990dd623",
+      "usage": {
+        "model": "deepseek-v4-pro",
+        "modelProvider": "deepseek",
+        "normalizedEventCount": 688,
+        "promptRequestId": 3,
+        "provider": "hermes-acp",
+        "providerStopReason": "end_turn",
+        "rawMessageCount": 689,
+        "thoughtEventCount": 449,
+        "tokenUsage": {
+          "cachedReadTokens": 19584,
+          "inputTokens": 35251,
+          "outputTokens": 741,
+          "thoughtTokens": 449,
+          "totalTokens": 35992
+        },
+        "toolItemCount": 1
+      }
+    },
+    "recordedRunDigest": "sha256:2f09b8de32f6105aedcafbbb3d10f40fa86e75f1bd6c630df56b25d60bda67bb",
+    "recordedRunRevision": 3
+  },
+  "implementationSourceRevision": "3d9a55904c735b388d8acf617262f0322174ba9a",
+  "integrity": {
+    "algorithm": "sha256",
+    "canonicalization": "ordivon-canonical-json-v1",
+    "payloadDigest": "sha256:4ac6a76266c860bf623f3c7f90b87ad8eb9d702c693dc9736af283f5a5b5cad7"
+  },
+  "kind": "ordivon.hermes-acp-h4-live-receipt",
+  "manifest": {
+    "approvalEvents": true,
+    "checkpoint": false,
+    "compaction": false,
+    "extensions": [
+      "hermes.raw-provider-event-digest",
+      "hermes.session-provenance",
+      "hermes.thought-digest-only"
+    ],
+    "harnessId": "harness:hermes-acp",
+    "images": true,
+    "interrupt": true,
+    "kind": "ordivon.harness-capability-manifest",
+    "localSubagents": false,
+    "persistentSession": true,
+    "protocol": "agent-client-protocol-jsonrpc-stdio",
+    "protocolRevision": "1",
+    "schemaVersion": 1,
+    "sessionFork": true,
+    "sessionResume": true,
+    "toolEvents": true,
+    "usage": true
+  },
+  "provider": {
+    "baselineComparison": {
+      "hermesACP": {
+        "interrupt": true,
+        "persistentSessionRetained": true,
+        "processModel": "one ACP process can host multiple prompts",
+        "providerSessionIdentity": true,
+        "rawProviderEventDigest": true,
+        "thoughtDigestOnly": true,
+        "toolLifecycleEvents": true
+      },
+      "hermesCliOneShot": {
+        "interrupt": false,
+        "persistentSessionRetained": false,
+        "processModel": "one isolated subprocess per invocation",
+        "providerSessionIdentity": false,
+        "rawProviderEventDigest": false,
+        "thoughtDigestOnly": false,
+        "toolLifecycleEvents": false
+      }
+    },
+    "capturedAt": "2026-07-31T01:41:53.060708+00:00",
+    "kind": "ordivon.hermes-acp-h4-provider-summary",
+    "prompt": {
+      "agentName": "hermes-agent",
+      "agentVersion": "0.18.0",
+      "cwd": "/var/lib/ordivon/runtime/workspaces/host-live-hermes-acp-h4-1785462084499-06007aab1269",
+      "durationMs": 21036,
+      "finishedAtMs": 1785462113009,
+      "images": true,
+      "loadSession": true,
+      "model": "deepseek-v4-pro",
+      "modelId": "deepseek:deepseek-v4-pro",
+      "modelProvider": "deepseek",
+      "normalizedEventDigest": "sha256:6a896502fbbe4279473ec62a3b0613fc87b57f27213dc12cfbd6c9f0c203ef0e",
+      "protocolVersion": 1,
+      "provenance": {
+        "acpSessionId": "eb31426a-d8a8-4814-bf01-38c02f48c8e4",
+        "compressionDepth": 0,
+        "currentHermesSessionId": "eb31426a-d8a8-4814-bf01-38c02f48c8e4",
+        "parentHermesSessionId": null,
+        "rootHermesSessionId": "eb31426a-d8a8-4814-bf01-38c02f48c8e4",
+        "sessionKind": "root"
+      },
+      "provenanceDigest": "sha256:8aab3a48ccdef8465f6de162af397ddbca1e0a2100f2753c743713e2fdc452d1",
+      "providerStopReason": "end_turn",
+      "rawMessageCount": 689,
+      "rawMessageDigest": "sha256:4bd0628a876ca5c7c3626dd6e70c4f769ff6f127f1b355de8daedd7b0320a154",
+      "requestId": 3,
+      "sessionFork": true,
+      "sessionId": "eb31426a-d8a8-4814-bf01-38c02f48c8e4",
+      "sessionResume": true,
+      "startedAtMs": 1785462091973,
+      "status": "completed",
+      "stopReason": "completed",
+      "thoughtEventCount": 449,
+      "toolItems": [
+        {
+          "id": "tc-091da3927915",
+          "kind": "read",
+          "locations": [
+            {
+              "path": "src/ordivon_host/harness/runtime_refs.py"
+            }
+          ],
+          "title": "read: src/ordivon_host/harness/runtime_refs.py"
+        }
+      ],
+      "updateTypeCounts": {
+        "agent_message_chunk": 234,
+        "agent_thought_chunk": 449,
+        "available_commands_update": 1,
+        "tool_call": 1,
+        "usage_update": 2
+      },
+      "usage": {
+        "cachedReadTokens": 19584,
+        "inputTokens": 35251,
+        "outputTokens": 741,
+        "thoughtTokens": 449,
+        "totalTokens": 35992
+      }
+    },
+    "schemaVersion": 1,
+    "structuredOutput": {
+      "conclusion": "A frozen dataclass-backed reference system that cryptographically binds task/assignment/harness_run identities via canonical_digest, produces sorted HostRuntimeReference tuples, generates deterministic client request IDs, and builds validated workspace execution payloads with configurable I/O limits, timeouts, and foreign reference embedding.",
+      "file": "src/ordivon_host/harness/runtime_refs.py",
+      "invariants": [
+        "Reference types are a closed set: assignment, dispatch, effect, harness_run, task, task_attempt",
+        "Every digest must be sha256:<64 lowercase hex> (exactly 71 characters)",
+        "Reference IDs, generation strings, and executables must be non-empty, trimmed, and within byte limits",
+        "Namespace is hardcoded to 'ordivon.host' and enforced on serialization/deserialization",
+        "Runtime exec requests require absolute executable paths starting with '/' and a non-None workspace_ref"
+      ],
+      "observedTool": "read_file",
+      "purpose": "Immutable Host Runtime reference model with strict validation, canonical digest binding, and workspace execution request construction for the Ordivon Host harness runtime."
+    },
+    "target": "src/ordivon_host/harness/runtime_refs.py",
+    "workerChecks": {
+      "allToolsReadOnly": true,
+      "forkCapabilityAdvertised": true,
+      "interruptCapabilityAdvertised": true,
+      "noFileEditContent": true,
+      "promptCompleted": true,
+      "providerEndedTurn": true,
+      "rawProviderDigestRetained": true,
+      "readToolObserved": true,
+      "resumeCapabilityAdvertised": true,
+      "sessionIdentityRetained": true,
+      "sessionProvenanceRetained": true,
+      "structuredFieldsExact": true,
+      "structuredInvariantsBounded": true,
+      "structuredOutputMatchesTarget": true,
+      "structuredOutputNamesTool": true,
+      "targetReadObserved": true,
+      "thoughtPayloadDigestOnly": true,
+      "usageObserved": true
+    },
+    "workerPayloadDigest": "sha256:69b93cba5409956447596a198ea7653245be4c9f327b469ab3b9d0d0bb491f9e"
+  },
+  "request": {
+    "clientRequestId": "request:harness:g1:827abb8ada53c02cb2b80fb2f6b79b37",
+    "execution": {
+      "args": [
+        "run",
+        "python",
+        "scripts/hermes_acp_h4_worker.py",
+        "--working-directory",
+        ".",
+        "--target",
+        "src/ordivon_host/harness/runtime_refs.py",
+        "--timeout-seconds",
+        "300"
+      ],
+      "cwdRelative": ".",
+      "env": {
+        "NO_COLOR": "1",
+        "PYTHONUNBUFFERED": "1",
+        "UV_NO_PROGRESS": "1"
+      },
+      "executable": "/root/.local/bin/uv",
+      "foreignReferences": [
+        {
+          "digest": "sha256:8541aeaac972f30e8970ac14c1acfb4fd65833043b557c9659ee2c36bfe7a693",
+          "generation": "1",
+          "id": "assignment:live-hermes-acp-h4-1785462084499-06007aab1269:attempt-1:g1",
+          "namespace": "ordivon.host",
+          "type": "assignment"
+        },
+        {
+          "digest": "sha256:eeead87bc09f68aa5bf4a2d6d960862bc08d3aee25cf703db725197c5b91b87b",
+          "id": "harness-run:live-hermes-acp-h4-1785462084499-06007aab1269:hermes:1",
+          "namespace": "ordivon.host",
+          "type": "harness_run"
+        },
+        {
+          "digest": "sha256:3fe17c903e55d07525536e7378ab5463934ff488dfbc0fedb232a87e90aff315",
+          "generation": "1",
+          "id": "task:live-hermes-acp-h4-1785462084499-06007aab1269",
+          "namespace": "ordivon.host",
+          "type": "task"
+        },
+        {
+          "digest": "sha256:9fa8743f064521f775f0b2ddd846debc60696cfa27339b3efd098d603b82dee7",
+          "id": "task-attempt:live-hermes-acp-h4-1785462084499-06007aab1269:1",
+          "namespace": "ordivon.host",
+          "type": "task_attempt"
+        }
+      ],
+      "stderrLimitBytes": 524288,
+      "stdoutLimitBytes": 524288,
+      "timeoutMs": 420000,
+      "workspaceId": "host-live-hermes-acp-h4-1785462084499-06007aab1269"
+    },
+    "schemaVersion": 1,
+    "stderrTailBytes": 65536,
+    "stdoutTailBytes": 65536,
+    "waitMs": 30000
+  },
+  "runtime": {
+    "artifacts": [
+      {
+        "artifactId": "attempt-019fb5d5-5453-7551-9c72-4f6325309966.result",
+        "digest": "sha256:f6596cac3a169c4cd56dbde8541795ee90c93f55fe4d8229d0f2785ab6d5cf59",
+        "kind": "execution_result",
+        "retainedBytes": 1249,
+        "truncated": false
+      },
+      {
+        "artifactId": "attempt-019fb5d5-5453-7551-9c72-4f6325309966.stderr",
+        "digest": "sha256:410c7cf5ddd8e612795050dc6f9f2d08cebf0a5659c073a2547411c7fb668bcf",
+        "droppedBytes": 0,
+        "kind": "stderr",
+        "retainedBytes": 331,
+        "truncated": false
+      },
+      {
+        "artifactId": "attempt-019fb5d5-5453-7551-9c72-4f6325309966.stdout",
+        "digest": "sha256:0c149a3baa60324d3a64fe49dd7280e1eb7161a9d0fe47917ddf3c4fdc589be5",
+        "droppedBytes": 0,
+        "kind": "stdout",
+        "retainedBytes": 206600,
+        "truncated": false
+      },
+      {
+        "artifactId": "attempt-019fb5d5-5453-7551-9c72-4f6325309966.terminal-evidence.8ef4291c10199b32a85fe7454b2e9cc18c5f7c9baafd801a59b3fa789fda02b1",
+        "digest": "sha256:8ef4291c10199b32a85fe7454b2e9cc18c5f7c9baafd801a59b3fa789fda02b1",
+        "kind": "terminal_evidence",
+        "retainedBytes": 2680,
+        "truncated": false
+      }
+    ],
+    "attemptId": "attempt-019fb5d5-5453-7551-9c72-4f6325309966",
+    "jobId": "job-019fb5d5-5453-7551-9c72-4f5a37021cf3",
+    "matchingJobs": [
+      {
+        "artifactCount": 4,
+        "artifactsAvailable": true,
+        "attemptId": "attempt-019fb5d5-5453-7551-9c72-4f6325309966",
+        "clientRequestId": "request:harness:g1:827abb8ada53c02cb2b80fb2f6b79b37",
+        "createdAtMs": 1785462084691,
+        "cwdRelative": ".",
+        "durationMs": 28290,
+        "executableName": "uv",
+        "exitCode": 0,
+        "finishedAtMs": 1785462113131,
+        "jobId": "job-019fb5d5-5453-7551-9c72-4f5a37021cf3",
+        "resultAvailable": true,
+        "sourceRevision": "3d9a55904c735b388d8acf617262f0322174ba9a",
+        "startedAtMs": 1785462084841,
+        "status": "succeeded",
+        "workspaceId": "host-live-hermes-acp-h4-1785462084499-06007aab1269"
+      }
+    ],
+    "status": "succeeded",
+    "terminalEvidence": {
+      "args": [
+        "run",
+        "python",
+        "scripts/hermes_acp_h4_worker.py",
+        "--working-directory",
+        ".",
+        "--target",
+        "src/ordivon_host/harness/runtime_refs.py",
+        "--timeout-seconds",
+        "300"
+      ],
+      "attemptId": "attempt-019fb5d5-5453-7551-9c72-4f6325309966",
+      "cancellationDisposition": "not_requested",
+      "cwd": "/var/lib/ordivon/runtime/workspaces/host-live-hermes-acp-h4-1785462084499-06007aab1269",
+      "deliveryDisposition": "committed",
+      "executable": "/root/.local/bin/uv",
+      "executionDisposition": "succeeded",
+      "executionProfile": "trusted_local",
+      "foreignReferences": [
+        {
+          "digest": "sha256:8541aeaac972f30e8970ac14c1acfb4fd65833043b557c9659ee2c36bfe7a693",
+          "generation": "1",
+          "id": "assignment:live-hermes-acp-h4-1785462084499-06007aab1269:attempt-1:g1",
+          "namespace": "ordivon.host",
+          "type": "assignment"
+        },
+        {
+          "digest": "sha256:eeead87bc09f68aa5bf4a2d6d960862bc08d3aee25cf703db725197c5b91b87b",
+          "id": "harness-run:live-hermes-acp-h4-1785462084499-06007aab1269:hermes:1",
+          "namespace": "ordivon.host",
+          "type": "harness_run"
+        },
+        {
+          "digest": "sha256:3fe17c903e55d07525536e7378ab5463934ff488dfbc0fedb232a87e90aff315",
+          "generation": "1",
+          "id": "task:live-hermes-acp-h4-1785462084499-06007aab1269",
+          "namespace": "ordivon.host",
+          "type": "task"
+        },
+        {
+          "digest": "sha256:9fa8743f064521f775f0b2ddd846debc60696cfa27339b3efd098d603b82dee7",
+          "id": "task-attempt:live-hermes-acp-h4-1785462084499-06007aab1269:1",
+          "namespace": "ordivon.host",
+          "type": "task_attempt"
+        }
+      ],
+      "jobId": "job-019fb5d5-5453-7551-9c72-4f5a37021cf3",
+      "observedAtMs": 1785462113131,
+      "processTreeDisposition": "terminal_clean",
+      "reasonCode": "PROCESS_EXIT_ZERO",
+      "schemaVersion": 1,
+      "sourceRevision": "3d9a55904c735b388d8acf617262f0322174ba9a",
+      "startDisposition": "identity_bound",
+      "supervisor": {
+        "bootId": "761dada6-7ad4-480f-8991-791d0cf1ad31",
+        "controlGroup": "/system.slice/ordivon-attempt-019fb5d5-5453-7551-9c72-4f6325309966.service",
+        "invocationId": "dd606a003f7f4780b5c5f98654a60c43",
+        "mainPid": 1216490,
+        "processStartIdentity": "12277712",
+        "runnerStartDigest": "sha256:610c1fc3eefa7d73b921dc7b7e237dfd61e149b9f350b75b96b3f8c6f4e84c76",
+        "unitName": "ordivon-attempt-019fb5d5-5453-7551-9c72-4f6325309966.service"
+      },
+      "terminalArtifactIds": [
+        "attempt-019fb5d5-5453-7551-9c72-4f6325309966.stdout",
+        "attempt-019fb5d5-5453-7551-9c72-4f6325309966.stderr",
+        "attempt-019fb5d5-5453-7551-9c72-4f6325309966.result"
+      ],
+      "workspaceId": "host-live-hermes-acp-h4-1785462084499-06007aab1269"
+    },
+    "workspaceClose": {
+      "removed": true,
+      "workspaceId": "host-live-hermes-acp-h4-1785462084499-06007aab1269"
+    },
+    "workspaceClosed": true
+  },
+  "runtimeCatalogDigest": "sha256:0e104fe35ed09a0931ff20032a79c92c0763b3e058ddd4b92caef826990dd623",
+  "schemaVersion": 1,
+  "sourceReceiptPayloadDigest": "sha256:f2765d2365fe479465b1927f53e5dfa34e3d01a6db1c306371ff1ebf60b11475",
+  "stateRoot": null,
+  "taskAttemptId": "task-attempt:live-hermes-acp-h4-1785462084499-06007aab1269:1",
+  "taskId": "task:live-hermes-acp-h4-1785462084499-06007aab1269",
+  "workspace": {
+    "sourceRevision": "3d9a55904c735b388d8acf617262f0322174ba9a",
+    "workspaceId": "host-live-hermes-acp-h4-1785462084499-06007aab1269"
+  }
+}
