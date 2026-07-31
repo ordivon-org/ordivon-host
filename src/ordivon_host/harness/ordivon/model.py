@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import Protocol
 
 from anc_canonical import JsonValue, canonical_digest, validate_json_value
@@ -200,8 +201,23 @@ class AgentTurnResult:
         }
 
 
+class AgentTurnFailureCode(str, Enum):
+    FAILED = "provider_failed"
+    TIMEOUT = "provider_timeout"
+    TRANSPORT_FAILED = "provider_transport_failed"
+    REJECTED = "provider_rejected"
+    UNAVAILABLE = "provider_unavailable"
+
+
 class AgentTurnAdapterError(RuntimeError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        failure_code: AgentTurnFailureCode = AgentTurnFailureCode.FAILED,
+    ) -> None:
+        super().__init__(message)
+        self.failure_code = failure_code
 
 
 class AgentTurnAdapter(Protocol):

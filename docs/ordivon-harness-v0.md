@@ -1,6 +1,6 @@
 # Ordivon Harness v0
 
-Status: OH0–OH4 native Run Contract and Host lifecycle implemented and verified
+Status: OH0–OH5 native Run recovery and safe abandonment implemented and verified
 
 ## Purpose
 
@@ -287,6 +287,71 @@ The live proof closes durable Contract, Assignment, Run receipt, Trace, Observat
 
 After OH4 implementation, the deterministic Host suite contains 231 passing tests, including four focused native Contract, ToolGrant and fresh-Host lifecycle tests.
 
+## OH5 fault and abandonment semantics
+
+OH5 closes the ambiguity between an absent Run receipt and a safely replaceable Run. A process can disappear after Assignment commit but before `record_run()` at any point in the model–Tool–Observation loop. The Host now retains two separate objects:
+
+```text
+NativeRunRecoveryAssessment
+NativeRunAbandonment
+```
+
+`NativeRunRecoveryAssessment` records the exact Assignment and Run identity, recovery trigger, current Runtime catalog status, ToolGrant effect class, Workspace cleanup status and all unresolved UNKNOWN claims. It does not itself authorize replacement.
+
+`NativeRunAbandonment` can be committed only from an assessment whose derived `safeToAbandon` value is true. The derived value is validated on decode and cannot be edited independently.
+
+The automatic rule is deliberately narrow:
+
+```text
+read-only ToolGrant
++ Workspace closed / already absent / not applicable
++ no unresolved UNKNOWN
+= safe abandonment
+```
+
+A Grant with `mutate_workspace` retains `workspace_mutation_possible`. A Grant with `run_check` or opaque `run_in_workspace` retains `process_effect_possible`. Closing the Workspace after process loss does not prove those prior effects did not occur. Such Tasks remain `BLOCKED`, expose `reconcile-current-harness-run-unknown`, and cannot receive a replacement Assignment generation.
+
+Cleanup failure is retryable as evidence collection rather than execution retry. A first assessment may retain `workspaceStatus=unknown`; a later fresh Host may close the same Workspace, record assessment sequence 2 and only then abandon a read-only Run. Runtime catalog drift is preserved but does not manufacture effect uncertainty when the committed Grant is read-only and cleanup is proven.
+
+A durable Run receipt changes the path. Exact Provider terminal codes are now retained:
+
+```text
+provider_failed
+provider_timeout
+provider_transport_failed
+provider_rejected
+provider_unavailable
+```
+
+These failures do not auto-retry and may be replaced with a new Assignment generation on the same Workspace when the retained Run is read-only or has no Tool Observation. Switching a recorded Run to another Workspace requires a future durable cleanup or release disposition; without one, the old Workspace would become an untracked resource. A recorded Run with observed mutation or process-capable Tools must be verified, completed, or continued through a future explicit continuation protocol before replacement. `runtime_unknown` remains non-replaceable because a Tool delivery or outcome is unresolved. Invalid model output, invalid Tool calls, budget exhaustion and cancellation remain distinct stop codes.
+
+Before persisting a native Run result, the Host now rechecks the current Task revision, Assignment and recovery disposition. A late process result arriving after recovery or abandonment is rejected before Trace, ToolObservation, conclusion or receipt CAS writes.
+
+### OH5 live recovery evidence
+
+The frozen evidence at `evidence/ordivon-harness-oh5-recovery-live-20260801.json` exercises both the lost-process path and a successful replacement against production Runtime and DeepSeek:
+
+```text
+generation 1 Assignment     committed
+generation 1 Runtime Tool   read_workspace observed
+generation 1 receipt        deliberately absent
+fresh Host cleanup          Workspace closed
+RecoveryAssessment          persisted, safeToAbandon=true
+RunAbandonment               persisted
+late generation 1 result    rejected before CAS writes
+generation 2 Assignment     committed
+generation 2 model calls    2
+generation 2 Tool calls     1
+observed heading             # Ordivon Host
+final Task revision          8
+final Task state             completed
+independent acceptance       true
+```
+
+The live source revision is `264d96cb2325e4a418c98459e05c74d482001fd8`. The first generation executed one real production Runtime read before its in-memory result was discarded. Recovery closed that Workspace and committed abandonment. The retained CAS object count did not change when the stale result was submitted later. The second generation then completed through the real DeepSeek Flash adapter and production Runtime.
+
+The focused OH5 matrix covers Provider fault taxonomy, cancellation, budget exhaustion, invalid model output, safe read-only abandonment, effectful process-loss blocking, cleanup reassessment, catalog drift, recorded Runtime UNKNOWN, stale result rejection, object round trips and DeepSeek transport classification. The full deterministic Host suite contains 243 passing tests.
+
 ## Non-goals for v0
 
 - persistent Provider Session;
@@ -301,8 +366,8 @@ After OH4 implementation, the deterministic Host suite contains 231 passing test
 
 ## Promotion and deletion
 
-OH4 has passed the native control-plane gate: the Host commits the Task Contract, Assignment-scoped authority and Run identity before execution; persists the full read-only Run evidence; independently verifies the result; and reloads the final TaskOutcome from a fresh process. This proves one complete native read-only lifecycle, not broad workload value or production maturity.
+OH5 has passed the read-only native fault gate: the Host can distinguish a persisted terminal Run, a safely abandoned lost read-only Run and an unresolved effectful Run; reject stale late results; and replace only the cases whose uncertainty has been removed. This proves conservative read-only process-loss recovery, not general effect recovery or production maturity.
 
-Promotion beyond OH4 requires a materially different mutation workload, fault injection against in-flight Provider and Runtime uncertainty, explicit abandoned-Run cleanup, and a cost comparison against one-shot and mature external Harness paths.
+Promotion beyond OH5 requires a mutation workload whose Effect and Dispatch intent are durable before Runtime delivery, reconciliation of a lost process without relying on in-memory Tool history, explicit lifecycle for recorded Runtime UNKNOWN, and a cost comparison against one-shot and mature external Harness paths.
 
 The prototype is deleted or narrowed if one-shot gateways or mature external Harnesses provide equal correctness, recovery and portability at lower permanent cost and no bare/local-model consumer remains.

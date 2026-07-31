@@ -6,6 +6,7 @@ from anc_effect_binding import EffectBinding
 from anc_effect_ir import EffectEnvelope, effect_digest
 
 from ..domain import EventKind, TaskProjection
+from ..harness.recovery import NativeRunAbandonment, NativeRunRecoveryAssessment
 from ..journal import JournalCorruption
 from ..objects import ObjectCorrupt
 from ..storage import HostStorage
@@ -41,8 +42,24 @@ _CAS_DIGEST_KEYS = frozenset(
         "proposalObjectDigest",
         "resolutionObjectDigest",
         "outputObservationDigest",
+        "taskAttemptObjectDigest",
+        "taskContractObjectDigest",
+        "harnessManifestObjectDigest",
+        "assignmentObjectDigest",
+        "toolGrantObjectDigest",
+        "nativeHarnessRunContractObjectDigest",
+        "harnessRunObjectDigest",
+        "harnessTraceObjectDigest",
+        "runConclusionObjectDigest",
+        "harnessRunRecoveryAssessmentObjectDigest",
+        "harnessRunAbandonmentObjectDigest",
+        "completionProposalObjectDigest",
+        "completionVerificationObjectDigest",
+        "completionDecisionObjectDigest",
+        "outcomeObjectDigest",
     }
 )
+_CAS_DIGEST_LIST_KEYS = frozenset({"toolObservationObjectDigests"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,6 +160,10 @@ def _known_references(value: JsonValue) -> tuple[tuple[str, str], ...]:
             for key, item in current.items():
                 if key in _CAS_DIGEST_KEYS and isinstance(item, str):
                     found.append((key, item))
+                if key in _CAS_DIGEST_LIST_KEYS and isinstance(item, list):
+                    for digest in item:
+                        if isinstance(digest, str):
+                            found.append((key, digest))
                 if isinstance(item, (dict, list)):
                     visit(item)
         elif isinstance(current, list):
@@ -191,6 +212,66 @@ def _validate_semantic_links(
         ):
             raise JournalCorruption(
                 f"historical Effect and Binding identities differ: {event_id}"
+            )
+        checks += 1
+    recovery: NativeRunRecoveryAssessment | None = None
+    recovery_object_key = data.get("harnessRunRecoveryAssessmentObjectDigest")
+    if isinstance(recovery_object_key, str):
+        raw_recovery = storage.objects.get(
+            recovery_object_key, expected_kind="native-run-recovery-assessment"
+        )
+        if not isinstance(raw_recovery, dict):
+            raise ObjectCorrupt(
+                f"historical native Run Recovery is not an object: {event_id}"
+            )
+        try:
+            recovery = NativeRunRecoveryAssessment.from_dict(raw_recovery)
+        except ValueError as error:
+            raise ObjectCorrupt(
+                f"historical native Run Recovery is invalid: {event_id}"
+            ) from error
+        if (
+            data.get("harnessRunRecoveryAssessmentDigest") != recovery.digest
+            or data.get("harnessRunRecoveryAssessmentId") != recovery.assessment_id
+            or data.get("harnessRunRecoverySafeToAbandon")
+            is not recovery.safe_to_abandon
+        ):
+            raise JournalCorruption(
+                f"historical native Run Recovery identities differ: {event_id}"
+            )
+        checks += 1
+    abandonment_object_key = data.get("harnessRunAbandonmentObjectDigest")
+    if isinstance(abandonment_object_key, str):
+        raw_abandonment = storage.objects.get(
+            abandonment_object_key, expected_kind="native-run-abandonment"
+        )
+        if not isinstance(raw_abandonment, dict):
+            raise ObjectCorrupt(
+                f"historical native Run Abandonment is not an object: {event_id}"
+            )
+        try:
+            abandonment = NativeRunAbandonment.from_dict(raw_abandonment)
+        except ValueError as error:
+            raise ObjectCorrupt(
+                f"historical native Run Abandonment is invalid: {event_id}"
+            ) from error
+        if recovery is None:
+            raise JournalCorruption(
+                f"historical native Run Abandonment has no Recovery: {event_id}"
+            )
+        if (
+            data.get("harnessRunAbandonmentDigest") != abandonment.digest
+            or data.get("harnessRunAbandonmentId") != abandonment.abandonment_id
+            or abandonment.recovery_assessment_digest != recovery.digest
+            or abandonment.recovery_assessment_object_digest != recovery_object_key
+            or abandonment.assignment_id != recovery.assignment_id
+            or abandonment.assignment_generation != recovery.assignment_generation
+            or abandonment.assignment_digest != recovery.assignment_digest
+            or abandonment.harness_run_id != recovery.harness_run_id
+            or abandonment.reason_code != recovery.trigger
+        ):
+            raise JournalCorruption(
+                f"historical native Run Abandonment identities differ: {event_id}"
             )
         checks += 1
     if isinstance(authority_key, str):

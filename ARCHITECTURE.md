@@ -199,7 +199,27 @@ The Runtime catalog expresses connected physical capability; `ToolGrant` express
 
 The Host persists the complete native Trace, each Tool Observation, the model Run conclusion and the v2 Run receipt. Job and Artifact references must be derivable from those Observations. Model-declared evidence is advisory; the Host compiles the CompletionProposal from retained Run objects. Independent verifier output is retained as a `CompletionVerification` object before TaskOutcome.
 
-The first-party capability manifest declares cancellation between Turns rather than claiming in-flight Provider interruption. Provider Session continuation, exact recovery of an unrecorded provisional Runtime Job, parallel Tools, compaction, subagents and effectful external actions remain outside this verified slice.
+The first-party capability manifest declares cancellation between Turns rather than claiming in-flight Provider interruption. Provider Session continuation, parallel Tools, compaction, subagents and effectful external actions remain outside this verified slice.
+
+### Native Run fault and abandonment semantics
+
+A committed native Run Contract is not automatically replaceable merely because no `HarnessRunReceipt` exists. Absence of a receipt may mean the process died before any work, after a read, after a Workspace mutation, or after starting a process whose response was lost. OH5 therefore separates recovery evidence from abandonment authority:
+
+```text
+NativeHarnessRunContract with no receipt
+→ NativeRunRecoveryAssessment
+→ safe read-only cleanup?
+   ├─ yes → NativeRunAbandonment → replacement generation allowed
+   └─ no  → Task BLOCKED with explicit UNKNOWN → replacement forbidden
+```
+
+The recovery controller re-discovers the Runtime catalog and attempts idempotent forced Workspace closure. Catalog drift is retained as evidence but is not itself an Effect UNKNOWN. Cleanup transport failure remains Workspace UNKNOWN and may be reassessed later.
+
+Automatic abandonment is limited to a read-only `ToolGrant` and a Workspace proven closed, already absent, or not applicable. A Grant containing `mutate_workspace`, `run_check`, or opaque `run_in_workspace` retains UNKNOWN after process loss even if the Workspace is later closed, because an unrecorded mutation or process effect may already have occurred. No missing Job inference converts that uncertainty into safety.
+
+A recorded `runtime_unknown` receipt likewise blocks replacement. Other recorded terminal stops, including exact Provider timeout, transport failure, rejection and unavailability, may be replaced by a new Assignment generation only when the Run is read-only or has no Tool Observation, and must retain the same Workspace until a durable cleanup or release disposition exists. A recorded mutation/process-capable Observation requires verification, completion or a future explicit continuation protocol before replacement. Provider faults remain separately classified and are never automatically retried.
+
+Recovery and abandonment are Host CAS objects and Host events. Once recovery or abandonment advances the Task, a late result from the old process is superseded before Trace, Observation or receipt objects are written. Handoff exposes `reconcile-current-harness-run-unknown`, `abandon-current-harness-run`, or `replace-harness-assignment` according to the retained evidence.
 
 ## Capability and consequence separation
 

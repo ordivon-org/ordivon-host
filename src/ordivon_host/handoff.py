@@ -106,8 +106,29 @@ def operator_handoff(storage: HostStorage, task_id: str) -> OperatorHandoffCapsu
         next_admissible = ("reconcile-existing-dispatch",)
     elif snapshot.event_kind is EventKind.HARNESS_ASSIGNMENT_COMMITTED:
         next_admissible = ("run-current-harness-assignment",)
+    elif snapshot.event_kind is EventKind.HARNESS_RUN_RECOVERY_RECORDED:
+        next_admissible = (
+            ("abandon-current-harness-run",)
+            if data.get("harnessRunRecoverySafeToAbandon") is True
+            else ("reconcile-current-harness-run-unknown",)
+        )
+    elif snapshot.event_kind is EventKind.HARNESS_RUN_ABANDONED:
+        next_admissible = ("replace-harness-assignment",)
     elif snapshot.event_kind is EventKind.HARNESS_RUN_RECORDED:
-        next_admissible = ("replace-harness-or-propose-completion",)
+        termination = data.get("harnessRunTerminationCode")
+        replacement_allowed = data.get("harnessRunReplacementAllowed")
+        if termination == "runtime_unknown":
+            next_admissible = ("reconcile-current-harness-run-unknown",)
+        elif termination == "candidate_completed":
+            next_admissible = (
+                ("replace-harness-or-propose-completion",)
+                if replacement_allowed is not False
+                else ("propose-completion-from-current-harness-run",)
+            )
+        elif replacement_allowed is False:
+            next_admissible = ("verify-current-harness-run-before-replacement",)
+        else:
+            next_admissible = ("replace-harness-assignment",)
     elif snapshot.event_kind is EventKind.COMPLETION_PROPOSED:
         next_admissible = ("adjudicate-completion-proposal",)
     elif (

@@ -15,6 +15,7 @@ from .model import (
     AgentToolCall,
     AgentToolDefinition,
     AgentTurnAdapterError,
+    AgentTurnFailureCode,
     AgentTurnRequest,
     AgentTurnResult,
 )
@@ -135,15 +136,26 @@ class UrllibDeepSeekTransport:
                 raw = response.read(max_response_bytes + 1)
         except urllib.error.HTTPError as error:
             detail = error.read(8_192).decode("utf-8", errors="replace")
+            if error.code in {408, 504}:
+                failure_code = AgentTurnFailureCode.TIMEOUT
+            elif error.code == 429 or error.code >= 500:
+                failure_code = AgentTurnFailureCode.UNAVAILABLE
+            else:
+                failure_code = AgentTurnFailureCode.REJECTED
             raise AgentTurnAdapterError(
-                f"DeepSeek returned HTTP {error.code}: {detail}"
+                f"DeepSeek returned HTTP {error.code}: {detail}",
+                failure_code=failure_code,
             ) from error
         except urllib.error.URLError as error:
             raise AgentTurnAdapterError(
-                f"DeepSeek connection failed: {error.reason}"
+                f"DeepSeek connection failed: {error.reason}",
+                failure_code=AgentTurnFailureCode.TRANSPORT_FAILED,
             ) from error
         except TimeoutError as error:
-            raise AgentTurnAdapterError("DeepSeek request timed out") from error
+            raise AgentTurnAdapterError(
+                "DeepSeek request timed out",
+                failure_code=AgentTurnFailureCode.TIMEOUT,
+            ) from error
         if len(raw) > max_response_bytes:
             raise AgentTurnAdapterError("DeepSeek response exceeds the configured byte bound")
         return raw
@@ -330,7 +342,7 @@ class DeepSeekTurnAdapter:
             headers={
                 "Authorization": f"Bearer {self.settings.api_key}",
                 "Content-Type": "application/json",
-                "User-Agent": "ordivon-harness-oh3/1",
+                "User-Agent": "ordivon-harness-oh5/1",
             },
             body=body,
             timeout_seconds=self.settings.timeout_seconds,
@@ -369,7 +381,10 @@ class DeepSeekTurnAdapter:
         finish_reason = choice.get("finish_reason")
         message = choice.get("message")
         if finish_reason == "insufficient_system_resource":
-            raise AgentTurnAdapterError("DeepSeek reported insufficient system resources")
+            raise AgentTurnAdapterError(
+                "DeepSeek reported insufficient system resources",
+                failure_code=AgentTurnFailureCode.UNAVAILABLE,
+            )
         if not isinstance(finish_reason, str) or not isinstance(message, dict):
             raise ValueError("DeepSeek choice fields are invalid")
         if message.get("role") != "assistant":

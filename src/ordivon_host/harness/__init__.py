@@ -35,6 +35,8 @@ from .host import (
     PreparedHarnessAttempt,
     ProposedCompletion,
     RecordedHarnessRun,
+    RecordedNativeRunAbandonment,
+    RecordedNativeRunRecovery,
 )
 from .models import (
     CompletionDecision,
@@ -44,6 +46,15 @@ from .models import (
     HarnessCapabilityManifest,
     HarnessRunReceipt,
     TaskAttemptDescriptor,
+)
+from .recovery import (
+    NativeRunAbandonment,
+    NativeRunRecoveryAssessment,
+    native_tool_grant_effect_class,
+)
+from .recovery_controller import (
+    NativeRunRecoveryController,
+    NativeRunRecoveryResult,
 )
 from .runtime_refs import (
     HostRuntimeReference,
@@ -87,9 +98,15 @@ __all__ = [
     "HarnessSuperseded",
     "HostRuntimeReference",
     "NativeHarnessRunContract",
+    "NativeRunAbandonment",
+    "NativeRunRecoveryAssessment",
+    "NativeRunRecoveryController",
+    "NativeRunRecoveryResult",
     "PreparedHarnessAttempt",
     "ProposedCompletion",
     "RecordedHarnessRun",
+    "RecordedNativeRunAbandonment",
+    "RecordedNativeRunRecovery",
     "TaskAttemptDescriptor",
     "TaskContract",
     "ToolGrant",
@@ -97,5 +114,6 @@ __all__ = [
     "harness_run_runtime_binding_digest",
     "harness_runtime_client_request_id",
     "host_runtime_references",
+    "native_tool_grant_effect_class",
     "task_runtime_binding_digest",
 ]
