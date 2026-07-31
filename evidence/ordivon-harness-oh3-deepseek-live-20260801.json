@@ -1,0 +1,54 @@
+{
+  "accepted": true,
+  "assignmentId": "assignment:oh3-live-readme:g1",
+  "conclusionStatus": "candidate_completed",
+  "conclusionSummary": "Successfully read README.md through Ordivon Runtime. The Observation's content is the README.md content. The first Markdown heading extracted from that content is \"# Ordivon Host\". Both acceptance criteria are satisfied.",
+  "contextObjectDigest": "sha256:a0c131bc445be0bdc8000bbe107ac1580e89d0fe1d9df56ea9f794115ea244ef",
+  "expectedHeading": "# Ordivon Host",
+  "harnessRunId": "harness-run:oh3-live-readme:1785530581343938433",
+  "kind": "ordivon.harness-oh3-live-evidence",
+  "modelCalls": 2,
+  "observationStatuses": [
+    "observed"
+  ],
+  "observedHeading": "# Ordivon Host",
+  "runtimeCatalogDigest": "sha256:22ae1290ee472e9ffd6d9af67a2e5ced1f007e7d58f01f7c6a9ccfee5405a3f8",
+  "schemaVersion": 1,
+  "sourceRevision": "79507fb6a000d241df19947de550610ebef6b8b1",
+  "stopCode": "candidate_completed",
+  "toolCalls": 1,
+  "traceDigest": "sha256:5e4a26d782ce35c0d0f9fa64023f99a755027e8bd5dfd5832bb33521b4d8aeea",
+  "usage": {
+    "modelCalls": 2,
+    "observationBytes": 6389,
+    "providerUsage": [
+      {
+        "completion_tokens": 75,
+        "prompt_cache_hit_tokens": 0,
+        "prompt_cache_miss_tokens": 2309,
+        "prompt_tokens": 2309,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "providerModel": "deepseek-v4-flash",
+        "providerRequestMode": "non-thinking",
+        "systemFingerprint": "fp_a18b46594c_prod0820_fp8_kvcache_20260402",
+        "total_tokens": 2384
+      },
+      {
+        "completion_tokens": 217,
+        "prompt_cache_hit_tokens": 2304,
+        "prompt_cache_miss_tokens": 1529,
+        "prompt_tokens": 3833,
+        "prompt_tokens_details": {
+          "cached_tokens": 2304
+        },
+        "providerModel": "deepseek-v4-flash",
+        "providerRequestMode": "non-thinking",
+        "systemFingerprint": "fp_a18b46594c_prod0820_fp8_kvcache_20260402",
+        "total_tokens": 4050
+      }
+    ],
+    "toolCalls": 1
+  }
+}
