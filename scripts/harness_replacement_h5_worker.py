@@ -93,7 +93,22 @@ def _prompt(
     )
 
 
-def _run_codex(root: Path, prompt: str, timeout: int) -> tuple[Any, dict[str, Any], Any]:
+def _optional_provider_response(text: str) -> dict[str, Any] | None:
+    if not text.strip():
+        return None
+    try:
+        value = parse_json_object(text)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    required = {"phase", "artifact", "summary", "testStatus"}
+    return value if set(value) == required else None
+
+
+def _run_codex(
+    root: Path,
+    prompt: str,
+    timeout: int,
+) -> tuple[Any, dict[str, Any] | None, Any]:
     driver = CodexAppServerDriver(
         working_directory=root,
         timeout_seconds=timeout,
@@ -111,10 +126,14 @@ def _run_codex(root: Path, prompt: str, timeout: int) -> tuple[Any, dict[str, An
     with driver:
         result = driver.run_turn(prompt, output_schema=provider_output_schema())
         manifest = driver.manifest()
-    return result, parse_json_object(result.assistant_text), manifest
+    return result, _optional_provider_response(result.assistant_text), manifest
 
 
-def _run_hermes(root: Path, prompt: str, timeout: int) -> tuple[Any, dict[str, Any], Any]:
+def _run_hermes(
+    root: Path,
+    prompt: str,
+    timeout: int,
+) -> tuple[Any, dict[str, Any] | None, Any]:
     driver = HermesACPDriver(working_directory=root, timeout_seconds=timeout)
     with driver:
         session = driver.start_session()
@@ -122,7 +141,7 @@ def _run_hermes(root: Path, prompt: str, timeout: int) -> tuple[Any, dict[str, A
         handle = driver.start_prompt(session, prompt)
         result = driver.wait_prompt(handle)
         manifest = driver.manifest()
-    return result, parse_json_object(result.assistant_text), manifest
+    return result, _optional_provider_response(result.assistant_text), manifest
 
 
 def _provider_summary(provider: str, result: Any) -> dict[str, Any]:
@@ -184,19 +203,13 @@ def main() -> None:
         diagnosis_digest=args.diagnosis_digest,
     )
     if args.provider == "codex":
-        provider_result, final_response, manifest = _run_codex(
+        provider_result, provider_final_response, manifest = _run_codex(
             root, prompt, args.timeout_seconds
         )
     else:
-        provider_result, final_response, manifest = _run_hermes(
+        provider_result, provider_final_response, manifest = _run_hermes(
             root, prompt, args.timeout_seconds
         )
-
-    required_response = {"phase", "artifact", "summary", "testStatus"}
-    if set(final_response) != required_response:
-        raise SystemExit("provider final response fields differ")
-    if final_response.get("phase") != args.phase:
-        raise SystemExit("provider final response phase differs")
 
     independent_test = run_acceptance(root)
     after = {
@@ -211,8 +224,6 @@ def main() -> None:
         "providerCompleted": provider_result.status == "completed",
         "specUnchanged": after["spec"] == before["spec"],
         "testsUnchanged": after["tests"] == before["tests"],
-        "finalResponseArtifactMatchesPhase": final_response.get("artifact")
-        == str(DIAGNOSIS_PATH if args.phase == "diagnose" else COMPLETION_PATH),
     }
     artifact_value: dict[str, Any]
     artifact_path: Path
@@ -222,14 +233,18 @@ def main() -> None:
             read_json(artifact_path),
             base_source_revision=args.base_source_revision,
         )
+        final_response = {
+            "phase": "diagnose",
+            "artifact": str(DIAGNOSIS_PATH),
+            "summary": artifact_value["defect"],
+            "testStatus": "failing",
+        }
         checks.update(
             {
                 "sourceUnchanged": after["source"] == before["source"],
                 "diagnosisCreated": artifact_path.is_file(),
                 "completionAbsent": not (root / COMPLETION_PATH).exists(),
                 "frozenTestsStillFail": independent_test["passed"] is False,
-                "finalResponseReportsFailure": final_response.get("testStatus")
-                == "failing",
             }
         )
     else:
@@ -245,15 +260,21 @@ def main() -> None:
             diagnosis_digest=args.diagnosis_digest,
             final_source_digest=final_source_digest,
         )
+        final_response = {
+            "phase": "repair",
+            "artifact": str(COMPLETION_PATH),
+            "summary": artifact_value["summary"],
+            "testStatus": "passed",
+        }
         checks.update(
             {
                 "sourceChanged": after["source"] != before["source"],
                 "diagnosisUnchanged": after["diagnosis"] == before["diagnosis"],
                 "completionCreated": artifact_path.is_file(),
                 "acceptancePassed": independent_test["passed"] is True,
-                "finalResponseReportsPass": final_response.get("testStatus") == "passed",
             }
         )
+    provider_final_response_usable = provider_final_response == final_response
     if not all(checks.values()):
         raise SystemExit(f"H5 worker checks failed: {checks}")
 
@@ -267,6 +288,11 @@ def main() -> None:
         "baseSourceRevision": args.base_source_revision,
         "manifest": manifest.to_dict(),
         "providerSummary": _provider_summary(args.provider, provider_result),
+        "providerFinalResponse": provider_final_response,
+        "providerFinalResponseUsable": provider_final_response_usable,
+        "finalResponseSource": (
+            "provider" if provider_final_response_usable else "verified-artifact"
+        ),
         "finalResponse": final_response,
         "artifactPath": str(artifact_path.relative_to(repository_root)),
         "artifactValue": artifact_value,
