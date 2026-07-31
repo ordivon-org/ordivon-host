@@ -1,0 +1,486 @@
+{
+  "assignmentGeneration": 1,
+  "assignmentId": "assignment:live-codex-app-h3-1785457717046-3d938480d4c5:attempt-1:g1",
+  "capturedAt": "2026-07-31T00:29:07.729018+00:00",
+  "checks": {
+    "codexTurnCompleted": true,
+    "freshClientRecoveredJob": true,
+    "handoffProjectsHarnessRun": true,
+    "hostRecordedHarnessRun": true,
+    "noRuntimeSemanticCompletionClaim": true,
+    "oneShotBaselineRemainsDistinct": true,
+    "rawProviderDigestRetained": true,
+    "runtimeJobSucceeded": true,
+    "runtimeOwnedProcessTree": true,
+    "taskNotSemanticallyCompleted": true,
+    "terminalEvidenceBoundSource": true,
+    "terminalEvidenceRetainedHostReferences": true,
+    "threadIdentityRetained": true,
+    "toolLifecycleObserved": true,
+    "turnIdentityRetained": true,
+    "usageObserved": true,
+    "workerChecksPassed": true
+  },
+  "goalId": "goal:live-codex-app-h3-1785457717046-3d938480d4c5",
+  "harnessRunId": "harness-run:live-codex-app-h3-1785457717046-3d938480d4c5:codex:1",
+  "host": {
+    "handoff": {
+      "assignmentGeneration": 1,
+      "assignmentId": "assignment:live-codex-app-h3-1785457717046-3d938480d4c5:attempt-1:g1",
+      "backendJobId": null,
+      "childTaskId": null,
+      "completionDecisionId": null,
+      "completionProposalId": null,
+      "decisionRequestId": null,
+      "descriptorDigest": null,
+      "dispatchObjectDigest": null,
+      "eventKind": "harness.run-recorded",
+      "eventPayloadDigest": "sha256:75bff78b6b91fc4172f3f595d6f9fabc4b4b1c0a4bf8756b4c8566dce7793d9f",
+      "goalId": "goal:live-codex-app-h3-1785457717046-3d938480d4c5",
+      "harnessRunId": "harness-run:live-codex-app-h3-1785457717046-3d938480d4c5:codex:1",
+      "kind": "ordivon.operator-handoff-capsule",
+      "mustNotRepeatObjectDigests": [],
+      "nextAdmissible": [
+        "replace-harness-or-propose-completion"
+      ],
+      "outcomeObjectDigest": null,
+      "proposalDigest": null,
+      "readyFrontier": [
+        "node:live-codex-app-h3-1785457717046-3d938480d4c5:run"
+      ],
+      "schemaVersion": 2,
+      "taskAttemptId": "task-attempt:live-codex-app-h3-1785457717046-3d938480d4c5:1",
+      "taskId": "task:live-codex-app-h3-1785457717046-3d938480d4c5",
+      "taskRevision": 3,
+      "taskState": "waiting"
+    },
+    "recordedRun": {
+      "artifactRefs": [
+        {
+          "digest": "sha256:5827b1812cb12a07a041b244db585b07d64bfd99c1f5001d85a086feb47ffe7a",
+          "kind": "execution_result",
+          "ref": "runtime-artifact:attempt-019fb592-afcd-7872-8b88-b0635bc48637.result"
+        },
+        {
+          "digest": "sha256:7aef14e662e722a88eae7da71f4ee6b6d49629d48f5fe2f8e1cbd24208172839",
+          "kind": "stderr",
+          "ref": "runtime-artifact:attempt-019fb592-afcd-7872-8b88-b0635bc48637.stderr"
+        },
+        {
+          "digest": "sha256:e09def7464624f40114c8bb505697136a0e659ed3ae43c8803d95dd38a606b40",
+          "kind": "stdout",
+          "ref": "runtime-artifact:attempt-019fb592-afcd-7872-8b88-b0635bc48637.stdout"
+        },
+        {
+          "digest": "sha256:2782fa6747b5415ee76bd25fd53cc5328ffef756d568d98b0c610f792a3dcca5",
+          "kind": "terminal_evidence",
+          "ref": "runtime-artifact:attempt-019fb592-afcd-7872-8b88-b0635bc48637.terminal-evidence.2782fa6747b5415ee76bd25fd53cc5328ffef756d568d98b0c610f792a3dcca5"
+        },
+        {
+          "digest": "sha256:74c649386e251951ece5879956161b5eb509a485e3d3b92b663a8c0c3c2cfa1a",
+          "kind": "codex-app-h3-worker-result",
+          "ref": "host-object:sha256:6d728bc8a97188d6a6623119ae48fe2e1f2f018626fbafaa533dd7048adf10cb"
+        }
+      ],
+      "assignmentGeneration": 1,
+      "assignmentId": "assignment:live-codex-app-h3-1785457717046-3d938480d4c5:attempt-1:g1",
+      "contextDigest": "sha256:452ad538c1819d80dd93b47c2d3747b4b2cf9c4204215f9fecf470fe9c8ba186",
+      "eventDigest": "sha256:72b39839ef264dc85b3b83cb1fc0a86f9b52d472659dbc10cf66b8fd0b712826",
+      "finishedAtMs": 1785457747307,
+      "harnessId": "harness:codex-app-server",
+      "harnessRevision": "0.145.0",
+      "harnessRunId": "harness-run:live-codex-app-h3-1785457717046-3d938480d4c5:codex:1",
+      "kind": "ordivon.harness-run-receipt",
+      "manifestDigest": "sha256:ecdef739c9e8c2113b86579806f52d477edaf1a1ff2abd2ef1f2be1929fe5cd3",
+      "runtimeJobRefs": [
+        "job-019fb592-afcd-7872-8b88-b056d8acaea9"
+      ],
+      "schemaVersion": 1,
+      "sessionRef": "codex-thread:019fb592-c3fa-7e62-8baa-dd458de919b0",
+      "startedAtMs": 1785457722552,
+      "stopReason": "completed",
+      "toolCatalogDigest": "sha256:0e104fe35ed09a0931ff20032a79c92c0763b3e058ddd4b92caef826990dd623",
+      "usage": {
+        "model": "gpt-5.6-sol",
+        "modelProvider": "openai",
+        "normalizedEventCount": 235,
+        "provider": "codex-app-server",
+        "rawMessageCount": 259,
+        "tokenUsage": {
+          "last": {
+            "cacheWriteInputTokens": 0,
+            "cachedInputTokens": 12032,
+            "inputTokens": 14605,
+            "outputTokens": 275,
+            "reasoningOutputTokens": 34,
+            "totalTokens": 14880
+          },
+          "modelContextWindow": 258400,
+          "total": {
+            "cacheWriteInputTokens": 0,
+            "cachedInputTokens": 12032,
+            "inputTokens": 26951,
+            "outputTokens": 374,
+            "reasoningOutputTokens": 50,
+            "totalTokens": 27325
+          }
+        },
+        "toolItemCount": 1,
+        "turnId": "019fb592-c4a6-7213-85e8-7016d9e8251e"
+      }
+    },
+    "recordedRunDigest": "sha256:4eaa17a7cddebb3c560aa1e263ec6a81539590d111fa508fcb61b4307d4003bb",
+    "recordedRunRevision": 3
+  },
+  "implementationSourceRevision": "64ab44be667fa172027150a152b2f4660538ef00",
+  "integrity": {
+    "algorithm": "sha256",
+    "canonicalization": "ordivon-canonical-json-v1",
+    "payloadDigest": "sha256:d7f048b4c24f4aa0c6897a7711640a3d32736c12a7d144888e69bc1262f58558"
+  },
+  "kind": "ordivon.codex-app-h3-live-receipt",
+  "manifest": {
+    "approvalEvents": true,
+    "checkpoint": false,
+    "compaction": true,
+    "extensions": [
+      "codex.raw-provider-event-digest"
+    ],
+    "harnessId": "harness:codex-app-server",
+    "images": true,
+    "interrupt": true,
+    "kind": "ordivon.harness-capability-manifest",
+    "localSubagents": false,
+    "persistentSession": true,
+    "protocol": "codex-app-server-v2-stdio",
+    "protocolRevision": "0.145.0",
+    "schemaVersion": 1,
+    "sessionFork": true,
+    "sessionResume": true,
+    "toolEvents": true,
+    "usage": true
+  },
+  "provider": {
+    "baselineComparison": {
+      "codexAppServer": {
+        "interrupt": true,
+        "persistentSessionRetained": true,
+        "processModel": "one App Server process can host multiple turns",
+        "providerThreadIdentity": true,
+        "rawProviderEventDigest": true,
+        "toolLifecycleEvents": true
+      },
+      "codexCliOneShot": {
+        "interrupt": false,
+        "persistentSessionRetained": false,
+        "processModel": "one subprocess per invocation",
+        "providerThreadIdentity": false,
+        "rawProviderEventDigest": false,
+        "toolLifecycleEvents": false
+      }
+    },
+    "capturedAt": "2026-07-31T00:29:07.378778+00:00",
+    "kind": "ordivon.codex-app-h3-provider-summary",
+    "schemaVersion": 1,
+    "structuredOutput": {
+      "conclusion": "The file is a strict validation and deterministic request-construction boundary between committed harness assignments and Host Runtime workspace execution.",
+      "file": "src/ordivon_host/harness/runtime_refs.py",
+      "invariants": [
+        "Runtime reference types must belong to the fixed supported set, and every serialized reference uses namespace \"ordivon.host\".",
+        "Reference IDs and generations must be non-empty, trimmed, and within their UTF-8 byte limits; digests must match sha256:<64 lowercase hex>.",
+        "Harness run IDs must start with \"harness-run:\", and executable paths must be absolute.",
+        "Workspace execution requests require an assignment workspace reference and enforce non-negative timeout/output limits, waitMs from 0 to 30000, and tail limits from 0 to 65536 bytes.",
+        "Generated identities and binding digests are deterministic canonical digests of versioned payloads, and the final request is validated as a JSON value."
+      ],
+      "observedCommand": "cat src/ordivon_host/harness/runtime_refs.py",
+      "purpose": "Defines validated Host Runtime references, deterministic canonical binding/request digests, and JSON-safe workspace execution requests for committed harness assignments."
+    },
+    "target": "src/ordivon_host/harness/runtime_refs.py",
+    "turn": {
+      "approvalPolicy": "never",
+      "cliVersion": "0.145.0",
+      "cwd": "/var/lib/ordivon/runtime/workspaces/host-live-codex-app-h3-1785457717046-3d938480d4c5",
+      "durationMs": 24770,
+      "ephemeral": true,
+      "finishedAtMs": 1785457747307,
+      "itemTypeCounts": {
+        "agentMessage": 2,
+        "commandExecution": 2,
+        "reasoning": 4,
+        "userMessage": 2
+      },
+      "model": "gpt-5.6-sol",
+      "modelProvider": "openai",
+      "normalizedEventDigest": "sha256:b3fa33871effc82828a9b1d32ca05a88c08e62b486851e3dffa51578a91ac357",
+      "providerMethodCounts": {
+        "account/rateLimits/updated": 2,
+        "item/agentMessage/delta": 229,
+        "item/commandExecution/outputDelta": 4,
+        "item/completed": 5,
+        "item/started": 5,
+        "mcpServer/startupStatus/updated": 4,
+        "thread/started": 1,
+        "thread/status/changed": 2,
+        "thread/tokenUsage/updated": 2,
+        "turn/completed": 1,
+        "turn/started": 1
+      },
+      "rawMessageCount": 259,
+      "rawMessageDigest": "sha256:72b39839ef264dc85b3b83cb1fc0a86f9b52d472659dbc10cf66b8fd0b712826",
+      "sandbox": {
+        "networkAccess": false,
+        "type": "readOnly"
+      },
+      "sessionId": "019fb592-c3fa-7e62-8baa-dd458de919b0",
+      "startedAtMs": 1785457722552,
+      "status": "completed",
+      "stopReason": "completed",
+      "threadId": "019fb592-c3fa-7e62-8baa-dd458de919b0",
+      "toolItems": [
+        {
+          "command": "/usr/bin/bash -lc 'cat src/ordivon_host/harness/runtime_refs.py'",
+          "cwd": "/var/lib/ordivon/runtime/workspaces/host-live-codex-app-h3-1785457717046-3d938480d4c5",
+          "durationMs": 129,
+          "exitCode": 0,
+          "id": "call_QVV9eJQyfeSzW0ytfHyDHJ2B",
+          "status": "completed",
+          "type": "commandExecution"
+        }
+      ],
+      "turnId": "019fb592-c4a6-7213-85e8-7016d9e8251e",
+      "usage": {
+        "last": {
+          "cacheWriteInputTokens": 0,
+          "cachedInputTokens": 12032,
+          "inputTokens": 14605,
+          "outputTokens": 275,
+          "reasoningOutputTokens": 34,
+          "totalTokens": 14880
+        },
+        "modelContextWindow": 258400,
+        "total": {
+          "cacheWriteInputTokens": 0,
+          "cachedInputTokens": 12032,
+          "inputTokens": 26951,
+          "outputTokens": 374,
+          "reasoningOutputTokens": 50,
+          "totalTokens": 27325
+        }
+      }
+    },
+    "workerChecks": {
+      "commandExecutionObserved": true,
+      "commandSucceeded": true,
+      "interruptCapabilityAdvertised": true,
+      "noFileChange": true,
+      "rawProviderDigestRetained": true,
+      "resumeCapabilityAdvertised": true,
+      "structuredOutputMatchesTarget": true,
+      "targetMentionedByCommand": true,
+      "turnCompleted": true,
+      "usageObserved": true
+    },
+    "workerPayloadDigest": "sha256:92fc38bd49db56debbf6c6168ce7a66abde38819b175f255c4ca3769bc61f906"
+  },
+  "request": {
+    "clientRequestId": "request:harness:g1:d998cbfd614a855bfada9617afd26ad1",
+    "execution": {
+      "args": [
+        "run",
+        "python",
+        "scripts/codex_app_h3_worker.py",
+        "--working-directory",
+        ".",
+        "--target",
+        "src/ordivon_host/harness/runtime_refs.py",
+        "--timeout-seconds",
+        "180"
+      ],
+      "cwdRelative": ".",
+      "env": {
+        "NO_COLOR": "1",
+        "PYTHONUNBUFFERED": "1",
+        "UV_NO_PROGRESS": "1"
+      },
+      "executable": "/root/.local/bin/uv",
+      "foreignReferences": [
+        {
+          "digest": "sha256:2eb11699dae3a84999b6cbfa1664a459765538118d14adffa5aa5cc852cef27b",
+          "generation": "1",
+          "id": "assignment:live-codex-app-h3-1785457717046-3d938480d4c5:attempt-1:g1",
+          "namespace": "ordivon.host",
+          "type": "assignment"
+        },
+        {
+          "digest": "sha256:6d5c51791c0bf7f4f9530d24576355613ba59c6631ad63cfafeeaeecc2f4d3b4",
+          "id": "harness-run:live-codex-app-h3-1785457717046-3d938480d4c5:codex:1",
+          "namespace": "ordivon.host",
+          "type": "harness_run"
+        },
+        {
+          "digest": "sha256:24b7735cd5e45374d39b41322b8fcce547046c9e34c9cdb5c8fcdd53c57b423d",
+          "generation": "1",
+          "id": "task:live-codex-app-h3-1785457717046-3d938480d4c5",
+          "namespace": "ordivon.host",
+          "type": "task"
+        },
+        {
+          "digest": "sha256:dfe469baff2a999134775a21f06b03a11edef801a83e12131fce7396d6f099fb",
+          "id": "task-attempt:live-codex-app-h3-1785457717046-3d938480d4c5:1",
+          "namespace": "ordivon.host",
+          "type": "task_attempt"
+        }
+      ],
+      "stderrLimitBytes": 262144,
+      "stdoutLimitBytes": 262144,
+      "timeoutMs": 240000,
+      "workspaceId": "host-live-codex-app-h3-1785457717046-3d938480d4c5"
+    },
+    "schemaVersion": 1,
+    "stderrTailBytes": 32768,
+    "stdoutTailBytes": 65536,
+    "waitMs": 30000
+  },
+  "runtime": {
+    "artifacts": [
+      {
+        "artifactId": "attempt-019fb592-afcd-7872-8b88-b0635bc48637.result",
+        "digest": "sha256:5827b1812cb12a07a041b244db585b07d64bfd99c1f5001d85a086feb47ffe7a",
+        "kind": "execution_result",
+        "retainedBytes": 1248,
+        "truncated": false
+      },
+      {
+        "artifactId": "attempt-019fb592-afcd-7872-8b88-b0635bc48637.stderr",
+        "digest": "sha256:7aef14e662e722a88eae7da71f4ee6b6d49629d48f5fe2f8e1cbd24208172839",
+        "droppedBytes": 0,
+        "kind": "stderr",
+        "retainedBytes": 329,
+        "truncated": false
+      },
+      {
+        "artifactId": "attempt-019fb592-afcd-7872-8b88-b0635bc48637.stdout",
+        "digest": "sha256:e09def7464624f40114c8bb505697136a0e659ed3ae43c8803d95dd38a606b40",
+        "droppedBytes": 0,
+        "kind": "stdout",
+        "retainedBytes": 77660,
+        "truncated": false
+      },
+      {
+        "artifactId": "attempt-019fb592-afcd-7872-8b88-b0635bc48637.terminal-evidence.2782fa6747b5415ee76bd25fd53cc5328ffef756d568d98b0c610f792a3dcca5",
+        "digest": "sha256:2782fa6747b5415ee76bd25fd53cc5328ffef756d568d98b0c610f792a3dcca5",
+        "kind": "terminal_evidence",
+        "retainedBytes": 2672,
+        "truncated": false
+      }
+    ],
+    "attemptId": "attempt-019fb592-afcd-7872-8b88-b0635bc48637",
+    "jobId": "job-019fb592-afcd-7872-8b88-b056d8acaea9",
+    "matchingJobs": [
+      {
+        "artifactCount": 4,
+        "artifactsAvailable": true,
+        "attemptId": "attempt-019fb592-afcd-7872-8b88-b0635bc48637",
+        "clientRequestId": "request:harness:g1:d998cbfd614a855bfada9617afd26ad1",
+        "createdAtMs": 1785457717197,
+        "cwdRelative": ".",
+        "durationMs": 30134,
+        "executableName": "uv",
+        "exitCode": 0,
+        "finishedAtMs": 1785457747454,
+        "jobId": "job-019fb592-afcd-7872-8b88-b056d8acaea9",
+        "resultAvailable": true,
+        "sourceRevision": "64ab44be667fa172027150a152b2f4660538ef00",
+        "startedAtMs": 1785457717320,
+        "status": "succeeded",
+        "workspaceId": "host-live-codex-app-h3-1785457717046-3d938480d4c5"
+      }
+    ],
+    "status": "succeeded",
+    "terminalEvidence": {
+      "args": [
+        "run",
+        "python",
+        "scripts/codex_app_h3_worker.py",
+        "--working-directory",
+        ".",
+        "--target",
+        "src/ordivon_host/harness/runtime_refs.py",
+        "--timeout-seconds",
+        "180"
+      ],
+      "attemptId": "attempt-019fb592-afcd-7872-8b88-b0635bc48637",
+      "cancellationDisposition": "not_requested",
+      "cwd": "/var/lib/ordivon/runtime/workspaces/host-live-codex-app-h3-1785457717046-3d938480d4c5",
+      "deliveryDisposition": "committed",
+      "executable": "/root/.local/bin/uv",
+      "executionDisposition": "succeeded",
+      "executionProfile": "trusted_local",
+      "foreignReferences": [
+        {
+          "digest": "sha256:2eb11699dae3a84999b6cbfa1664a459765538118d14adffa5aa5cc852cef27b",
+          "generation": "1",
+          "id": "assignment:live-codex-app-h3-1785457717046-3d938480d4c5:attempt-1:g1",
+          "namespace": "ordivon.host",
+          "type": "assignment"
+        },
+        {
+          "digest": "sha256:6d5c51791c0bf7f4f9530d24576355613ba59c6631ad63cfafeeaeecc2f4d3b4",
+          "id": "harness-run:live-codex-app-h3-1785457717046-3d938480d4c5:codex:1",
+          "namespace": "ordivon.host",
+          "type": "harness_run"
+        },
+        {
+          "digest": "sha256:24b7735cd5e45374d39b41322b8fcce547046c9e34c9cdb5c8fcdd53c57b423d",
+          "generation": "1",
+          "id": "task:live-codex-app-h3-1785457717046-3d938480d4c5",
+          "namespace": "ordivon.host",
+          "type": "task"
+        },
+        {
+          "digest": "sha256:dfe469baff2a999134775a21f06b03a11edef801a83e12131fce7396d6f099fb",
+          "id": "task-attempt:live-codex-app-h3-1785457717046-3d938480d4c5:1",
+          "namespace": "ordivon.host",
+          "type": "task_attempt"
+        }
+      ],
+      "jobId": "job-019fb592-afcd-7872-8b88-b056d8acaea9",
+      "observedAtMs": 1785457747454,
+      "processTreeDisposition": "terminal_clean",
+      "reasonCode": "PROCESS_EXIT_ZERO",
+      "schemaVersion": 1,
+      "sourceRevision": "64ab44be667fa172027150a152b2f4660538ef00",
+      "startDisposition": "identity_bound",
+      "supervisor": {
+        "bootId": "761dada6-7ad4-480f-8991-791d0cf1ad31",
+        "controlGroup": "/system.slice/ordivon-attempt-019fb592-afcd-7872-8b88-b0635bc48637.service",
+        "invocationId": "25d04fc46f1944e1aa481fb1460df942",
+        "mainPid": 1174475,
+        "processStartIdentity": "11840960",
+        "runnerStartDigest": "sha256:ee57ac267bfe299d42a0523a4b58274899c38481e81e0a3aea7b5531a23f6fed",
+        "unitName": "ordivon-attempt-019fb592-afcd-7872-8b88-b0635bc48637.service"
+      },
+      "terminalArtifactIds": [
+        "attempt-019fb592-afcd-7872-8b88-b0635bc48637.stdout",
+        "attempt-019fb592-afcd-7872-8b88-b0635bc48637.stderr",
+        "attempt-019fb592-afcd-7872-8b88-b0635bc48637.result"
+      ],
+      "workspaceId": "host-live-codex-app-h3-1785457717046-3d938480d4c5"
+    },
+    "workspaceClose": {
+      "removed": true,
+      "workspaceId": "host-live-codex-app-h3-1785457717046-3d938480d4c5"
+    },
+    "workspaceClosed": true
+  },
+  "runtimeCatalogDigest": "sha256:0e104fe35ed09a0931ff20032a79c92c0763b3e058ddd4b92caef826990dd623",
+  "schemaVersion": 1,
+  "sourceReceiptPayloadDigest": "sha256:85200ee4c6082433411702f8baa578caf2301f72587c347b4b0eb36efb877c5a",
+  "stateRoot": null,
+  "taskAttemptId": "task-attempt:live-codex-app-h3-1785457717046-3d938480d4c5:1",
+  "taskId": "task:live-codex-app-h3-1785457717046-3d938480d4c5",
+  "workspace": {
+    "sourceRevision": "64ab44be667fa172027150a152b2f4660538ef00",
+    "workspaceId": "host-live-codex-app-h3-1785457717046-3d938480d4c5"
+  }
+}

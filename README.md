@@ -29,6 +29,7 @@ Current proven vertical slices:
 - recovery across fresh Host processes and local Runtime control-plane restarts;
 - Host-local Harness H1 contracts with durable Assignment generation, stale CompletionProposal rejection, required-Artifact and unresolved-UNKNOWN checks, and fresh-process recovery without a second database;
 - Harness H2 Runtime correlation with canonical `ordivon.host` Task, Task Attempt, Assignment, and Harness Run references, Assignment-bound request identity, live replay/conflict/terminal-evidence proof, and no new Runtime state owner;
+- Codex App Server H3 with a provider-faithful stdio driver, durable Thread/Turn and Tool-lifecycle evidence, Runtime-owned process execution, interrupt support, raw-event digest retention, and a live read-only Harness Run that leaves semantic completion with Host;
 - schema-v3 operational state, backup/restore, optional full-history Doctor, and measured 100,000-event behavior.
 
 The closed-choice path remains a useful deterministic and closed-domain profile. It is no longer treated as the only possible cognition interface. See `docs/H_SERIES_OPEN_PROPOSAL.md` for the first open-proposal boundary.

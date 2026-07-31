@@ -1,6 +1,6 @@
 # Harness Boundary Stage 1
 
-Status: H1 and H2 implemented; H3–H5 remain experimental work
+Status: H1–H3 implemented; H4–H5 remain experimental work
 Canonical experiment: `ordivon-computing/research/experiments/harness-boundary-v0/`
 
 ## H1 implementation result
@@ -18,6 +18,16 @@ H2 adds one Host-local `runtime_refs.py` module. It produces four sorted opaque 
 The Harness Run reference uses a stable pre-completion binding digest derived from Assignment identity, generation, Harness identity, manifest, Context, Tool catalog, and Harness Run ID. Runtime work can therefore be correlated before the final `HarnessRunReceipt` exists. The final receipt later records the actual Runtime Job and terminal-evidence Artifact.
 
 The live receipt [`../evidence/harness-h2-runtime-r2-live-d50f609-20260731.json`](../evidence/harness-h2-runtime-r2-live-d50f609-20260731.json) proves one real Host request against the active Runtime: exact replay returned the original Job, changed Assignment generation and digest were rejected as idempotency conflicts, terminal evidence retained the exact four Host references, a fresh client recovered the original Job, Runtime made no semantic-completion claim, Host recorded the Runtime Job in `HarnessRunReceipt`, and the Workspace was closed. Three deterministic H2 tests cover canonical ordering, digest and request identity, replacement generation, and invalid request rejection.
+
+## H3 implementation result
+
+H3 adds a provider-faithful Codex App Server v2 stdio driver. It performs `initialize`, `thread/start`, `turn/start`, `turn/interrupt`, bounded line-delimited message ingestion, Thread/Turn identity retention, Tool lifecycle observation, token-usage capture, and raw provider-message canonical hashing. It rejects unexpected server-initiated approval or Tool requests rather than silently granting authority. Codex Thread resume and fork remain advertised provider capabilities; they do not become Host Task continuity because the generated 0.145 protocol explicitly describes resumed Turn history as lossy.
+
+Four deterministic protocol tests use a fake App Server to verify lifecycle ordering, command Tool normalization, usage, structured result round-trip, interrupt behavior, `HarnessRunReceipt` construction, and fail-closed server requests. The driver remains provider-specific. H3 does not add a shared `HarnessAdapter` implementation, provider-independent Session object, event bus, scheduler, Hook framework, or Runtime change.
+
+The live receipt [`../evidence/codex-app-h3-live-64ab44b-20260731.json`](../evidence/codex-app-h3-live-64ab44b-20260731.json) records one Runtime-managed read-only Codex App Server Harness Run from implementation revision `64ab44be667fa172027150a152b2f4660538ef00`. Runtime owned the `uv → worker → codex app-server → bash cat` process tree and retained one Job, Attempt, stdout, stderr, execution result, and terminal-evidence Artifact. Codex 0.145 created a real Thread and Turn with model `gpt-5.6-sol`, executed one successful command reading `runtime_refs.py`, emitted Tool and token-usage events, and completed without file changes. Host admitted the resulting `HarnessRunReceipt`, preserved Runtime and Provider evidence, projected the Run through operator handoff, and left the Task in `waiting` with no `TaskOutcome`.
+
+The existing one-shot `CodexCliModelGateway` remains a distinct baseline: it uses one ephemeral subprocess and retains no Thread identity, interrupt surface, Tool lifecycle, or raw provider-event digest. App Server provides those capabilities at higher protocol, event-volume, and token cost. H3 therefore provisionally retains the direct Codex driver but does not yet justify a shared cross-provider adapter; H4 and H5 must determine whether useful lifecycle code actually repeats across Hermes ACP and replacement trajectories.
 
 ## Objective
 
@@ -46,11 +56,11 @@ The existing Task lease remains a transition lock. Its revision is not the durab
 src/ordivon_host/harness/
   __init__.py
   models.py          immutable v0 objects and capability manifest
-  adapter.py         Host-local Protocol and event normalization
+  adapter.py         candidate common lifecycle only after H4/H5 evidence
   host.py            Assignment, Run, proposal, and completion transitions
   runtime_refs.py    Runtime foreign-reference builder
-  codex_app.py       Codex App Server direct driver / adapter
-  hermes_acp.py      Hermes ACP direct driver / adapter
+  codex_app.py       provider-faithful Codex App Server direct driver
+  hermes_acp.py      planned provider-faithful Hermes ACP direct driver
 ```
 
 The direct drivers expose provider protocols faithfully. The adapter layer maps only the lifecycle required by the experiment.
@@ -320,7 +330,7 @@ Add `runtime_refs.py`, consume the Runtime Stage 2 convention, and pass the cros
 
 ### H3 — Codex App Server
 
-Implement direct driver and adapter with fake-server tests, then one live smoke run.
+Completed with a provider-faithful direct driver, fake-server lifecycle tests, interrupt and fail-closed server-request coverage, and one Runtime-managed live read-only Harness Run. Shared adapter extraction remains deferred.
 
 ### H4 — Hermes ACP
 
