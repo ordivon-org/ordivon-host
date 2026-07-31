@@ -156,8 +156,21 @@ def model_tool_definitions() -> tuple[AgentToolDefinition, ...]:
             ),
         ),
         AgentToolDefinition(
+            "run_check",
+            "Run one Assignment-prebound verification Check by identity.",
+            _object_schema(
+                {
+                    "checkId": string,
+                    "waitMs": integer,
+                    "stdoutTailBytes": integer,
+                    "stderrTailBytes": integer,
+                },
+                ("checkId",),
+            ),
+        ),
+        AgentToolDefinition(
             "run_in_workspace",
-            "Run one absolute executable in the Assignment Workspace through Ordivon Runtime.",
+            "Run one absolute executable only when opaque execution is explicitly granted.",
             _object_schema(
                 {
                     "executable": string,
@@ -256,6 +269,14 @@ class RuntimeToolBridge:
         self.committed = committed
         self.harness_run_id = harness_run_id
         self.runtime = runtime
+        self.tool_grant = committed.tool_grant
+        if committed.native_run_contract is not None:
+            if self.tool_grant is None:
+                raise ValueError("native Harness Runtime bridge requires a Tool Grant")
+            if committed.native_run_contract.harness_run_id != harness_run_id:
+                raise ValueError("Runtime bridge Harness Run differs from native Run Contract")
+        self._known_job_ids: set[str] = set()
+        self._known_artifacts: set[tuple[str, str]] = set()
         self.catalog = discover_harness_runtime_catalog(runtime)
         if self.catalog.digest != committed.assignment.tool_catalog_digest:
             raise RuntimeProtocolError(
@@ -265,9 +286,30 @@ class RuntimeToolBridge:
         self._seen_tool_calls: set[str] = set()
 
     def definitions(self) -> tuple[AgentToolDefinition, ...]:
-        return self.catalog.model_tools
+        if self.tool_grant is None:
+            return self.catalog.model_tools
+        retained: list[AgentToolDefinition] = []
+        for tool in self.catalog.model_tools:
+            if not self.tool_grant.allows_tool(tool.name):
+                continue
+            if tool.name == "run_check":
+                schema = dict(tool.input_schema)
+                properties = dict(schema["properties"])
+                properties["checkId"] = {
+                    "type": "string",
+                    "enum": [item.check_id for item in self.tool_grant.execution_checks],
+                }
+                schema["properties"] = properties
+                retained.append(
+                    AgentToolDefinition(tool.name, tool.description, schema)
+                )
+            else:
+                retained.append(tool)
+        return tuple(retained)
 
     def execute(self, call: AgentToolCall, *, step_id: str) -> ToolObservation:
+        if self.tool_grant is not None and not self.tool_grant.allows_tool(call.name):
+            raise ToolBridgeError(f"Tool is not granted for this Assignment: {call.name}")
         if call.tool_call_id in self._seen_tool_calls:
             raise ToolBridgeError(f"duplicate Tool Call identity: {call.tool_call_id}")
         self._seen_tool_calls.add(call.tool_call_id)
@@ -299,6 +341,17 @@ class RuntimeToolBridge:
         if call.name == "read_workspace":
             _only(arguments, {"relativePath", "mode", "offset", "maxBytes"}, call.name)
             relative_path = _required_string(arguments, "relativePath", call.name)
+            if self.tool_grant is not None:
+                try:
+                    allowed_path = self.tool_grant.allows_path(
+                        call.name, relative_path
+                    )
+                except ValueError as error:
+                    raise ToolBridgeError(str(error)) from error
+                if not allowed_path:
+                    raise ToolBridgeError(
+                        f"read_workspace path is outside the Tool Grant: {relative_path}"
+                    )
             return (
                 "workspace.read",
                 {
@@ -316,6 +369,25 @@ class RuntimeToolBridge:
             mutations = arguments.get("mutations")
             if not isinstance(mutations, list) or not mutations:
                 raise ToolBridgeError("mutate_workspace mutations must be a non-empty list")
+            if self.tool_grant is not None:
+                for mutation in mutations:
+                    if not isinstance(mutation, dict):
+                        raise ToolBridgeError("mutate_workspace mutations must be objects")
+                    relative_path = mutation.get("relativePath")
+                    if not isinstance(relative_path, str):
+                        raise ToolBridgeError(
+                            "mutate_workspace mutation omitted relativePath"
+                        )
+                    try:
+                        allowed_path = self.tool_grant.allows_path(
+                            call.name, relative_path
+                        )
+                    except ValueError as error:
+                        raise ToolBridgeError(str(error)) from error
+                    if not allowed_path:
+                        raise ToolBridgeError(
+                            f"mutate_workspace path is outside the Tool Grant: {relative_path}"
+                        )
             request: dict[str, JsonValue] = {
                 "schemaVersion": 1,
                 "workspaceId": workspace_id,
@@ -334,7 +406,48 @@ class RuntimeToolBridge:
                 },
                 None,
             )
+        if call.name == "run_check":
+            _only(
+                arguments,
+                {"checkId", "waitMs", "stdoutTailBytes", "stderrTailBytes"},
+                call.name,
+            )
+            if self.tool_grant is None:
+                raise ToolBridgeError("run_check requires a Tool Grant")
+            check_id = _required_string(arguments, "checkId", call.name)
+            try:
+                check = self.tool_grant.execution_check(check_id)
+            except KeyError as error:
+                raise ToolBridgeError(str(error)) from error
+            try:
+                request = build_harness_workspace_exec_request(
+                    self.committed,
+                    harness_run_id=self.harness_run_id,
+                    step_id=step_id,
+                    executable=check.executable,
+                    args=check.args,
+                    cwd_relative=check.cwd_relative,
+                    env=dict(check.env),
+                    timeout_ms=check.timeout_ms,
+                    stdout_limit_bytes=check.stdout_limit_bytes,
+                    stderr_limit_bytes=check.stderr_limit_bytes,
+                    wait_ms=_optional_int(arguments, "waitMs", 0),
+                    stdout_tail_bytes=_optional_int(
+                        arguments, "stdoutTailBytes", 8_192
+                    ),
+                    stderr_tail_bytes=_optional_int(
+                        arguments, "stderrTailBytes", 8_192
+                    ),
+                )
+            except ValueError as error:
+                raise ToolBridgeError(str(error)) from error
+            client_request_id = request.get("clientRequestId")
+            if not isinstance(client_request_id, str):
+                raise ToolBridgeError("Runtime request omitted clientRequestId")
+            return "workspace.exec", request, client_request_id
         if call.name == "run_in_workspace":
+            if self.tool_grant is not None and not self.tool_grant.allow_opaque_exec:
+                raise ToolBridgeError("opaque Runtime execution is not granted")
             allowed = {
                 "executable",
                 "args",
@@ -382,11 +495,14 @@ class RuntimeToolBridge:
             return "workspace.exec", request, client_request_id
         if call.name == "observe_job":
             _only(arguments, {"jobId", "waitMs", "stdoutTailBytes", "stderrTailBytes"}, call.name)
+            job_id = _required_string(arguments, "jobId", call.name)
+            if self.tool_grant is not None and job_id not in self._known_job_ids:
+                raise ToolBridgeError("observe_job may only observe a Job created by this Run")
             return (
                 "task.observe",
                 {
                     "schemaVersion": 1,
-                    "jobId": _required_string(arguments, "jobId", call.name),
+                    "jobId": job_id,
                     "waitMs": _optional_int(arguments, "waitMs", 0),
                     "stdoutTailBytes": _optional_int(arguments, "stdoutTailBytes", 8_192),
                     "stderrTailBytes": _optional_int(arguments, "stderrTailBytes", 8_192),
@@ -395,12 +511,21 @@ class RuntimeToolBridge:
             )
         if call.name == "read_artifact":
             _only(arguments, {"jobId", "artifactId", "offset", "maxBytes"}, call.name)
+            job_id = _required_string(arguments, "jobId", call.name)
+            artifact_id = _required_string(arguments, "artifactId", call.name)
+            if (
+                self.tool_grant is not None
+                and (job_id, artifact_id) not in self._known_artifacts
+            ):
+                raise ToolBridgeError(
+                    "read_artifact may only read an Artifact observed in this Run"
+                )
             return (
                 "artifact.read",
                 {
                     "schemaVersion": 1,
-                    "jobId": _required_string(arguments, "jobId", call.name),
-                    "artifactId": _required_string(arguments, "artifactId", call.name),
+                    "jobId": job_id,
+                    "artifactId": artifact_id,
                     "offset": _optional_int(arguments, "offset", 0),
                     "maxBytes": _optional_int(arguments, "maxBytes", 262_144, positive=True),
                 },
@@ -471,6 +596,15 @@ class RuntimeToolBridge:
         validate_json_value(payload)
         job_id = payload.get("jobId")
         runtime_job_ref = job_id if isinstance(job_id, str) and job_id else None
+        if runtime_job_ref is not None:
+            self._known_job_ids.add(runtime_job_ref)
+            raw_artifacts = payload.get("artifacts")
+            if isinstance(raw_artifacts, list):
+                for item in raw_artifacts:
+                    if isinstance(item, dict) and isinstance(item.get("artifactId"), str):
+                        self._known_artifacts.add(
+                            (runtime_job_ref, item["artifactId"])
+                        )
         return ToolObservation(
             tool_call_id=call.tool_call_id,
             tool_name=call.name,

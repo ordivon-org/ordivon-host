@@ -1,0 +1,68 @@
+{
+  "accepted": true,
+  "assignmentDigest": "sha256:013b258c61b453db4a84dd45484939dae7553822ee911d18a673cb6b6921d7bb",
+  "assignmentId": "assignment:oh4-live-readme:attempt-1:g1",
+  "completionDecisionDigest": "sha256:d1ab077e9612c548dffe04e2e1c91c1757ff38527166edc57f74e652fa03bcca",
+  "completionProposalDigest": "sha256:8d316dee4a16e2960782fb761f5b662bb65766057500b863dba69ea170bb5f18",
+  "completionVerificationDigest": "sha256:42b9254ef7e7665e05daa857fc3f75a47f889dc28df7438616abca75fa42435f",
+  "completionVerificationObjectDigest": "sha256:5e7afa51c95f29d0bfc418263a24fd64ff6b6c03facd8bc41575f76c61c7bcd2",
+  "contextObjectDigest": "sha256:73c1d6fb3f4e074c495a5806fd6f1a3ee9c1e93cda90a88e7ce41cd14a971b3c",
+  "expectedHeading": "# Ordivon Host",
+  "finalTaskRevision": 5,
+  "harnessRunId": "harness-run:oh4-live-readme:attempt-1:g1",
+  "kind": "ordivon.harness-oh4-live-evidence",
+  "modelCalls": 2,
+  "nativeRunContractDigest": "sha256:76acc1c8616da2f31ca86a3f030062cf44825631dd37bc0bfb80a6e75de03ca1",
+  "nativeRunContractObjectDigest": "sha256:2ab5cd44415815896f7782840ef024cf6727d5ab05d9d784e924deebc47007a2",
+  "observationObjectDigests": [
+    "sha256:cce23f7b38d4d1978e18df422039079c0ea32b7c4e6bc5a92279245ce04a7bfb"
+  ],
+  "observedHeading": "# Ordivon Host",
+  "outcomeDigest": "sha256:db77388dd07965cacd507d3a018555aee5b3a41c89770438da9059377b421abe",
+  "runReceiptDigest": "sha256:34d6cb39852ea54e478f9306aceb0455cff1e41d6dc7db9163d18c42d7ff3c12",
+  "runReceiptObjectDigest": "sha256:4fc4c9a65a65eb91a19eaa849bab577d468697aebcf60a377063937dd3ce48be",
+  "runtimeCatalogDigest": "sha256:4cd3713dfbb9eaa6dbbce3c9725f46923e1e2247719987258a2ada4b1811b8f9",
+  "schemaVersion": 1,
+  "sourceRevision": "fb10eae6c178eb76dda51ab1baeb258da4682c38",
+  "taskContractDigest": "sha256:bb7c1e4dcb83901d22a596f0901a76e616a5e974d803f51cff3cfe6a0324f4bc",
+  "taskContractObjectDigest": "sha256:9b8a354c3fada7619efe2a22cb54c769e17c8c78294a3134c41541c33d776cc4",
+  "terminationCode": "candidate_completed",
+  "toolCalls": 1,
+  "toolGrantDigest": "sha256:d3e2f656c18af84933267c89f176f10d8495689e1f436c8f3f24ab107327eef0",
+  "toolGrantObjectDigest": "sha256:b97bee0e2b5f578fc05e023f8cb45c2eb0d0e8a9518a0f4d996c336f03894e84",
+  "traceDigest": "sha256:6a27edde7efdc59fd5035e5537312b9ce2e9c193616368aca0846c53aa3a37e9",
+  "traceObjectDigest": "sha256:180459f81bedbf199ccfc901845ff84d6b31bd60b98f907fc765fc584000362f",
+  "usage": {
+    "modelCalls": 2,
+    "observationBytes": 6389,
+    "providerUsage": [
+      {
+        "completion_tokens": 57,
+        "prompt_cache_hit_tokens": 0,
+        "prompt_cache_miss_tokens": 1447,
+        "prompt_tokens": 1447,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "providerModel": "deepseek-v4-flash",
+        "providerRequestMode": "non-thinking",
+        "systemFingerprint": "fp_a18b46594c_prod0820_fp8_kvcache_20260402",
+        "total_tokens": 1504
+      },
+      {
+        "completion_tokens": 186,
+        "prompt_cache_hit_tokens": 1408,
+        "prompt_cache_miss_tokens": 1545,
+        "prompt_tokens": 2953,
+        "prompt_tokens_details": {
+          "cached_tokens": 1408
+        },
+        "providerModel": "deepseek-v4-flash",
+        "providerRequestMode": "non-thinking",
+        "systemFingerprint": "fp_a18b46594c_prod0820_fp8_kvcache_20260402",
+        "total_tokens": 3139
+      }
+    ],
+    "toolCalls": 1
+  }
+}

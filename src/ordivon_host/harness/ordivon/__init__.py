@@ -22,6 +22,11 @@ from .loop import (
     RunBudget,
     RunStopCode,
 )
+from .result import (
+    NativeRunTimes,
+    build_native_run_receipt,
+    record_native_run_result,
+)
 from .manifest import (
     ORDIVON_HARNESS_ID,
     ORDIVON_HARNESS_PROTOCOL,
@@ -69,6 +74,7 @@ __all__ = [
     "HarnessRunEvent",
     "HarnessRuntimeCatalog",
     "HarnessTrace",
+    "NativeRunTimes",
     "ORDIVON_HARNESS_ID",
     "ORDIVON_HARNESS_PROTOCOL",
     "ORDIVON_HARNESS_PROTOCOL_REVISION",
@@ -84,8 +90,10 @@ __all__ = [
     "ToolObservation",
     "TraceRecorder",
     "UrllibDeepSeekTransport",
+    "build_native_run_receipt",
     "discover_harness_runtime_catalog",
     "harness_context_object_digest",
     "model_tool_definitions",
     "ordivon_harness_manifest",
+    "record_native_run_result",
 ]

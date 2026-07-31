@@ -199,6 +199,7 @@ class OrdivonHarnessOH2Tests(unittest.TestCase):
                 "read_workspace",
                 "mutate_workspace",
                 "diff_workspace",
+                "run_check",
                 "run_in_workspace",
                 "observe_job",
                 "read_artifact",

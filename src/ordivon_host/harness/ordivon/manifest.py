@@ -4,11 +4,11 @@ from ..models import HarnessCapabilityManifest
 
 ORDIVON_HARNESS_ID = "ordivon-harness-v0"
 ORDIVON_HARNESS_PROTOCOL = "ordivon.agent-loop"
-ORDIVON_HARNESS_PROTOCOL_REVISION = "oh3"
+ORDIVON_HARNESS_PROTOCOL_REVISION = "oh4"
 
 
 def ordivon_harness_manifest() -> HarnessCapabilityManifest:
-    """Return the conservative first-party capability declaration at OH3."""
+    """Return the conservative first-party capability declaration at OH4."""
 
     return HarnessCapabilityManifest(
         harness_id=ORDIVON_HARNESS_ID,
@@ -17,7 +17,7 @@ def ordivon_harness_manifest() -> HarnessCapabilityManifest:
         persistent_session=False,
         session_resume=False,
         session_fork=False,
-        interrupt=True,
+        interrupt=False,
         tool_events=True,
         approval_events=False,
         usage=True,
@@ -29,5 +29,9 @@ def ordivon_harness_manifest() -> HarnessCapabilityManifest:
             "ordivon.runtime-aci.v0",
             "ordivon.explicit-unknown.v0",
             "ordivon.deepseek-turn-adapter.v0",
+            "ordivon.interrupt-between-turns.v0",
+            "ordivon.native-run-contract.v0",
+            "ordivon.tool-grant.v0",
+            "ordivon.run-provenance.v0",
         ),
     )

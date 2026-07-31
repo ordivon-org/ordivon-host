@@ -432,7 +432,7 @@ class HarnessRunReceipt:
     harness_id: str
     harness_revision: str
     manifest_digest: str
-    session_ref: str
+    session_ref: str | None
     started_at_ms: int
     finished_at_ms: int
     stop_reason: str
@@ -442,6 +442,8 @@ class HarnessRunReceipt:
     runtime_job_refs: tuple[str, ...]
     artifact_refs: tuple[ArtifactRef, ...]
     usage: dict[str, JsonValue]
+    termination_code: str | None = None
+    continuation_ref: str | None = None
 
     def __post_init__(self) -> None:
         _identity(self.harness_run_id, "harness-run", "Harness Run")
@@ -451,9 +453,14 @@ class HarnessRunReceipt:
         for value, label in (
             (self.harness_id, "Harness Run Harness"),
             (self.harness_revision, "Harness revision"),
-            (self.session_ref, "Harness Session ref"),
         ):
             _text(value, label)
+        if self.session_ref is not None:
+            _text(self.session_ref, "Harness Session ref")
+        if self.continuation_ref is not None:
+            _text(self.continuation_ref, "Harness continuation ref")
+        if self.termination_code is not None:
+            _text(self.termination_code, "Harness termination code")
         _digest(self.manifest_digest, "Harness Run manifest digest")
         _digest(self.event_digest, "Harness Run event digest")
         _digest(self.context_digest, "Harness Run Context digest")
@@ -472,7 +479,7 @@ class HarnessRunReceipt:
 
     def to_dict(self) -> dict[str, JsonValue]:
         return {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "kind": "ordivon.harness-run-receipt",
             "harnessRunId": self.harness_run_id,
             "assignmentId": self.assignment_id,
@@ -490,45 +497,87 @@ class HarnessRunReceipt:
             "runtimeJobRefs": list(self.runtime_job_refs),
             "artifactRefs": _artifact_values(self.artifact_refs),
             "usage": self.usage,
+            "terminationCode": self.termination_code,
+            "continuationRef": self.continuation_ref,
         }
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> HarnessRunReceipt:
-        expected = {
-            "schemaVersion",
-            "kind",
+        version = value.get("schemaVersion")
+        if version == 1:
+            expected = {
+                "schemaVersion",
+                "kind",
+                "harnessRunId",
+                "assignmentId",
+                "assignmentGeneration",
+                "harnessId",
+                "harnessRevision",
+                "manifestDigest",
+                "sessionRef",
+                "startedAtMs",
+                "finishedAtMs",
+                "stopReason",
+                "eventDigest",
+                "contextDigest",
+                "toolCatalogDigest",
+                "runtimeJobRefs",
+                "artifactRefs",
+                "usage",
+            }
+            termination_code = None
+            continuation_ref = None
+        elif version == 2:
+            expected = {
+                "schemaVersion",
+                "kind",
+                "harnessRunId",
+                "assignmentId",
+                "assignmentGeneration",
+                "harnessId",
+                "harnessRevision",
+                "manifestDigest",
+                "sessionRef",
+                "startedAtMs",
+                "finishedAtMs",
+                "stopReason",
+                "eventDigest",
+                "contextDigest",
+                "toolCatalogDigest",
+                "runtimeJobRefs",
+                "artifactRefs",
+                "usage",
+                "terminationCode",
+                "continuationRef",
+            }
+            termination_code = value.get("terminationCode")
+            continuation_ref = value.get("continuationRef")
+        else:
+            raise ValueError("HarnessRunReceipt version is unsupported")
+        _exact(value, expected, "HarnessRunReceipt")
+        if value["kind"] != "ordivon.harness-run-receipt":
+            raise ValueError("HarnessRunReceipt kind is invalid")
+        string_fields = {
             "harnessRunId",
             "assignmentId",
-            "assignmentGeneration",
             "harnessId",
             "harnessRevision",
             "manifestDigest",
-            "sessionRef",
-            "startedAtMs",
-            "finishedAtMs",
             "stopReason",
             "eventDigest",
             "contextDigest",
             "toolCatalogDigest",
-            "runtimeJobRefs",
-            "artifactRefs",
-            "usage",
-        }
-        _exact(value, expected, "HarnessRunReceipt")
-        if value["schemaVersion"] != 1 or value["kind"] != "ordivon.harness-run-receipt":
-            raise ValueError("HarnessRunReceipt version or kind is invalid")
-        string_fields = expected - {
-            "schemaVersion",
-            "kind",
-            "assignmentGeneration",
-            "startedAtMs",
-            "finishedAtMs",
-            "runtimeJobRefs",
-            "artifactRefs",
-            "usage",
         }
         if any(not isinstance(value[field], str) for field in string_fields):
             raise ValueError("HarnessRunReceipt identity fields must be strings")
+        if value["sessionRef"] is not None and not isinstance(value["sessionRef"], str):
+            raise ValueError("HarnessRunReceipt sessionRef must be a string or null")
+        for field, field_value in (
+            ("terminationCode", termination_code),
+            ("continuationRef", continuation_ref),
+        ):
+            if field_value is not None and not isinstance(field_value, str):
+                raise ValueError(f"HarnessRunReceipt {field} must be a string or null")
         for field in ("assignmentGeneration", "startedAtMs", "finishedAtMs"):
             if type(value[field]) is not int:
                 raise ValueError(f"HarnessRunReceipt {field} must be an integer")
@@ -556,7 +605,10 @@ class HarnessRunReceipt:
             runtime_job_refs=tuple(jobs),
             artifact_refs=_parse_artifacts(value["artifactRefs"], "Harness Run Artifact"),
             usage=dict(usage),
+            termination_code=termination_code,
+            continuation_ref=continuation_ref,
         )
+
 
 
 @dataclass(frozen=True, slots=True)

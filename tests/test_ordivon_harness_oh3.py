@@ -11,7 +11,10 @@ from ordivon_host.cognition import BlockKind, CompiledContext, ContextBlock, Fre
 from ordivon_host.harness import (
     CommittedHarnessAssignment,
     HarnessAssignment,
+    NativeHarnessRunContract,
     TaskAttemptDescriptor,
+    TaskContract,
+    ToolGrant,
 )
 from ordivon_host.harness.ordivon import (
     AgentToolDefinition,
@@ -71,8 +74,9 @@ def _stored(kind: str, payload: JsonValue) -> StoredObject:
     return StoredObject(canonical_digest(envelope), len(canonical_bytes(envelope)), kind)
 
 
-def _request_profile() -> HarnessContextRequest:
-    return HarnessContextRequest(
+def _task_contract() -> TaskContract:
+    return TaskContract(
+        contract_id="task-contract:oh3-test:v1",
         task_id="task:oh3-test",
         objective={
             "summary": "Read README.md and report its first heading.",
@@ -84,6 +88,14 @@ def _request_profile() -> HarnessContextRequest:
             ]
         },
         constraints=("Do not mutate the Workspace.",),
+    )
+
+
+def _request_profile(
+    contract: TaskContract | None = None,
+) -> HarnessContextRequest:
+    return HarnessContextRequest(
+        task_contract=contract or _task_contract(),
         blocks=(
             ContextBlock(
                 block_id="context-block:oh3-test:reference",
@@ -122,10 +134,18 @@ def _compiled(
 def _committed(
     context: CompiledContext | None = None,
     attempt: TaskAttemptDescriptor | None = None,
+    contract: TaskContract | None = None,
 ) -> CommittedHarnessAssignment:
-    context = context or _compiled()
-    attempt = attempt or _attempt()
+    contract = contract or _task_contract()
+    profile = _request_profile(contract)
+    attempt = attempt or _attempt(profile)
+    context = context or _compiled(profile, attempt)
     manifest = ordivon_harness_manifest()
+    grant = ToolGrant(
+        tool_grant_id="tool-grant:oh3-test:read-only",
+        allowed_tools=("read_workspace",),
+        read_path_rules=("README.md",),
+    )
     assignment = HarnessAssignment(
         assignment_id="assignment:oh3-test:g1",
         task_id=attempt.task_id,
@@ -146,6 +166,22 @@ def _committed(
         deadline_ms=None,
         created_at_ms=2,
     )
+    contract_object = _stored("task-contract", contract.to_dict())
+    grant_object = _stored("tool-grant", grant.to_dict())
+    native = NativeHarnessRunContract(
+        harness_run_id="harness-run:oh3-test",
+        assignment_id=assignment.assignment_id,
+        assignment_generation=assignment.generation,
+        assignment_digest=assignment.digest,
+        harness_manifest_digest=manifest.digest,
+        task_contract_digest=contract.digest,
+        task_contract_object_digest=contract_object.digest,
+        context_object_digest=assignment.context_object_digest,
+        tool_catalog_digest=assignment.tool_catalog_digest,
+        tool_grant_digest=grant.digest,
+        tool_grant_object_digest=grant_object.digest,
+        created_at_ms=assignment.created_at_ms,
+    )
     return CommittedHarnessAssignment(
         attempt=attempt,
         attempt_object=_stored("task-attempt-descriptor", attempt.to_dict()),
@@ -154,6 +190,14 @@ def _committed(
         assignment=assignment,
         assignment_object=_stored("harness-assignment", assignment.to_dict()),
         task_revision=2,
+        task_contract=contract,
+        task_contract_object=contract_object,
+        tool_grant=grant,
+        tool_grant_object=grant_object,
+        native_run_contract=native,
+        native_run_contract_object=_stored(
+            "native-harness-run-contract", native.to_dict()
+        ),
     )
 
 
@@ -173,8 +217,9 @@ def _tool() -> AgentToolDefinition:
 def _request(messages: tuple[dict[str, JsonValue], ...]) -> AgentTurnRequest:
     context = _compiled()
     committed = _committed(context)
+    assert committed.native_run_contract is not None
     return AgentTurnRequest(
-        harness_run_id="harness-run:oh3-test",
+        harness_run_id=committed.native_run_contract.harness_run_id,
         turn_id="turn:oh3-test:1",
         sequence=1,
         assignment_id=committed.assignment.assignment_id,
@@ -249,19 +294,24 @@ class OrdivonHarnessOH3InputTests(unittest.TestCase):
         payload = loads_strict(user.encode("utf-8"))
         self.assertEqual(payload["assignment"]["workspaceRef"], "workspace:oh3-test")
         self.assertEqual(
-            payload["compiledContext"]["payload"]["objective"],
-            _request_profile().objective,
+            payload["context"]["taskContract"]["objective"],
+            _request_profile().task_contract.objective,
         )
         self.assertNotIn("apiKey", user)
 
     def test_compiler_rejects_attempt_or_context_object_drift(self) -> None:
         profile = _request_profile()
         attempt = _attempt(profile)
-        drifted = replace(profile, objective={"summary": "A different objective."})
+        drifted = replace(
+            profile,
+            task_contract=replace(
+                profile.task_contract, objective={"summary": "A different objective."}
+            ),
+        )
         with self.assertRaisesRegex(ValueError, "objective"):
             HarnessContextCompiler().compile(attempt, drifted, token_budget=4_000)
         context = _compiled(profile, attempt)
-        committed = _committed(context, attempt)
+        committed = _committed(context, attempt, profile.task_contract)
         assignment = replace(
             committed.assignment,
             context_object_digest=canonical_digest({"wrong": "object"}),
@@ -332,7 +382,7 @@ class OrdivonHarnessOH3DeepSeekTests(unittest.TestCase):
             _ObservedReadBridge(),
             budget=RunBudget(4, 4, 65_536, 30_000),
         ).run(
-            harness_run_id="harness-run:oh3-loop-test",
+            harness_run_id=compiled.harness_run_id,
             assignment_id=committed.assignment.assignment_id,
             context_digest=committed.assignment.context_object_digest,
             initial_messages=compiled.initial_messages,

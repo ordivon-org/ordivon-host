@@ -10,8 +10,14 @@ from ..domain import EventKind, TaskState
 from ..effects import ArtifactRef, TaskOutcome
 from ..journal import JournalCorruption
 from ..kernel import HostKernel, worker_owner_id
-from ..objects import ObjectCorrupt, StoredObject
+from ..objects import ObjectCorrupt, ObjectMissing, StoredObject
 from ..storage import HostStorage, TaskEventSnapshot
+from .contracts import (
+    CompletionVerification,
+    NativeHarnessRunContract,
+    TaskContract,
+    ToolGrant,
+)
 from .models import (
     CompletionDecision,
     CompletionDecisionReceipt,
@@ -36,6 +42,8 @@ class PreparedHarnessAttempt:
     descriptor: TaskAttemptDescriptor
     descriptor_object: StoredObject
     task_revision: int
+    task_contract: TaskContract | None = None
+    task_contract_object: StoredObject | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +55,12 @@ class CommittedHarnessAssignment:
     assignment: HarnessAssignment
     assignment_object: StoredObject
     task_revision: int
+    task_contract: TaskContract | None = None
+    task_contract_object: StoredObject | None = None
+    tool_grant: ToolGrant | None = None
+    tool_grant_object: StoredObject | None = None
+    native_run_contract: NativeHarnessRunContract | None = None
+    native_run_contract_object: StoredObject | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +69,9 @@ class RecordedHarnessRun:
     receipt: HarnessRunReceipt
     receipt_object: StoredObject
     task_revision: int
+    trace_object: StoredObject | None = None
+    observation_objects: tuple[StoredObject, ...] = ()
+    conclusion_object: StoredObject | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,12 +115,26 @@ class HarnessHost:
         self,
         task_id: str,
         *,
-        objective_digest: str,
-        acceptance_criteria_digest: str,
+        objective_digest: str | None = None,
+        acceptance_criteria_digest: str | None = None,
+        task_contract: TaskContract | None = None,
     ) -> PreparedHarnessAttempt:
         snapshot = self.storage.read_task_event(task_id)
         if snapshot.projection.state.terminal:
             raise HarnessLifecycleError("terminal Task cannot start a Harness Task Attempt")
+        contract_object: StoredObject | None = None
+        if task_contract is not None:
+            if task_contract.task_id != task_id:
+                raise ValueError("Task Contract belongs to another Task")
+            if objective_digest is not None or acceptance_criteria_digest is not None:
+                raise ValueError("Task Contract and detached digests cannot be supplied together")
+            objective_digest = task_contract.objective_digest
+            acceptance_criteria_digest = task_contract.acceptance_criteria_digest
+            contract_object = self.storage.put_object(
+                task_contract.to_dict(), kind="task-contract"
+            )
+        if objective_digest is None or acceptance_criteria_digest is None:
+            raise ValueError("Harness Task Attempt requires a Task Contract or both semantic digests")
         existing = self._attempt_from_snapshot(snapshot)
         if existing is not None:
             if (
@@ -114,6 +145,8 @@ class HarnessHost:
                 raise HarnessLifecycleError(
                     "Task is already bound to another Harness Task Attempt"
                 )
+            if task_contract is not None and existing.task_contract != task_contract:
+                raise HarnessLifecycleError("Task is already bound to another Task Contract")
             return existing
         descriptor = TaskAttemptDescriptor(
             task_attempt_id=f"task-attempt:{self._token(task_id)}:1",
@@ -130,6 +163,8 @@ class HarnessHost:
             descriptor=descriptor,
             descriptor_object=descriptor_object,
             task_revision=snapshot.projection.revision,
+            task_contract=task_contract,
+            task_contract_object=contract_object,
         )
 
     def load_attempt(self, task_id: str) -> PreparedHarnessAttempt:
@@ -152,8 +187,19 @@ class HarnessHost:
         required_capabilities: tuple[str, ...] = (),
         budget: dict[str, JsonValue] | None = None,
         deadline_ms: int | None = None,
+        tool_grant: ToolGrant | None = None,
+        harness_run_id: str | None = None,
     ) -> CommittedHarnessAssignment:
         context_object = self.storage.objects.inspect(context_object_digest)
+        native_requested = tool_grant is not None or harness_run_id is not None
+        if native_requested and tool_grant is None:
+            raise ValueError("native Harness Assignment requires a Tool Grant")
+        if native_requested and (
+            prepared.task_contract is None or prepared.task_contract_object is None
+        ):
+            raise ValueError("native Harness Assignment requires a durable Task Contract")
+        if harness_run_id is not None and not harness_run_id.startswith("harness-run:"):
+            raise ValueError("Harness Run identity must start with harness-run:")
         required = set(required_capabilities)
         supported = set(manifest.supported_capabilities)
         missing = sorted(required - supported)
@@ -163,7 +209,7 @@ class HarnessHost:
         if snapshot.projection.revision != prepared.task_revision:
             existing = self._assignment_from_snapshot(snapshot)
             if existing is not None and self._assignment_request_matches(
-                existing.assignment,
+                existing,
                 prepared=prepared,
                 manifest=manifest,
                 context_object_digest=context_object_digest,
@@ -175,6 +221,8 @@ class HarnessHost:
                 required_capabilities=required_capabilities,
                 budget={} if budget is None else budget,
                 deadline_ms=deadline_ms,
+                tool_grant=tool_grant,
+                harness_run_id=harness_run_id,
             ):
                 return existing
             raise HarnessSuperseded(
@@ -219,6 +267,69 @@ class HarnessHost:
         assignment_object = self.storage.put_object(
             assignment.to_dict(), kind="harness-assignment"
         )
+        tool_grant_object: StoredObject | None = None
+        native_contract: NativeHarnessRunContract | None = None
+        native_contract_object: StoredObject | None = None
+        if tool_grant is not None:
+            run_id = harness_run_id or (
+                f"harness-run:{self._token(prepared.descriptor.task_id)}:"
+                f"attempt-1:g{generation}"
+            )
+            tool_grant_object = self.storage.put_object(
+                tool_grant.to_dict(), kind="tool-grant"
+            )
+            assert prepared.task_contract is not None
+            assert prepared.task_contract_object is not None
+            native_contract = NativeHarnessRunContract(
+                harness_run_id=run_id,
+                assignment_id=assignment.assignment_id,
+                assignment_generation=assignment.generation,
+                assignment_digest=assignment.digest,
+                harness_manifest_digest=manifest.digest,
+                task_contract_digest=prepared.task_contract.digest,
+                task_contract_object_digest=prepared.task_contract_object.digest,
+                context_object_digest=context_object_digest,
+                tool_catalog_digest=tool_catalog_digest,
+                tool_grant_digest=tool_grant.digest,
+                tool_grant_object_digest=tool_grant_object.digest,
+                created_at_ms=created_at_ms,
+            )
+            native_contract_object = self.storage.put_object(
+                native_contract.to_dict(), kind="native-harness-run-contract"
+            )
+        payload: dict[str, JsonValue] = {
+            **self._attempt_fields(prepared),
+            "harnessManifestDigest": manifest.digest,
+            "harnessManifestObjectDigest": manifest_object.digest,
+            "assignmentId": assignment.assignment_id,
+            "assignmentGeneration": assignment.generation,
+            "assignmentDigest": assignment.digest,
+            "assignmentObjectDigest": assignment_object.digest,
+        }
+        references: tuple[StoredObject, ...] = (
+            prepared.descriptor_object,
+            manifest_object,
+            assignment_object,
+            context_object,
+        )
+        if native_contract is not None:
+            assert prepared.task_contract_object is not None
+            assert tool_grant_object is not None
+            assert native_contract_object is not None
+            payload.update(
+                {
+                    "toolGrantDigest": tool_grant.digest,
+                    "toolGrantObjectDigest": tool_grant_object.digest,
+                    "nativeHarnessRunContractDigest": native_contract.digest,
+                    "nativeHarnessRunContractObjectDigest": native_contract_object.digest,
+                    "harnessRunId": native_contract.harness_run_id,
+                }
+            )
+            references += (
+                prepared.task_contract_object,
+                tool_grant_object,
+                native_contract_object,
+            )
         with self.kernel.locked_task(
             prepared.descriptor.task_id,
             expected_revision=prepared.task_revision,
@@ -233,23 +344,10 @@ class HarnessHost:
                     f"harness-assignment:g{generation}"
                 ),
                 kind=EventKind.HARNESS_ASSIGNMENT_COMMITTED,
-                payload={
-                    **self._attempt_fields(prepared),
-                    "harnessManifestDigest": manifest.digest,
-                    "harnessManifestObjectDigest": manifest_object.digest,
-                    "assignmentId": assignment.assignment_id,
-                    "assignmentGeneration": assignment.generation,
-                    "assignmentDigest": assignment.digest,
-                    "assignmentObjectDigest": assignment_object.digest,
-                },
+                payload=payload,
                 state=TaskState.WAITING,
                 frontier=locked.projection.ready_frontier,
-                referenced_objects=(
-                    prepared.descriptor_object,
-                    manifest_object,
-                    assignment_object,
-                    context_object,
-                ),
+                referenced_objects=self._dedupe_objects(references),
             ).projection
         return CommittedHarnessAssignment(
             attempt=prepared.descriptor,
@@ -259,6 +357,12 @@ class HarnessHost:
             assignment=assignment,
             assignment_object=assignment_object,
             task_revision=projection.revision,
+            task_contract=prepared.task_contract,
+            task_contract_object=prepared.task_contract_object,
+            tool_grant=tool_grant,
+            tool_grant_object=tool_grant_object,
+            native_run_contract=native_contract,
+            native_run_contract_object=native_contract_object,
         )
 
     def load_current_assignment(self, task_id: str) -> CommittedHarnessAssignment:
@@ -271,8 +375,85 @@ class HarnessHost:
         self,
         committed: CommittedHarnessAssignment,
         receipt: HarnessRunReceipt,
+        *,
+        trace: dict[str, JsonValue] | None = None,
+        observations: tuple[dict[str, JsonValue], ...] = (),
+        conclusion: dict[str, JsonValue] | None = None,
     ) -> RecordedHarnessRun:
         self._require_run_matches_assignment(committed, receipt)
+        if committed.native_run_contract is not None:
+            if trace is None:
+                raise ValueError("native Harness Run requires a durable Trace")
+            if receipt.termination_code is None:
+                raise ValueError("native Harness Run receipt requires an exact termination code")
+        trace_object: StoredObject | None = None
+        observation_objects: tuple[StoredObject, ...] = ()
+        conclusion_object: StoredObject | None = None
+        if trace is not None:
+            validate_json_value(trace)
+            if (
+                trace.get("kind") != "ordivon.harness-trace"
+                or trace.get("harnessRunId") != receipt.harness_run_id
+                or canonical_digest(trace) != receipt.event_digest
+            ):
+                raise ValueError("Harness Trace differs from the Run receipt")
+            trace_object = self.storage.put_object(trace, kind="harness-trace")
+        derived_jobs: set[str] = set()
+        derived_artifacts: dict[str, ArtifactRef] = {}
+        retained_observations: list[StoredObject] = []
+        for value in observations:
+            validate_json_value(value)
+            if value.get("kind") != "ordivon.tool-observation":
+                raise ValueError("Run evidence contains a non-Observation object")
+            job_ref = value.get("runtimeJobRef")
+            if job_ref is not None:
+                if not isinstance(job_ref, str) or not job_ref:
+                    raise ValueError("Tool Observation Runtime Job ref is invalid")
+                derived_jobs.add(job_ref)
+            raw_artifacts = value.get("artifactRefs")
+            if not isinstance(raw_artifacts, list) or any(
+                not isinstance(item, dict) for item in raw_artifacts
+            ):
+                raise ValueError("Tool Observation Artifact refs are invalid")
+            for item in raw_artifacts:
+                ref = ArtifactRef.from_dict(item)
+                previous = derived_artifacts.get(ref.ref)
+                if previous is not None and previous != ref:
+                    raise ValueError("one Artifact ref resolves to conflicting evidence")
+                derived_artifacts[ref.ref] = ref
+            retained_observations.append(
+                self.storage.put_object(value, kind="harness-tool-observation")
+            )
+        observation_objects = tuple(retained_observations)
+        if committed.native_run_contract is not None:
+            if tuple(sorted(derived_jobs)) != tuple(sorted(receipt.runtime_job_refs)):
+                raise ValueError(
+                    "Harness Run Runtime Job refs are not derived from Observations"
+                )
+            if tuple(
+                derived_artifacts[key] for key in sorted(derived_artifacts)
+            ) != tuple(sorted(receipt.artifact_refs, key=lambda item: item.ref)):
+                raise ValueError(
+                    "Harness Run Artifact refs are not derived from Observations"
+                )
+        if conclusion is not None:
+            validate_json_value(conclusion)
+            status = conclusion.get("status")
+            if status not in {"candidate_completed", "needs_input"}:
+                raise ValueError("Harness Run conclusion status is invalid")
+            if receipt.termination_code != status:
+                raise ValueError("Harness Run conclusion differs from termination code")
+            conclusion_value: dict[str, JsonValue] = {
+                "schemaVersion": 1,
+                "kind": "ordivon.agent-run-conclusion",
+                "harnessRunId": receipt.harness_run_id,
+                "conclusion": conclusion,
+            }
+            conclusion_object = self.storage.put_object(
+                conclusion_value, kind="agent-run-conclusion"
+            )
+        elif receipt.termination_code in {"candidate_completed", "needs_input"}:
+            raise ValueError("concluding Harness Run omitted its conclusion object")
         snapshot = self.storage.read_task_event(committed.assignment.task_id)
         existing = self._run_from_snapshot(snapshot)
         if existing is not None and existing.receipt == receipt:
@@ -288,6 +469,27 @@ class HarnessHost:
             receipt.to_dict(), kind="harness-run-receipt"
         )
         data = self._assignment_fields(committed)
+        payload: dict[str, JsonValue] = {
+            **data,
+            "harnessRunId": receipt.harness_run_id,
+            "harnessRunDigest": receipt.digest,
+            "harnessRunObjectDigest": receipt_object.digest,
+            "harnessTraceObjectDigest": (
+                None if trace_object is None else trace_object.digest
+            ),
+            "toolObservationObjectDigests": [
+                item.digest for item in observation_objects
+            ],
+            "runConclusionObjectDigest": (
+                None if conclusion_object is None else conclusion_object.digest
+            ),
+        }
+        references = self._assignment_objects(committed) + (receipt_object,)
+        if trace_object is not None:
+            references += (trace_object,)
+        references += observation_objects
+        if conclusion_object is not None:
+            references += (conclusion_object,)
         with self.kernel.locked_task(
             committed.assignment.task_id,
             expected_revision=committed.task_revision,
@@ -299,23 +501,19 @@ class HarnessHost:
             projection = locked.commit(
                 event_id=f"event:{self._token(committed.assignment.task_id)}:harness-run:{self._run_token(receipt.harness_run_id)}",
                 kind=EventKind.HARNESS_RUN_RECORDED,
-                payload={
-                    **data,
-                    "harnessRunId": receipt.harness_run_id,
-                    "harnessRunDigest": receipt.digest,
-                    "harnessRunObjectDigest": receipt_object.digest,
-                },
+                payload=payload,
                 state=TaskState.WAITING,
                 frontier=locked.projection.ready_frontier,
-                referenced_objects=self._dedupe_objects(
-                    self._assignment_objects(committed) + (receipt_object,)
-                ),
+                referenced_objects=self._dedupe_objects(references),
             ).projection
         return RecordedHarnessRun(
             assignment=committed,
             receipt=receipt,
             receipt_object=receipt_object,
             task_revision=projection.revision,
+            trace_object=trace_object,
+            observation_objects=observation_objects,
+            conclusion_object=conclusion_object,
         )
 
     def load_current_run(self, task_id: str) -> RecordedHarnessRun:
@@ -323,6 +521,63 @@ class HarnessHost:
         if run is None:
             raise HarnessLifecycleError("Task has no current Harness Run")
         return run
+
+    def propose_native_completion(
+        self,
+        recorded: RecordedHarnessRun,
+    ) -> ProposedCompletion:
+        if recorded.assignment.native_run_contract is None:
+            raise ValueError("native CompletionProposal requires a native Run Contract")
+        if recorded.trace_object is None or recorded.conclusion_object is None:
+            raise ValueError("native CompletionProposal requires durable Trace and conclusion")
+        value = self.storage.objects.get(
+            recorded.conclusion_object.digest, expected_kind="agent-run-conclusion"
+        )
+        if not isinstance(value, dict) or not isinstance(value.get("conclusion"), dict):
+            raise ObjectCorrupt("native Harness conclusion object is invalid")
+        conclusion = value["conclusion"]
+        status = conclusion.get("status")
+        summary = conclusion.get("summary")
+        if status != "candidate_completed" or not isinstance(summary, str):
+            raise HarnessLifecycleError(
+                "only a candidate-completed native Run can propose Task completion"
+            )
+        evidence_refs = tuple(
+            ArtifactRef(
+                ref=f"host-object:{item.digest}",
+                kind=item.kind,
+                digest=item.digest,
+            )
+            for item in (recorded.trace_object, *recorded.observation_objects)
+        )
+        unresolved: list[str] = []
+        if recorded.receipt.termination_code == "runtime_unknown":
+            unresolved.append("runtime_unknown")
+        for item in recorded.observation_objects:
+            observation = self.storage.objects.get(
+                item.digest, expected_kind="harness-tool-observation"
+            )
+            if isinstance(observation, dict) and observation.get("status") == "unknown":
+                tool_call_id = observation.get("toolCallId")
+                unresolved.append(
+                    f"unknown Tool Observation: {tool_call_id}"
+                    if isinstance(tool_call_id, str)
+                    else "unknown Tool Observation"
+                )
+        return self.propose_completion(
+            recorded,
+            summary=summary,
+            acceptance_results={
+                "candidateStatus": status,
+                "traceDigest": recorded.receipt.event_digest,
+                "systemDerivedEvidenceCount": len(evidence_refs),
+            },
+            evidence_refs=evidence_refs,
+            artifact_refs=recorded.receipt.artifact_refs,
+            unresolved_effect_refs=(),
+            unresolved_unknowns=tuple(dict.fromkeys(unresolved)),
+            usage=recorded.receipt.usage,
+        )
 
     def propose_completion(
         self,
@@ -414,12 +669,20 @@ class HarnessHost:
             raise HarnessLifecycleError("Task head has no CompletionProposal")
         return proposal
 
+    def load_completion_verification(self, task_id: str) -> CompletionVerification:
+        snapshot = self.storage.read_task_event(task_id)
+        verification = self._completion_verification_from_snapshot(snapshot)
+        if verification is None:
+            raise HarnessLifecycleError("Task head has no CompletionVerification")
+        return verification
+
     def adjudicate_completion(
         self,
         proposed: ProposedCompletion,
         *,
         artifact_exists: ArtifactExists,
         acceptance_verifier: AcceptanceVerifier,
+        verification_method: str = "host-completion-adjudication-v1",
     ) -> CompletionDecisionReceipt:
         proposal = proposed.proposal
         snapshot = self.storage.read_task_event(proposal.task_id)
@@ -473,10 +736,22 @@ class HarnessHost:
                 "unresolvedUnknowns": list(proposal.unresolved_unknowns),
             }
         else:
+            def retained_ref_exists(ref: ArtifactRef) -> bool:
+                if ref.ref.startswith("host-object:"):
+                    object_digest = ref.ref.removeprefix("host-object:")
+                    if object_digest != ref.digest:
+                        return False
+                    try:
+                        retained = self.storage.objects.inspect(object_digest)
+                    except (ObjectMissing, ObjectCorrupt):
+                        return False
+                    return retained.kind == ref.kind and retained.digest == ref.digest
+                return artifact_exists(ref)
+
             missing = [
                 ref.ref
                 for ref in proposal.evidence_refs + proposal.artifact_refs
-                if not artifact_exists(ref)
+                if not retained_ref_exists(ref)
             ]
             if missing:
                 reason_code = "missing_artifact"
@@ -494,7 +769,38 @@ class HarnessHost:
                 else:
                     reason_code = "acceptance_rejected"
                     reason = verifier_reason or "acceptance verifier rejected the proposal"
-        verification_digest = canonical_digest(verification)
+        validate_json_value(verification)
+        verification_result: dict[str, JsonValue] = (
+            dict(verification)
+            if isinstance(verification, dict)
+            else {"value": verification}
+        )
+        verification_evidence: dict[str, ArtifactRef] = {}
+        for ref in proposal.evidence_refs + proposal.artifact_refs:
+            retained = verification_evidence.get(ref.ref)
+            if retained is not None and retained != ref:
+                raise HarnessLifecycleError(
+                    "CompletionProposal evidence identity resolves to conflicting values"
+                )
+            verification_evidence[ref.ref] = ref
+        completion_verification = CompletionVerification(
+            verification_id=(
+                f"completion-verification:"
+                f"{proposal.completion_proposal_id.removeprefix('completion-proposal:')}"
+            ),
+            completion_proposal_id=proposal.completion_proposal_id,
+            method=verification_method,
+            accepted=accepted,
+            result=verification_result,
+            evidence_refs=tuple(
+                verification_evidence[key] for key in sorted(verification_evidence)
+            ),
+            created_at_ms=self.kernel.timestamp(snapshot.projection.updated_at_ms),
+        )
+        verification_object = self.storage.put_object(
+            completion_verification.to_dict(), kind="completion-verification"
+        )
+        verification_digest = completion_verification.digest
         decision = CompletionDecision(
             completion_decision_id=(
                 f"completion-decision:{proposal.completion_proposal_id.removeprefix('completion-proposal:')}"
@@ -526,6 +832,7 @@ class HarnessHost:
         current_data = self._data(snapshot)
         references = self._state_objects(current_data) + (
             proposed.proposal_object,
+            verification_object,
             decision_object,
         )
         if outcome_object is not None:
@@ -552,6 +859,8 @@ class HarnessHost:
                     "completionAccepted": accepted,
                     "completionReasonCode": reason_code,
                     "verificationDigest": verification_digest,
+                    "completionVerificationDigest": completion_verification.digest,
+                    "completionVerificationObjectDigest": verification_object.digest,
                     "outcomeDigest": outcome_digest,
                     "outcomeObjectDigest": (
                         None if outcome_object is None else outcome_object.digest
@@ -588,10 +897,33 @@ class HarnessHost:
         )
         if descriptor.task_id != snapshot.projection.task_id:
             raise JournalCorruption("Task Attempt identity differs from Task projection")
+        contract_object_digest = data.get("taskContractObjectDigest")
+        contract_digest = data.get("taskContractDigest")
+        contract: TaskContract | None = None
+        contract_object: StoredObject | None = None
+        if contract_object_digest is not None or contract_digest is not None:
+            if not isinstance(contract_object_digest, str) or not isinstance(contract_digest, str):
+                raise JournalCorruption("Harness event has incomplete Task Contract references")
+            contract, contract_object = self._load_object(
+                contract_object_digest,
+                contract_digest,
+                kind="task-contract",
+                decoder=TaskContract.from_dict,
+                label="TaskContract",
+            )
+            if (
+                contract.task_id != descriptor.task_id
+                or contract.objective_digest != descriptor.objective_digest
+                or contract.acceptance_criteria_digest
+                != descriptor.acceptance_criteria_digest
+            ):
+                raise JournalCorruption("Task Contract differs from Task Attempt")
         return PreparedHarnessAttempt(
             descriptor=descriptor,
             descriptor_object=stored,
             task_revision=snapshot.projection.revision,
+            task_contract=contract,
+            task_contract_object=contract_object,
         )
 
     def _assignment_from_snapshot(
@@ -632,6 +964,53 @@ class HarnessHost:
             or assignment.target_harness_id != manifest.harness_id
         ):
             raise JournalCorruption("Harness Assignment identities differ")
+        tool_grant: ToolGrant | None = None
+        tool_grant_object: StoredObject | None = None
+        native_contract: NativeHarnessRunContract | None = None
+        native_contract_object: StoredObject | None = None
+        grant_object_digest = data.get("toolGrantObjectDigest")
+        grant_digest = data.get("toolGrantDigest")
+        native_object_digest = data.get("nativeHarnessRunContractObjectDigest")
+        native_digest = data.get("nativeHarnessRunContractDigest")
+        native_fields = (grant_object_digest, grant_digest, native_object_digest, native_digest)
+        if any(value is not None for value in native_fields):
+            if not all(isinstance(value, str) for value in native_fields):
+                raise JournalCorruption("Harness Assignment has incomplete native Run references")
+            if attempt.task_contract is None or attempt.task_contract_object is None:
+                raise JournalCorruption("native Harness Assignment has no Task Contract")
+            assert isinstance(grant_object_digest, str)
+            assert isinstance(grant_digest, str)
+            assert isinstance(native_object_digest, str)
+            assert isinstance(native_digest, str)
+            tool_grant, tool_grant_object = self._load_object(
+                grant_object_digest,
+                grant_digest,
+                kind="tool-grant",
+                decoder=ToolGrant.from_dict,
+                label="ToolGrant",
+            )
+            native_contract, native_contract_object = self._load_object(
+                native_object_digest,
+                native_digest,
+                kind="native-harness-run-contract",
+                decoder=NativeHarnessRunContract.from_dict,
+                label="NativeHarnessRunContract",
+            )
+            if (
+                native_contract.assignment_id != assignment.assignment_id
+                or native_contract.assignment_generation != assignment.generation
+                or native_contract.assignment_digest != assignment.digest
+                or native_contract.harness_manifest_digest != manifest.digest
+                or native_contract.task_contract_digest != attempt.task_contract.digest
+                or native_contract.task_contract_object_digest
+                != attempt.task_contract_object.digest
+                or native_contract.context_object_digest != assignment.context_object_digest
+                or native_contract.tool_catalog_digest != assignment.tool_catalog_digest
+                or native_contract.tool_grant_digest != tool_grant.digest
+                or native_contract.tool_grant_object_digest != tool_grant_object.digest
+                or data.get("harnessRunId") != native_contract.harness_run_id
+            ):
+                raise JournalCorruption("native Harness Run Contract identities differ")
         return CommittedHarnessAssignment(
             attempt=attempt.descriptor,
             attempt_object=attempt.descriptor_object,
@@ -640,6 +1019,12 @@ class HarnessHost:
             assignment=assignment,
             assignment_object=assignment_object,
             task_revision=snapshot.projection.revision,
+            task_contract=attempt.task_contract,
+            task_contract_object=attempt.task_contract_object,
+            tool_grant=tool_grant,
+            tool_grant_object=tool_grant_object,
+            native_run_contract=native_contract,
+            native_run_contract_object=native_contract_object,
         )
 
     def _run_from_snapshot(
@@ -663,11 +1048,91 @@ class HarnessHost:
             label="HarnessRunReceipt",
         )
         self._require_run_matches_assignment(assignment, receipt)
+        trace_object: StoredObject | None = None
+        trace_digest = data.get("harnessTraceObjectDigest")
+        if trace_digest is not None:
+            if not isinstance(trace_digest, str):
+                raise JournalCorruption("Harness Trace object digest is invalid")
+            trace_object = self.storage.objects.inspect(trace_digest)
+            if trace_object.kind != "harness-trace":
+                raise JournalCorruption("Harness Trace object kind differs")
+            trace = self.storage.objects.get(trace_digest, expected_kind="harness-trace")
+            if (
+                not isinstance(trace, dict)
+                or trace.get("harnessRunId") != receipt.harness_run_id
+                or canonical_digest(trace) != receipt.event_digest
+            ):
+                raise JournalCorruption("Harness Trace differs from Run receipt")
+        elif assignment.native_run_contract is not None:
+            raise JournalCorruption("native Harness Run has no durable Trace")
+        raw_observation_digests = data.get("toolObservationObjectDigests", [])
+        if not isinstance(raw_observation_digests, list) or any(
+            not isinstance(item, str) for item in raw_observation_digests
+        ):
+            raise JournalCorruption("Harness Tool Observation refs are invalid")
+        observation_objects: list[StoredObject] = []
+        derived_jobs: set[str] = set()
+        derived_artifacts: dict[str, ArtifactRef] = {}
+        for digest in raw_observation_digests:
+            retained = self.storage.objects.inspect(digest)
+            if retained.kind != "harness-tool-observation":
+                raise JournalCorruption("Harness Tool Observation object kind differs")
+            value = self.storage.objects.get(
+                digest, expected_kind="harness-tool-observation"
+            )
+            if not isinstance(value, dict) or value.get("kind") != "ordivon.tool-observation":
+                raise ObjectCorrupt("Harness Tool Observation is invalid")
+            job_ref = value.get("runtimeJobRef")
+            if isinstance(job_ref, str):
+                derived_jobs.add(job_ref)
+            raw_artifacts = value.get("artifactRefs")
+            if not isinstance(raw_artifacts, list) or any(
+                not isinstance(item, dict) for item in raw_artifacts
+            ):
+                raise ObjectCorrupt("Harness Tool Observation Artifact refs are invalid")
+            for item in raw_artifacts:
+                ref = ArtifactRef.from_dict(item)
+                previous = derived_artifacts.get(ref.ref)
+                if previous is not None and previous != ref:
+                    raise JournalCorruption("Harness Artifact provenance conflicts")
+                derived_artifacts[ref.ref] = ref
+            observation_objects.append(retained)
+        if assignment.native_run_contract is not None:
+            if tuple(sorted(derived_jobs)) != tuple(sorted(receipt.runtime_job_refs)):
+                raise JournalCorruption("Harness Run Job provenance differs")
+            if tuple(
+                derived_artifacts[key] for key in sorted(derived_artifacts)
+            ) != tuple(sorted(receipt.artifact_refs, key=lambda item: item.ref)):
+                raise JournalCorruption("Harness Run Artifact provenance differs")
+        conclusion_object: StoredObject | None = None
+        conclusion_digest = data.get("runConclusionObjectDigest")
+        if conclusion_digest is not None:
+            if not isinstance(conclusion_digest, str):
+                raise JournalCorruption("Harness conclusion object digest is invalid")
+            conclusion_object = self.storage.objects.inspect(conclusion_digest)
+            if conclusion_object.kind != "agent-run-conclusion":
+                raise JournalCorruption("Harness conclusion object kind differs")
+            conclusion = self.storage.objects.get(
+                conclusion_digest, expected_kind="agent-run-conclusion"
+            )
+            if (
+                not isinstance(conclusion, dict)
+                or conclusion.get("kind") != "ordivon.agent-run-conclusion"
+                or conclusion.get("harnessRunId") != receipt.harness_run_id
+                or not isinstance(conclusion.get("conclusion"), dict)
+                or conclusion["conclusion"].get("status") != receipt.termination_code
+            ):
+                raise JournalCorruption("Harness conclusion differs from Run receipt")
+        elif receipt.termination_code in {"candidate_completed", "needs_input"}:
+            raise JournalCorruption("concluding Harness Run has no conclusion object")
         return RecordedHarnessRun(
             assignment=assignment,
             receipt=receipt,
             receipt_object=stored,
             task_revision=snapshot.projection.revision,
+            trace_object=trace_object,
+            observation_objects=tuple(observation_objects),
+            conclusion_object=conclusion_object,
         )
 
     def _proposal_from_snapshot(
@@ -695,6 +1160,27 @@ class HarnessHost:
             task_revision=snapshot.projection.revision,
         )
 
+    def _completion_verification_from_snapshot(
+        self, snapshot: TaskEventSnapshot
+    ) -> CompletionVerification | None:
+        data = self._data(snapshot)
+        object_digest = data.get("completionVerificationObjectDigest")
+        semantic_digest = data.get("completionVerificationDigest")
+        if object_digest is None and semantic_digest is None:
+            return None
+        if not isinstance(object_digest, str) or not isinstance(semantic_digest, str):
+            raise JournalCorruption("CompletionVerification references are incomplete")
+        verification, _ = self._load_object(
+            object_digest,
+            semantic_digest,
+            kind="completion-verification",
+            decoder=CompletionVerification.from_dict,
+            label="CompletionVerification",
+        )
+        if verification.completion_proposal_id != data.get("completionProposalId"):
+            raise JournalCorruption("CompletionVerification targets another proposal")
+        return verification
+
     def _decision_from_snapshot(
         self, snapshot: TaskEventSnapshot
     ) -> tuple[CompletionDecision, TaskOutcome | None] | None:
@@ -712,6 +1198,14 @@ class HarnessHost:
             decoder=CompletionDecision.from_dict,
             label="CompletionDecision",
         )
+        completion_verification = self._completion_verification_from_snapshot(snapshot)
+        if completion_verification is not None and (
+            completion_verification.completion_proposal_id
+            != decision.completion_proposal_id
+            or completion_verification.accepted != decision.accepted
+            or completion_verification.digest != decision.verification_digest
+        ):
+            raise JournalCorruption("CompletionDecision verification differs")
         outcome_object_digest = data.get("outcomeObjectDigest")
         outcome_digest = data.get("outcomeDigest")
         if outcome_object_digest is None and outcome_digest is None:
@@ -782,10 +1276,16 @@ class HarnessHost:
             or receipt.tool_catalog_digest != current.tool_catalog_digest
         ):
             raise ValueError("Harness Run receipt differs from Assignment")
+        if (
+            assignment.native_run_contract is not None
+            and receipt.harness_run_id
+            != assignment.native_run_contract.harness_run_id
+        ):
+            raise ValueError("Harness Run receipt differs from the native Run Contract")
 
     @staticmethod
     def _assignment_request_matches(
-        assignment: HarnessAssignment,
+        committed: CommittedHarnessAssignment,
         *,
         prepared: PreparedHarnessAttempt,
         manifest: HarnessCapabilityManifest,
@@ -798,8 +1298,11 @@ class HarnessHost:
         required_capabilities: tuple[str, ...],
         budget: dict[str, JsonValue],
         deadline_ms: int | None,
+        tool_grant: ToolGrant | None,
+        harness_run_id: str | None,
     ) -> bool:
-        return (
+        assignment = committed.assignment
+        base_matches = (
             assignment.task_revision == prepared.task_revision
             and assignment.task_attempt_id == prepared.descriptor.task_attempt_id
             and assignment.target_harness_id == manifest.harness_id
@@ -815,6 +1318,19 @@ class HarnessHost:
             and assignment.required_capabilities == required_capabilities
             and assignment.budget == budget
             and assignment.deadline_ms == deadline_ms
+        )
+        if not base_matches:
+            return False
+        if tool_grant is None:
+            return committed.tool_grant is None and harness_run_id is None
+        return bool(
+            committed.task_contract == prepared.task_contract
+            and committed.tool_grant == tool_grant
+            and committed.native_run_contract is not None
+            and (
+                harness_run_id is None
+                or committed.native_run_contract.harness_run_id == harness_run_id
+            )
         )
 
     @staticmethod
@@ -848,22 +1364,35 @@ class HarnessHost:
 
     @staticmethod
     def _attempt_fields(prepared: PreparedHarnessAttempt) -> dict[str, JsonValue]:
-        return {
+        value: dict[str, JsonValue] = {
             "taskAttemptId": prepared.descriptor.task_attempt_id,
             "taskAttemptDigest": prepared.descriptor.digest,
             "taskAttemptObjectDigest": prepared.descriptor_object.digest,
         }
+        if prepared.task_contract is not None:
+            if prepared.task_contract_object is None:
+                raise ValueError("Task Contract object is missing")
+            value.update(
+                {
+                    "taskContractId": prepared.task_contract.contract_id,
+                    "taskContractDigest": prepared.task_contract.digest,
+                    "taskContractObjectDigest": prepared.task_contract_object.digest,
+                }
+            )
+        return value
 
     @classmethod
     def _assignment_fields(
         cls, committed: CommittedHarnessAssignment
     ) -> dict[str, JsonValue]:
-        return {
+        value: dict[str, JsonValue] = {
             **cls._attempt_fields(
                 PreparedHarnessAttempt(
                     descriptor=committed.attempt,
                     descriptor_object=committed.attempt_object,
                     task_revision=committed.assignment.task_revision,
+                    task_contract=committed.task_contract,
+                    task_contract_object=committed.task_contract_object,
                 )
             ),
             "harnessManifestDigest": committed.manifest.digest,
@@ -873,6 +1402,25 @@ class HarnessHost:
             "assignmentDigest": committed.assignment.digest,
             "assignmentObjectDigest": committed.assignment_object.digest,
         }
+        if committed.native_run_contract is not None:
+            if (
+                committed.tool_grant is None
+                or committed.tool_grant_object is None
+                or committed.native_run_contract_object is None
+            ):
+                raise ValueError("native Harness Assignment objects are incomplete")
+            value.update(
+                {
+                    "toolGrantDigest": committed.tool_grant.digest,
+                    "toolGrantObjectDigest": committed.tool_grant_object.digest,
+                    "nativeHarnessRunContractDigest": committed.native_run_contract.digest,
+                    "nativeHarnessRunContractObjectDigest": (
+                        committed.native_run_contract_object.digest
+                    ),
+                    "harnessRunId": committed.native_run_contract.harness_run_id,
+                }
+            )
+        return value
 
     @classmethod
     def _current_state_fields(cls, data: dict[str, JsonValue]) -> dict[str, JsonValue]:
@@ -880,15 +1428,27 @@ class HarnessHost:
             "taskAttemptId",
             "taskAttemptDigest",
             "taskAttemptObjectDigest",
+            "taskContractId",
+            "taskContractDigest",
+            "taskContractObjectDigest",
             "harnessManifestDigest",
             "harnessManifestObjectDigest",
             "assignmentId",
             "assignmentGeneration",
             "assignmentDigest",
             "assignmentObjectDigest",
+            "toolGrantDigest",
+            "toolGrantObjectDigest",
+            "nativeHarnessRunContractDigest",
+            "nativeHarnessRunContractObjectDigest",
             "harnessRunId",
             "harnessRunDigest",
             "harnessRunObjectDigest",
+            "harnessTraceObjectDigest",
+            "toolObservationObjectDigests",
+            "runConclusionObjectDigest",
+            "completionVerificationDigest",
+            "completionVerificationObjectDigest",
         )
         return {field: data[field] for field in fields if field in data}
 
@@ -896,23 +1456,44 @@ class HarnessHost:
     def _assignment_objects(
         committed: CommittedHarnessAssignment,
     ) -> tuple[StoredObject, ...]:
-        return (
+        values: tuple[StoredObject, ...] = (
             committed.attempt_object,
             committed.manifest_object,
             committed.assignment_object,
         )
+        for item in (
+            committed.task_contract_object,
+            committed.tool_grant_object,
+            committed.native_run_contract_object,
+        ):
+            if item is not None:
+                values += (item,)
+        return HarnessHost._dedupe_objects(values)
 
     def _state_objects(self, data: dict[str, JsonValue]) -> tuple[StoredObject, ...]:
         values: list[StoredObject] = []
         for field in (
             "taskAttemptObjectDigest",
+            "taskContractObjectDigest",
             "harnessManifestObjectDigest",
             "assignmentObjectDigest",
+            "toolGrantObjectDigest",
+            "nativeHarnessRunContractObjectDigest",
             "harnessRunObjectDigest",
+            "harnessTraceObjectDigest",
+            "runConclusionObjectDigest",
+            "completionVerificationObjectDigest",
         ):
             digest = data.get(field)
             if isinstance(digest, str):
                 values.append(self.storage.objects.inspect(digest))
+        observations = data.get("toolObservationObjectDigests")
+        if observations is not None:
+            if not isinstance(observations, list) or any(
+                not isinstance(item, str) for item in observations
+            ):
+                raise JournalCorruption("Tool Observation object digests are invalid")
+            values.extend(self.storage.objects.inspect(item) for item in observations)
         return self._dedupe_objects(tuple(values))
 
     @staticmethod
