@@ -274,7 +274,14 @@ def main() -> None:
                 "acceptancePassed": independent_test["passed"] is True,
             }
         )
-    provider_final_response_usable = provider_final_response == final_response
+    provider_final_response_usable = (
+        isinstance(provider_final_response, dict)
+        and provider_final_response.get("phase") == final_response["phase"]
+        and provider_final_response.get("artifact") == final_response["artifact"]
+        and provider_final_response.get("testStatus") == final_response["testStatus"]
+        and isinstance(provider_final_response.get("summary"), str)
+        and bool(str(provider_final_response["summary"]).strip())
+    )
     if not all(checks.values()):
         raise SystemExit(f"H5 worker checks failed: {checks}")
 

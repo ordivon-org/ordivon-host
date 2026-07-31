@@ -763,12 +763,13 @@ def _run_trajectory(
                 "maxBytes": 1_048_576,
             },
         )
-        modified = diff.get("modifiedPaths")
+        diff_text = diff.get("diff")
         untracked = diff.get("untrackedPaths")
         allocation_path = str(WORKLOAD_RELATIVE / SOURCE_PATH)
         diagnosis_path = str(WORKLOAD_RELATIVE / DIAGNOSIS_PATH)
         completion_path = str(WORKLOAD_RELATIVE / COMPLETION_PATH)
-        if not isinstance(modified, list) or allocation_path not in modified:
+        allocation_marker = f"diff --git a/{allocation_path} b/{allocation_path}"
+        if not isinstance(diff_text, str) or allocation_marker not in diff_text:
             raise AssertionError("H5 Runtime diff omitted allocation.py repair")
         if not isinstance(untracked, list) or not {
             diagnosis_path,
@@ -776,7 +777,7 @@ def _run_trajectory(
         }.issubset(set(untracked)):
             raise AssertionError("H5 Runtime diff omitted required Artifact files")
         if any(
-            path in set(modified) | set(untracked)
+            path in diff_text or path in set(untracked)
             for path in (
                 str(WORKLOAD_RELATIVE / "SPEC.md"),
                 str(WORKLOAD_RELATIVE / "test_allocation.py"),
@@ -940,7 +941,7 @@ def _run_trajectory(
             == diagnosis_semantic_digest,
             "completionBindsSource": completion_value.get("finalSourceDigest")
             == final_source_digest,
-            "onlyFrozenRepairAndArtifactsChanged": allocation_path in modified
+            "onlyFrozenRepairAndArtifactsChanged": allocation_marker in diff_text
             and {diagnosis_path, completion_path}.issubset(set(untracked)),
             "hostCommittedTaskOutcome": accepted.decision.accepted
             and accepted.task_state == "completed"
