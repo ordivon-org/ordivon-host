@@ -7,7 +7,7 @@ Canonical experiment: `ordivon-computing/research/experiments/harness-boundary-v
 
 H1 now provides strict, content-addressed `TaskAttemptDescriptor`, `HarnessAssignment`, `HarnessRunReceipt`, `CompletionProposal`, capability-manifest, and completion-decision codecs; four Task event kinds; durable Assignment-generation fencing; Host-owned completion adjudication; and version-2 operator handoff projection fields.
 
-The implementation deliberately retains the existing schema-v3 journal. It adds no Assignment table, Run table, scheduler, Harness service, provider Session store, Runtime coupling, or `ordivon-harness` repository. A successful Harness process remains insufficient for Task completion: stale generation, missing evidence or Artifacts, unresolved Effects, and unresolved `UNKNOWN` state are rejected before the acceptance verifier can commit `TaskOutcome`.
+The implementation deliberately retains the existing schema-v3 journal. It adds no Assignment table, Run table, scheduler, cross-Provider Harness service, provider Session store, Runtime coupling, or repository extracted from the direct Provider drivers. A successful Harness process remains insufficient for Task completion: stale generation, missing evidence or Artifacts, unresolved Effects, and unresolved `UNKNOWN` state are rejected before the acceptance verifier can commit `TaskOutcome`.
 
 Eight deterministic H1 tests cover strict round trips, capability admission, idempotent replay, fresh Context on replacement, stale CompletionProposal rejection, missing Artifact rejection, unresolved `UNKNOWN`, exactly-once accepted completion, handoff projection, and fresh-process recovery. All H1 objects remain deletion-tested candidates until the live H3–H5 trials establish retained value.
 
@@ -49,13 +49,13 @@ The live receipt [`../evidence/harness-replacement-h5-live-76420e4-20260731.json
 
 H5 also established that Provider final text is not a portable completion contract. Both Codex Runs returned usable structured responses. Both Hermes Runs produced valid Artifacts and passed independent verification while ACP final assistant text was absent. The canonical result therefore comes from verified Artifacts when Provider text is absent or unusable.
 
-The final architecture disposition is recorded in [`harness-boundary-h5-decision.md`](harness-boundary-h5-decision.md): retain the immutable Task Attempt role, Assignment generation, HarnessRunReceipt, CompletionProposal/Decision, Host Runtime references, and provider-specific direct drivers; localize Provider modes and approvals; reject the shared adapter, common Session lifecycle, event runtime, Runtime Task state, new SQL tables, and `ordivon-harness` repository.
+The final architecture disposition is recorded in [`harness-boundary-h5-decision.md`](harness-boundary-h5-decision.md): retain the immutable Task Attempt role, Assignment generation, HarnessRunReceipt, CompletionProposal/Decision, Host Runtime references, and provider-specific direct drivers; localize Provider modes and approvals; reject the shared adapter, common Session lifecycle, event runtime, Runtime Task state, new SQL tables, and a repository extracted from the mature Provider drivers. The separate first-party Ordivon Harness question for bare model APIs is tracked by `ordivon-computing#90`.
 
 ## Objective
 
 Prove or delete a Host-local Harness boundary by running one durable Task through Codex App Server and Hermes ACP, replacing the Harness mid-Task, and validating completion against Host and Runtime evidence.
 
-The implementation stays inside `ordivon-host`. It introduces no `ordivon-harness` repository, provider-independent Session format, scheduler, global Hook system, or second Task database.
+The Stage 1 Provider-boundary implementation stays inside `ordivon-host`. It introduces no repository extracted from the direct Provider drivers, provider-independent Session format, scheduler, global Hook system, or second Task database. A first-party Ordivon Harness for bare model APIs is a separate post-Stage-1 construction question.
 
 ## Current code to reuse
 
@@ -370,6 +370,6 @@ Completed both replacement orders with one stable Task Attempt, fresh Assignment
 - retain Host Runtime foreign references and request identity; F3 directly demonstrates recovery value;
 - keep Codex and Hermes direct drivers provider-local and preserve one-shot baselines;
 - treat Provider final text as optional observation and verified Artifacts as authoritative;
-- do not create a shared `HarnessAdapter`, common Session lifecycle, event runtime, Runtime Task state, additional SQL tables, or `ordivon-harness` repository.
+- do not create a shared `HarnessAdapter`, common mature-Provider Session lifecycle, event runtime, Runtime Task state, additional SQL tables, or repository extracted from the Codex/Hermes drivers; treat first-party Ordivon Harness construction as a separate bare-model problem.
 
 See [`harness-boundary-h5-decision.md`](harness-boundary-h5-decision.md) for the evidence and full retain/localize/shrink/delete rationale.

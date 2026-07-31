@@ -30,7 +30,9 @@ Runtime
   process tree / physical execution / terminal evidence / Artifacts
 ```
 
-No shared `HarnessAdapter` implementation, provider-independent Session format, common event runtime, or `ordivon-harness` repository is created.
+No shared `HarnessAdapter` implementation, provider-independent Session format, common event runtime, or repository extracted from the Codex/Hermes direct drivers is created.
+
+**Scope clarification:** H5 closes the shared cross-Provider lifecycle hypothesis. It does not reject a first-party **Ordivon Harness** for bare model APIs or local inference systems that provide model intelligence without a mature Agent Loop. That separate construction question is tracked by `ordivon-computing#90` (`ANC-HARNESS-002`).
 
 ## Experiment
 
@@ -237,11 +239,11 @@ The following candidates are rejected by H5:
 - Assignment, Run, or CompletionProposal SQL tables;
 - Runtime foreign-reference query index;
 - global Hook or policy framework for this boundary;
-- separate `ordivon-harness` repository.
+- a separate repository that packages the Codex/Hermes drivers behind one common internal lifecycle.
 
-## Repository gate
+## Repository gate for the tested hypothesis
 
-The proposed `ordivon-harness` repository does not pass its promotion gate:
+A repository extracted from the mature Provider direct drivers does not pass its promotion gate:
 
 - two Providers exist, but no second independent consumer exists;
 - lifecycle contracts are intentionally provider-specific;
@@ -249,7 +251,7 @@ The proposed `ordivon-harness` repository does not pass its promotion gate:
 - direct drivers still depend on Host Assignment and receipt semantics;
 - independent release value has not been demonstrated.
 
-The code remains Host-local.
+The Provider-specific code remains Host-local. A future first-party Ordivon Harness has a different gate: it must implement a real bare-model Agent Loop, support at least two bare-model adapters and two independent consumers, preserve Host/Runtime authority, and demonstrate independent release value before repository extraction.
 
 ## Operational consequence
 
@@ -269,10 +271,12 @@ This is the smallest architecture that survived both Provider orders and all thr
 
 ## Next frontier
 
-Host Harness Stage 1 is closed. Further work should come from downstream evidence:
+Host Harness Stage 1 is closed. Further work on the retained cross-Provider boundary should come from downstream evidence:
 
 - Game may ablate retained mechanisms against real playable workloads;
 - Security may attack generation fencing, Artifact provenance, response-loss recovery, and completion admission;
-- Computing may compare the retained boundary against future Harnesses or consumers.
+- Computing may compare the retained boundary against future external Harnesses or consumers.
 
-No additional Host generalization is authorized before those workloads expose a concrete failure.
+A separate construction frontier now exists: `ANC-HARNESS-002` may implement a thin first-party Ordivon Harness for bare model APIs. It must consume the retained Host boundary rather than generalize it, and it must not normalize mature Provider Harness lifecycles.
+
+No additional Host durable-state generalization is authorized before either downstream work or the Ordivon Harness v0 experiment exposes a concrete failure.
