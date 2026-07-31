@@ -771,11 +771,19 @@ def _run_trajectory(
         allocation_marker = f"diff --git a/{allocation_path} b/{allocation_path}"
         if not isinstance(diff_text, str) or allocation_marker not in diff_text:
             raise AssertionError("H5 Runtime diff omitted allocation.py repair")
-        if not isinstance(untracked, list) or not {
-            diagnosis_path,
-            completion_path,
-        }.issubset(set(untracked)):
+        required_untracked = {diagnosis_path, completion_path}
+        allowed_environment_byproducts = {"uv.lock"}
+        if not isinstance(untracked, list) or not required_untracked.issubset(
+            set(untracked)
+        ):
             raise AssertionError("H5 Runtime diff omitted required Artifact files")
+        unexpected_untracked = (
+            set(untracked) - required_untracked - allowed_environment_byproducts
+        )
+        if unexpected_untracked:
+            raise AssertionError(
+                f"H5 Runtime retained unexpected untracked files: {unexpected_untracked}"
+            )
         if any(
             path in diff_text or path in set(untracked)
             for path in (
@@ -941,8 +949,12 @@ def _run_trajectory(
             == diagnosis_semantic_digest,
             "completionBindsSource": completion_value.get("finalSourceDigest")
             == final_source_digest,
-            "onlyFrozenRepairAndArtifactsChanged": allocation_marker in diff_text
-            and {diagnosis_path, completion_path}.issubset(set(untracked)),
+            "frozenWorkloadBoundaryPreserved": allocation_marker in diff_text
+            and required_untracked.issubset(set(untracked))
+            and not unexpected_untracked,
+            "runtimeEnvironmentByproductsBounded": set(untracked)
+            - required_untracked
+            <= allowed_environment_byproducts,
             "hostCommittedTaskOutcome": accepted.decision.accepted
             and accepted.task_state == "completed"
             and accepted.outcome is not None,

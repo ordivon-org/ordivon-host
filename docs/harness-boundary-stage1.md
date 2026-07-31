@@ -1,6 +1,6 @@
 # Harness Boundary Stage 1
 
-Status: H1–H4 implemented; H5 remains experimental work
+Status: H1–H5 implemented; Stage 1 closed
 Canonical experiment: `ordivon-computing/research/experiments/harness-boundary-v0/`
 
 ## H1 implementation result
@@ -39,7 +39,17 @@ The live receipt [`../evidence/hermes-acp-h4-live-3d9a559-20260731.json`](../evi
 
 The existing one-shot `HermesCliModelGateway` remains the simpler baseline. ACP adds durable Provider Session identity, provenance, cancellation, Tool observations, usage, raw-event hashing, and multi-Prompt process capability, but the bounded inspection still consumed 35,992 total tokens and produced a large event stream. The direct Hermes driver is retained provisionally through H5.
 
-A cross-provider audit found only limited useful repetition between the 841-line Codex driver and 947-line Hermes driver: exact-line Jaccard similarity was approximately 0.275, and most shared lines were subprocess, queue, validation, serialization, and receipt mechanics. Their lifecycle semantics differ materially: Codex uses Thread/Turn/Item notifications and a distinct terminal Turn event; Hermes uses standard JSON-RPC Session/Prompt responses, bidirectional requests, thought streams, and optional Tool completion updates. Extracting a shared adapter now would delete little provider code while obscuring real differences, so no `adapter.py`, common Session format, or shared event runtime is created. H5 replacement trajectories remain the next evidence gate.
+A cross-provider audit found only limited useful repetition between the 841-line Codex driver and 947-line Hermes driver: exact-line Jaccard similarity was approximately 0.275, and most shared lines were subprocess, queue, validation, serialization, and receipt mechanics. Their lifecycle semantics differ materially: Codex uses Thread/Turn/Item notifications and a distinct terminal Turn event; Hermes uses standard JSON-RPC Session/Prompt responses, bidirectional requests, thought streams, and optional Tool completion updates. Extracting a shared adapter now would delete little provider code while obscuring real differences, so no `adapter.py`, common Session format, or shared event runtime is created.
+
+## H5 implementation result
+
+H5 ran the frozen `harness-replacement-repository-repair-v1` workload in both live replacement orders: Codex diagnosis → Hermes repair and Hermes diagnosis → Codex repair. Each trajectory retained one Task Attempt, advanced Assignment generation from 1 to 2, compiled a fresh Context, passed the diagnosis Artifact through Host CAS, started a new Provider Session, ran an independent Runtime acceptance Job, and committed TaskOutcome only after Host adjudication.
+
+The live receipt [`../evidence/harness-replacement-h5-live-76420e4-20260731.json`](../evidence/harness-replacement-h5-live-76420e4-20260731.json) records four Provider Runs, six trajectory Runtime Jobs, one missing-Artifact Runtime probe, exact Host references in terminal evidence, two distinct accepted source implementations, and closed Workspaces. Both old generation-1 completion claims were rejected as `stale_assignment`. A physically successful Runtime process without `completion.json` was rejected as `missing_artifact`. A deliberately dropped repair response was recovered by a fresh Host through one Assignment-bound request identity and one existing Runtime Job, with no redispatch.
+
+H5 also established that Provider final text is not a portable completion contract. Both Codex Runs returned usable structured responses. Both Hermes Runs produced valid Artifacts and passed independent verification while ACP final assistant text was absent. The canonical result therefore comes from verified Artifacts when Provider text is absent or unusable.
+
+The final architecture disposition is recorded in [`harness-boundary-h5-decision.md`](harness-boundary-h5-decision.md): retain the immutable Task Attempt role, Assignment generation, HarnessRunReceipt, CompletionProposal/Decision, Host Runtime references, and provider-specific direct drivers; localize Provider modes and approvals; reject the shared adapter, common Session lifecycle, event runtime, Runtime Task state, new SQL tables, and `ordivon-harness` repository.
 
 ## Objective
 
@@ -72,7 +82,7 @@ src/ordivon_host/harness/
   runtime_refs.py    Runtime foreign-reference builder
   codex_app.py       provider-faithful Codex App Server direct driver
   hermes_acp.py      provider-faithful Hermes ACP direct driver
-  adapter.py         not created; shared lifecycle remains an H5 candidate
+  adapter.py         not created; H5 rejected a shared lifecycle implementation
 ```
 
 The direct drivers expose provider protocols faithfully. The adapter layer maps only the lifecycle required by the experiment.
@@ -349,13 +359,17 @@ Completed with a provider-faithful JSON-RPC direct driver, full and sparse Tool-
 
 ### H5 — replacement and faults
 
-Run both replacement orders and the three faults, preserving receipts and equal-budget measurements.
+Completed both replacement orders with one stable Task Attempt, fresh Assignment generation and Context, explicit diagnosis and completion Artifacts, independent Runtime acceptance, and Host-owned TaskOutcome. The live fault slice rejected stale generation and missing Artifact completion, and recovered one response-lost Runtime Job without redispatch.
 
-## Deletion decisions
+## Final deletion decisions
 
-- remove Task Attempt if Task + Assignment fully express every tested path;
-- remove Assignment generation if Task revision alone rejects every stale worker;
-- merge Harness Run into existing invocation receipts if it contributes no recovery or diagnosis;
-- reuse existing TaskOutcome directly if CompletionProposal prevents no failure;
-- keep adapters provider-local if the shared boundary loses capability or saves negligible code;
-- do not propose `ordivon-harness` until the repository promotion gate in Computing #83 is independently satisfied.
+- retain `TaskAttemptDescriptor` as one immutable semantic-attempt identity; add no attempt lifecycle or table;
+- retain Assignment generation as the durable stale-worker fence;
+- retain `HarnessRunReceipt` as the Provider Session, Runtime Job, Artifact, Context, Tool, usage, and stop-evidence link;
+- retain `CompletionProposal` and `CompletionDecision`; F1 and F2 directly demonstrate failures they prevent;
+- retain Host Runtime foreign references and request identity; F3 directly demonstrates recovery value;
+- keep Codex and Hermes direct drivers provider-local and preserve one-shot baselines;
+- treat Provider final text as optional observation and verified Artifacts as authoritative;
+- do not create a shared `HarnessAdapter`, common Session lifecycle, event runtime, Runtime Task state, additional SQL tables, or `ordivon-harness` repository.
+
+See [`harness-boundary-h5-decision.md`](harness-boundary-h5-decision.md) for the evidence and full retain/localize/shrink/delete rationale.
