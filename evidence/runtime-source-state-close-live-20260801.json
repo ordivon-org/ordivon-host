@@ -1,0 +1,70 @@
+{
+  "after": {
+    "createdAtMs": 1785564524941,
+    "dirty": true,
+    "headMode": "detached",
+    "sourceRevision": "9ccdf1cbf6d2c03948224fcb664ab2eedf29b8d8",
+    "sourceStateDigest": "sha256:89781d8294d8c5158120612cb01458908615730f3b954be53d594f212cc4acdb",
+    "workspaceId": "workspace-host-a-series-runtime-fence-live-v5-20260801"
+  },
+  "before": {
+    "createdAtMs": 1785564524941,
+    "dirty": false,
+    "headMode": "detached",
+    "sourceRevision": "9ccdf1cbf6d2c03948224fcb664ab2eedf29b8d8",
+    "sourceStateDigest": "sha256:054b0fb368cf38d05864311a6caed2812f076135e3c707c860c9ed3b7dbd332e",
+    "workspaceId": "workspace-host-a-series-runtime-fence-live-v5-20260801"
+  },
+  "capturedAt": "2026-08-01T06:08:45.403695+00:00",
+  "checks": {
+    "digestChangedAfterMutation": true,
+    "exactCloseRemoved": true,
+    "mismatchDidNotClose": true,
+    "mismatchRejected": true,
+    "structuredDiffCatalogDeployed": true,
+    "tombstoneReplay": true
+  },
+  "closed": {
+    "removed": true,
+    "sourceStateDigest": "sha256:89781d8294d8c5158120612cb01458908615730f3b954be53d594f212cc4acdb",
+    "workspaceId": "workspace-host-a-series-runtime-fence-live-v5-20260801"
+  },
+  "hostRevision": "9ccdf1cbf6d2c03948224fcb664ab2eedf29b8d8",
+  "integrity": {
+    "algorithm": "sha256",
+    "canonicalization": "ordivon-canonical-json-v1",
+    "payloadDigest": "sha256:e5a5f1afc588ddf3ecffcbc0ae72408056a9af88d6a44012bc9a6bc3315aeb0f"
+  },
+  "kind": "ordivon.runtime-source-state-close-live",
+  "mismatch": {
+    "code": "INVALID_REQUEST",
+    "commitState": "not_committed",
+    "field": "expectedSourceStateDigest",
+    "message": "Workspace source state differs from expectedSourceStateDigest",
+    "origin": "runtime_core",
+    "retryClass": "never",
+    "retryable": false
+  },
+  "mutation": {
+    "mutations": [
+      {
+        "afterDigest": "sha256:370ad74783ea42bda3719b62817976d25676514c798da35dd8bc0f635b475599",
+        "byteLength": 5404,
+        "relativePath": "README.md"
+      }
+    ]
+  },
+  "opened": {
+    "sourceRevision": "9ccdf1cbf6d2c03948224fcb664ab2eedf29b8d8",
+    "workspaceId": "workspace-host-a-series-runtime-fence-live-v5-20260801"
+  },
+  "replay": {
+    "removed": false,
+    "sourceStateDigest": "sha256:89781d8294d8c5158120612cb01458908615730f3b954be53d594f212cc4acdb",
+    "workspaceId": "workspace-host-a-series-runtime-fence-live-v5-20260801"
+  },
+  "runtimeDeploymentReceipt": "/var/lib/ordivon/deployments/20260801T054716Z-0cb306a5bf0d",
+  "runtimeRevision": "0cb306a5bf0dd2c4f4c3983cbb7ad5d5ca4c4685",
+  "schemaVersion": 1,
+  "workspaceId": "workspace-host-a-series-runtime-fence-live-v5-20260801"
+}
