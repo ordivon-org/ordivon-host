@@ -29,6 +29,7 @@ Current proven vertical slices:
 - recovery across fresh Host processes and local Runtime control-plane restarts;
 - extension-safe immutable Task events with reserved Host namespaces, thread-stable extension identity, and no dynamic Enum mutation;
 - generic Host history and operator-handoff surfaces that preserve extension bytes, references, Task revision, UNKNOWN fences and ready frontiers without interpreting extension semantics;
+- a public `HostExtensionPort` for CAS-backed extension objects and revision/state/frontier-fenced preserving Journal appends, without adding Harness-specific tables or state machines;
 - a one-way integration boundary for the independently versioned [`ordivon-harness`](https://github.com/zycxfyh/ordivon-harness) repository, which now owns Agent Assignment, Run, Recovery, Completion, Provider adapters and bare-model execution;
 - schema-v3 operational state with private 0700/0600 modes, backup/restore, optional full-history Doctor, and measured 100,000-event behavior;
 - exact lease-fenced event admission, irreversible terminal Tasks, causal-link validation, and version-bound code-change completion through Runtime compare-and-close.
@@ -39,7 +40,7 @@ See `ARCHITECTURE.md`, `CLOSURE.md`, `docs/HARNESS_EXTRACTION.md`, `docs/PRE_H7_
 
 ## Development
 
-Python 3.12 is required. The authoritative `ordivon-protocol` 0.3.0 package remains in `ordivon-computing` and is pinned to the exact unified Protocol revision by `pyproject.toml`.
+Python 3.12 is required. The authoritative `ordivon-protocol` 0.5.0 package remains in `ordivon-computing` and is pinned to the exact unified Protocol revision by `pyproject.toml`.
 
 ```bash
 python3.12 -m venv .venv

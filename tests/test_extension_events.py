@@ -59,5 +59,62 @@ class ExtensionEventTests(unittest.TestCase):
                 self.assertGreaterEqual(report.semantic_references, 1)
 
 
+class ExtensionPortTests(unittest.TestCase):
+    def test_port_preserves_payload_and_object_references_under_revision_fence(
+        self,
+    ) -> None:
+        from ordivon_host import HostExtensionPort, TaskRevisionMismatch
+
+        with tempfile.TemporaryDirectory() as directory:
+            clock = itertools.count(2_000).__next__
+            with HostStorage(directory) as storage:
+                kernel = HostKernel(
+                    storage,
+                    clock_ms=clock,
+                    owner_id="host:test-extension-port",
+                )
+                base = storage.put_object(
+                    {"schemaVersion": 1, "kind": "fixture-base"},
+                    kind="fixture-base",
+                )
+                created = kernel.create_task(
+                    event_id="event:extension-port:create",
+                    kind=EventKind.TASK_CREATED,
+                    task_id="task:extension-port",
+                    goal_id="goal:extension-port",
+                    payload={
+                        "baseObjectDigest": base.digest,
+                        "activeExtensionToken": "token:one",
+                    },
+                    frontier=("node:extension-port",),
+                    referenced_objects=(base,),
+                ).projection
+                port = HostExtensionPort(storage, kernel)
+                item = port.put_object(
+                    {"schemaVersion": 1, "kind": "fixture-extension"},
+                    kind="fixture-extension",
+                )
+                committed = port.append_preserving(
+                    task_id=created.task_id,
+                    expected_revision=created.revision,
+                    event_id="event:extension-port:append",
+                    kind=EventKind("harness.extension-recorded"),
+                    updates={"extensionObjectDigest": item.digest},
+                    remove_fields=("activeExtensionToken",),
+                    referenced_objects=(item,),
+                )
+                self.assertEqual(committed.data["baseObjectDigest"], base.digest)
+                self.assertEqual(committed.data["extensionObjectDigest"], item.digest)
+                self.assertNotIn("activeExtensionToken", committed.data)
+                with self.assertRaises(TaskRevisionMismatch):
+                    port.append_preserving(
+                        task_id=created.task_id,
+                        expected_revision=created.revision,
+                        event_id="event:extension-port:stale",
+                        kind=EventKind("harness.extension-recorded"),
+                        updates={"stale": True},
+                    )
+
+
 if __name__ == "__main__":
     unittest.main()

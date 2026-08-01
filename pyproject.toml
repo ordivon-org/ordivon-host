@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ordivon-host"
-version = "0.1.1"
+version = "0.1.2"
 description = "Persistent Agent coordination and commitment plane for Ordivon."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = { file = "LICENSE" }
 dependencies = [
-  "ordivon-protocol @ git+https://github.com/zycxfyh/ordivon-computing.git@b86e94c889188ece477e6af44fb3b04caa9bc10f#subdirectory=packages/ordivon-protocol",
+  "ordivon-protocol @ git+https://github.com/zycxfyh/ordivon-computing.git@37760a58d482c61748ed90ea5f46546cfd2e2344#subdirectory=packages/ordivon-protocol",
 ]
 
 [project.scripts]

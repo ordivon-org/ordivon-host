@@ -17,7 +17,6 @@ from .effects import (
     VerificationReceipt,
     VerificationResultItem,
 )
-from .executors import DeliveryUncertain, EffectExecutor, RuntimeEffectExecutor
 from .engine import (
     CodeChangeHost,
     CodeChangePlan,
@@ -33,6 +32,8 @@ from .engine import (
     ReadTaskPlan,
     ReadTaskStep,
 )
+from .executors import DeliveryUncertain, EffectExecutor, RuntimeEffectExecutor
+from .extensions import HostExtensionError, HostExtensionPort, HostExtensionSnapshot
 from .handoff import OperatorHandoffCapsule, operator_handoff
 from .journal import HostJournal, LeaseHeld, RevisionConflict
 from .kernel import (
@@ -86,6 +87,9 @@ __all__ = [
     "GuardedMutationHost",
     "GuardedMutationPlan",
     "HostConfig",
+    "HostExtensionError",
+    "HostExtensionPort",
+    "HostExtensionSnapshot",
     "HostJournal",
     "HostKernel",
     "HostKernelError",
@@ -116,11 +120,11 @@ __all__ = [
     "TaskOutcome",
     "TaskProjection",
     "TaskProjectionDrift",
+    "TaskReconciler",
     "TaskRevisionMismatch",
     "TaskRevisionRef",
     "TaskState",
     "TaskStateMismatch",
-    "TaskReconciler",
     "TransitionReceipt",
     "VerificationReceipt",
     "VerificationResultItem",
