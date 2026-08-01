@@ -1,10 +1,18 @@
 # Ordivon Harness extraction
 
-Status: implemented locally; final merge identities are recorded during repository closeout.
+Status: implemented, merged and independently published.
 
 Source Host revision: `3f50c676802f1c3653767b200db445d15f2f7930`
 
 Extracted Harness history head: `fbfeff54163e78ca86060b053cb854a94703968c`
+
+Host extraction implementation commit: `8275a81b3a56834561d2555f276c10e6c62e2735`
+
+Host extraction merge commit: `98852d0a39b6d4c489396bda2fd0c99cc3870e34`
+
+Standalone Harness main commit: `7340005d2bfd1b4ec6b7ca4b842d1cc0cac06888`
+
+Repository: `https://github.com/zycxfyh/ordivon-harness`
 
 ## Decision
 

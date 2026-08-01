@@ -29,7 +29,7 @@ Current proven vertical slices:
 - recovery across fresh Host processes and local Runtime control-plane restarts;
 - extension-safe Task events whose bounded dotted event kinds can be owned by independent workload repositories without adding Host package imports;
 - generic Host history and operator-handoff surfaces that preserve extension bytes, references, Task revision, UNKNOWN fences and ready frontiers without interpreting extension semantics;
-- a one-way integration boundary for the independently versioned `ordivon-harness` repository, which now owns Agent Assignment, Run, Recovery, Completion, Provider adapters and bare-model execution;
+- a one-way integration boundary for the independently versioned [`ordivon-harness`](https://github.com/zycxfyh/ordivon-harness) repository, which now owns Agent Assignment, Run, Recovery, Completion, Provider adapters and bare-model execution;
 - schema-v3 operational state, backup/restore, optional full-history Doctor, and measured 100,000-event behavior.
 
 The closed-choice path remains a useful deterministic and closed-domain profile. It is no longer treated as the only possible cognition interface. Agent Harness implementation and its historical evidence now live in the independent `ordivon-harness` repository.
