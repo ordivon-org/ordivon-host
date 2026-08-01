@@ -123,6 +123,19 @@ def _object_schema(
 def model_tool_definitions() -> tuple[AgentToolDefinition, ...]:
     integer = {"type": "integer", "minimum": 0}
     string = {"type": "string", "minLength": 1}
+    mutation = _object_schema(
+        {
+            "relativePath": string,
+            "mode": {
+                "type": "string",
+                "enum": ["WRITE", "APPEND", "REPLACE_EXACT"],
+            },
+            "content": {"type": "string"},
+            "expectedDigest": {"type": ["string", "null"]},
+            "expectedText": {"type": ["string", "null"]},
+        },
+        ("relativePath", "mode"),
+    )
     return (
         AgentToolDefinition(
             "read_workspace",
@@ -139,9 +152,21 @@ def model_tool_definitions() -> tuple[AgentToolDefinition, ...]:
         ),
         AgentToolDefinition(
             "mutate_workspace",
-            "Apply an atomic validated WRITE, APPEND, or REPLACE_EXACT mutation batch.",
+            (
+                "Apply an atomic validated mutation batch. Every mutation requires "
+                "relativePath and mode. mode is WRITE, APPEND, or REPLACE_EXACT; "
+                "existing targets require expectedDigest and REPLACE_EXACT also "
+                "requires expectedText."
+            ),
             _object_schema(
-                {"mutations": {"type": "array", "minItems": 1, "maxItems": 32}},
+                {
+                    "mutations": {
+                        "type": "array",
+                        "items": mutation,
+                        "minItems": 1,
+                        "maxItems": 32,
+                    }
+                },
                 ("mutations",),
             ),
         ),

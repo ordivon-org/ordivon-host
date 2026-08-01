@@ -82,6 +82,31 @@ class NativeToolCatalogTests(unittest.TestCase):
                     tool.contract.input_schema,
                 )
 
+    def test_mutate_workspace_exposes_exact_mutation_item_schema(self) -> None:
+        catalog = discover_harness_runtime_catalog(_RecoveryRuntime())
+        schema = catalog.tool("mutate_workspace").contract.input_schema
+        mutations = schema["properties"]["mutations"]
+        self.assertEqual(mutations["minItems"], 1)
+        self.assertEqual(mutations["maxItems"], 32)
+        mutation = mutations["items"]
+        self.assertEqual(mutation["required"], ["relativePath", "mode"])
+        self.assertFalse(mutation["additionalProperties"])
+        self.assertEqual(
+            mutation["properties"]["mode"]["enum"],
+            ["WRITE", "APPEND", "REPLACE_EXACT"],
+        )
+        self.assertNotIn("action", mutation["properties"])
+        self.assertEqual(
+            set(mutation["properties"]),
+            {
+                "relativePath",
+                "mode",
+                "content",
+                "expectedDigest",
+                "expectedText",
+            },
+        )
+
     def test_declared_runtime_operations_match_actual_bridge_lowering(self) -> None:
         class SemanticRuntime(_RecoveryRuntime):
             def call_tool(self, name, arguments):
