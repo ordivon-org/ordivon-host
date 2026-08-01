@@ -196,7 +196,7 @@ OH4 and OH5 live scripts repeat Runtime setup, Context compilation, Workspace li
 
 ## Promotion rule
 
-The read-only v0 boundary is promoted as complete. The next implementation boundary must address effect semantics before effect continuation.
+The read-only v0 boundary is promoted as complete. The next implementation boundary must address effect semantics before effect continuation. The code-backed E1–E2 design and rejected alternatives are recorded in [`ORDIVON_HARNESS_E1_E2_DESIGN.md`](ORDIVON_HARNESS_E1_E2_DESIGN.md).
 
 The ordered gates are:
 
