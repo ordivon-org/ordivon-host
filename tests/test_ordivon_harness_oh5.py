@@ -230,6 +230,7 @@ def _assign(
         manifest=ordivon_harness_manifest(),
         context_object_digest=context_object.digest,
         tool_catalog_digest=catalog.digest,
+            tool_catalog=catalog,
         workspace_ref=workspace_id,
         source_ref="repository:ordivon-host@fixture",
         source_digest=canonical_digest({"revision": "fixture"}),
@@ -621,7 +622,7 @@ class OH5AbandonmentTests(unittest.TestCase):
                 self.assertFalse(result.recovery.assessment.safe_to_abandon)
                 self.assertEqual(
                     result.recovery.assessment.grant_effect_class,
-                    "workspace_mutation_possible",
+                    "workspace-change-possible",
                 )
                 self.assertEqual(
                     storage.journal.get_task(TASK_ID).state,
@@ -632,7 +633,7 @@ class OH5AbandonmentTests(unittest.TestCase):
                     ("reconcile-current-harness-run-unknown",),
                 )
                 attempt = host.load_attempt(TASK_ID)
-                with self.assertRaisesRegex(HarnessLifecycleError, "no recorded or abandoned"):
+                with self.assertRaisesRegex(HarnessLifecycleError, "Runtime UNKNOWN"):
                     host.assign(
                         attempt,
                         manifest=ordivon_harness_manifest(),

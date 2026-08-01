@@ -17,6 +17,10 @@ _GRANT_EFFECT_CLASSES = {
     "read_only",
     "workspace_mutation_possible",
     "process_effect_possible",
+    "observation-only",
+    "workspace-change-possible",
+    "process-or-external-effect-possible",
+    "unknown",
 }
 _CATALOG_STATUSES = {"matched", "drifted", "unavailable"}
 _WORKSPACE_STATUSES = {"closed", "already_absent", "not_applicable", "unknown"}
@@ -57,15 +61,6 @@ def _digest(value: str, label: str) -> str:
     ):
         raise ValueError(f"{label} must be sha256:<64 lowercase hex>")
     return value
-
-
-def native_tool_grant_effect_class(allowed_tools: tuple[str, ...]) -> str:
-    tools = set(allowed_tools)
-    if "run_check" in tools or "run_in_workspace" in tools:
-        return "process_effect_possible"
-    if "mutate_workspace" in tools:
-        return "workspace_mutation_possible"
-    return "read_only"
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,7 +113,7 @@ class NativeRunRecoveryAssessment:
     @property
     def safe_to_abandon(self) -> bool:
         return (
-            self.grant_effect_class == "read_only"
+            self.grant_effect_class in {"read_only", "observation-only"}
             and self.workspace_status in {"closed", "already_absent", "not_applicable"}
             and not self.unresolved_unknowns
         )

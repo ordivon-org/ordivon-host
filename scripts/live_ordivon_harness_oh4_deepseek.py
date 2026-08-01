@@ -345,6 +345,7 @@ def _run_with_state_root(
                 manifest=ordivon_harness_manifest(),
                 context_object_digest=context_object.digest,
                 tool_catalog_digest=catalog.digest,
+            tool_catalog=catalog,
                 workspace_ref=workspace_id,
                 source_ref=f"repository:ordivon-host@{source_revision}",
                 source_digest=source_digest,

@@ -102,7 +102,9 @@ class TaskContract:
         _identity(self.contract_id, "task-contract", "Task Contract")
         _identity(self.task_id, "task", "Task")
         if not self.objective or not self.acceptance_criteria:
-            raise ValueError("Task Contract objective and acceptance criteria must be non-empty")
+            raise ValueError(
+                "Task Contract objective and acceptance criteria must be non-empty"
+            )
         validate_json_value(self.objective)
         validate_json_value(self.acceptance_criteria)
         _unique_text(self.constraints, "Task Contract constraint")
@@ -156,7 +158,9 @@ class TaskContract:
         _exact(value, expected, "TaskContract")
         if value["schemaVersion"] != 1 or value["kind"] != "ordivon.task-contract":
             raise ValueError("TaskContract version or kind is invalid")
-        if not isinstance(value["contractId"], str) or not isinstance(value["taskId"], str):
+        if not isinstance(value["contractId"], str) or not isinstance(
+            value["taskId"], str
+        ):
             raise ValueError("TaskContract identities must be strings")
         objective = value["objective"]
         acceptance = value["acceptanceCriteria"]
@@ -165,9 +169,13 @@ class TaskContract:
         policy = value["consequencePolicyRef"]
         if not isinstance(objective, dict) or not isinstance(acceptance, dict):
             raise ValueError("TaskContract objective and acceptance must be objects")
-        if not isinstance(constraints, list) or any(not isinstance(item, str) for item in constraints):
+        if not isinstance(constraints, list) or any(
+            not isinstance(item, str) for item in constraints
+        ):
             raise ValueError("TaskContract constraints must be strings")
-        if not isinstance(refs, list) or any(not isinstance(item, dict) for item in refs):
+        if not isinstance(refs, list) or any(
+            not isinstance(item, dict) for item in refs
+        ):
             raise ValueError("TaskContract resource refs must be objects")
         if policy is not None and not isinstance(policy, str):
             raise ValueError("TaskContract consequence policy must be a string or null")
@@ -240,16 +248,21 @@ class GrantedExecutionCheck:
             "stderrLimitBytes",
         }
         _exact(value, expected, "GrantedExecutionCheck")
-        if not isinstance(value["checkId"], str) or not isinstance(value["executable"], str):
+        if not isinstance(value["checkId"], str) or not isinstance(
+            value["executable"], str
+        ):
             raise ValueError("GrantedExecutionCheck identities must be strings")
         if not isinstance(value["cwdRelative"], str):
             raise ValueError("GrantedExecutionCheck working directory must be a string")
         args = value["args"]
         env = value["env"]
-        if not isinstance(args, list) or any(not isinstance(item, str) for item in args):
+        if not isinstance(args, list) or any(
+            not isinstance(item, str) for item in args
+        ):
             raise ValueError("GrantedExecutionCheck args must be strings")
         if not isinstance(env, dict) or any(
-            not isinstance(key, str) or not isinstance(item, str) for key, item in env.items()
+            not isinstance(key, str) or not isinstance(item, str)
+            for key, item in env.items()
         ):
             raise ValueError("GrantedExecutionCheck env must contain string values")
         for field in ("timeoutMs", "stdoutLimitBytes", "stderrLimitBytes"):
@@ -302,7 +315,9 @@ class ToolGrant:
         if self.execution_checks and "run_check" not in self.allowed_tools:
             raise ValueError("Execution Checks require run_check permission")
         if "run_in_workspace" in self.allowed_tools and not self.allow_opaque_exec:
-            raise ValueError("run_in_workspace requires explicit opaque-exec permission")
+            raise ValueError(
+                "run_in_workspace requires explicit opaque-exec permission"
+            )
         if self.allow_opaque_exec and "run_in_workspace" not in self.allowed_tools:
             raise ValueError("opaque-exec permission requires run_in_workspace")
 
@@ -315,7 +330,9 @@ class ToolGrant:
 
     def allows_path(self, name: str, relative_path: str) -> bool:
         normalized = _relative_path(relative_path, f"{name} relative path")
-        rules = self.read_path_rules if name == "read_workspace" else self.mutate_path_rules
+        rules = (
+            self.read_path_rules if name == "read_workspace" else self.mutate_path_rules
+        )
         for rule in rules:
             if rule == "**" or rule == normalized:
                 return True
@@ -362,10 +379,14 @@ class ToolGrant:
             raise ValueError("ToolGrant identity must be a string")
         for field in ("allowedTools", "readPathRules", "mutatePathRules"):
             raw = value[field]
-            if not isinstance(raw, list) or any(not isinstance(item, str) for item in raw):
+            if not isinstance(raw, list) or any(
+                not isinstance(item, str) for item in raw
+            ):
                 raise ValueError(f"ToolGrant {field} must contain strings")
         checks = value["executionChecks"]
-        if not isinstance(checks, list) or any(not isinstance(item, dict) for item in checks):
+        if not isinstance(checks, list) or any(
+            not isinstance(item, dict) for item in checks
+        ):
             raise ValueError("ToolGrant execution checks must be objects")
         if type(value["allowOpaqueExec"]) is not bool:
             raise ValueError("ToolGrant allowOpaqueExec must be a boolean")
@@ -374,7 +395,9 @@ class ToolGrant:
             allowed_tools=tuple(value["allowedTools"]),
             read_path_rules=tuple(value["readPathRules"]),
             mutate_path_rules=tuple(value["mutatePathRules"]),
-            execution_checks=tuple(GrantedExecutionCheck.from_dict(item) for item in checks),
+            execution_checks=tuple(
+                GrantedExecutionCheck.from_dict(item) for item in checks
+            ),
             allow_opaque_exec=value["allowOpaqueExec"],
         )
 
@@ -393,6 +416,7 @@ class NativeHarnessRunContract:
     tool_grant_digest: str
     tool_grant_object_digest: str
     created_at_ms: int
+    tool_catalog_object_digest: str | None = None
 
     def __post_init__(self) -> None:
         _identity(self.harness_run_id, "harness-run", "Harness Run")
@@ -410,16 +434,22 @@ class NativeHarnessRunContract:
             (self.tool_grant_object_digest, "Tool Grant object digest"),
         ):
             _digest(value, label)
+        if self.tool_catalog_object_digest is not None:
+            _digest(self.tool_catalog_object_digest, "Tool catalog object digest")
         if self.created_at_ms < 0:
             raise ValueError("Native Run creation time must be non-negative")
+
+    @property
+    def schema_version(self) -> int:
+        return 2 if self.tool_catalog_object_digest is not None else 1
 
     @property
     def digest(self) -> str:
         return canonical_digest(self.to_dict())
 
     def to_dict(self) -> dict[str, JsonValue]:
-        return {
-            "schemaVersion": 1,
+        value: dict[str, JsonValue] = {
+            "schemaVersion": self.schema_version,
             "kind": "ordivon.native-harness-run-contract",
             "harnessRunId": self.harness_run_id,
             "assignmentId": self.assignment_id,
@@ -434,10 +464,13 @@ class NativeHarnessRunContract:
             "toolGrantObjectDigest": self.tool_grant_object_digest,
             "createdAtMs": self.created_at_ms,
         }
+        if self.tool_catalog_object_digest is not None:
+            value["toolCatalogObjectDigest"] = self.tool_catalog_object_digest
+        return value
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> NativeHarnessRunContract:
-        expected = {
+        common = {
             "schemaVersion",
             "kind",
             "harnessRunId",
@@ -453,14 +486,29 @@ class NativeHarnessRunContract:
             "toolGrantObjectDigest",
             "createdAtMs",
         }
+        version = value.get("schemaVersion")
+        expected = common if version == 1 else common | {"toolCatalogObjectDigest"}
         _exact(value, expected, "NativeHarnessRunContract")
-        if value["schemaVersion"] != 1 or value["kind"] != "ordivon.native-harness-run-contract":
+        if (
+            version not in {1, 2}
+            or value["kind"] != "ordivon.native-harness-run-contract"
+        ):
             raise ValueError("NativeHarnessRunContract version or kind is invalid")
-        string_fields = expected - {"schemaVersion", "kind", "assignmentGeneration", "createdAtMs"}
+        string_fields = expected - {
+            "schemaVersion",
+            "kind",
+            "assignmentGeneration",
+            "createdAtMs",
+        }
         if any(not isinstance(value[field], str) for field in string_fields):
             raise ValueError("NativeHarnessRunContract identity fields must be strings")
-        if type(value["assignmentGeneration"]) is not int or type(value["createdAtMs"]) is not int:
-            raise ValueError("NativeHarnessRunContract generation and time must be integers")
+        if (
+            type(value["assignmentGeneration"]) is not int
+            or type(value["createdAtMs"]) is not int
+        ):
+            raise ValueError(
+                "NativeHarnessRunContract generation and time must be integers"
+            )
         return cls(
             harness_run_id=value["harnessRunId"],
             assignment_id=value["assignmentId"],
@@ -474,6 +522,9 @@ class NativeHarnessRunContract:
             tool_grant_digest=value["toolGrantDigest"],
             tool_grant_object_digest=value["toolGrantObjectDigest"],
             created_at_ms=value["createdAtMs"],
+            tool_catalog_object_digest=(
+                None if version == 1 else value["toolCatalogObjectDigest"]
+            ),
         )
 
 
@@ -488,8 +539,12 @@ class CompletionVerification:
     created_at_ms: int
 
     def __post_init__(self) -> None:
-        _identity(self.verification_id, "completion-verification", "Completion Verification")
-        _identity(self.completion_proposal_id, "completion-proposal", "CompletionProposal")
+        _identity(
+            self.verification_id, "completion-verification", "Completion Verification"
+        )
+        _identity(
+            self.completion_proposal_id, "completion-proposal", "CompletionProposal"
+        )
         _text(self.method, "Completion Verification method")
         validate_json_value(self.result)
         _artifact_refs(self.evidence_refs, "Completion Verification evidence")
@@ -527,18 +582,25 @@ class CompletionVerification:
             "createdAtMs",
         }
         _exact(value, expected, "CompletionVerification")
-        if value["schemaVersion"] != 1 or value["kind"] != "ordivon.completion-verification":
+        if (
+            value["schemaVersion"] != 1
+            or value["kind"] != "ordivon.completion-verification"
+        ):
             raise ValueError("CompletionVerification version or kind is invalid")
         for field in ("verificationId", "completionProposalId", "method"):
             if not isinstance(value[field], str):
                 raise ValueError(f"CompletionVerification {field} must be a string")
         if type(value["accepted"]) is not bool or type(value["createdAtMs"]) is not int:
-            raise ValueError("CompletionVerification acceptance and time have invalid types")
+            raise ValueError(
+                "CompletionVerification acceptance and time have invalid types"
+            )
         result = value["result"]
         refs = value["evidenceRefs"]
         if not isinstance(result, dict):
             raise ValueError("CompletionVerification result must be an object")
-        if not isinstance(refs, list) or any(not isinstance(item, dict) for item in refs):
+        if not isinstance(refs, list) or any(
+            not isinstance(item, dict) for item in refs
+        ):
             raise ValueError("CompletionVerification evidence refs must be objects")
         validate_json_value(result)
         return cls(

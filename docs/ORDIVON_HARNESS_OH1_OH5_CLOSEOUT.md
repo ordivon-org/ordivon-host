@@ -180,11 +180,9 @@ final state: independently verified TaskOutcome at Task revision 8
 
 This is real structure debt, but it is not yet evidence for a new service, database or workflow framework. A future internal split may separate Assignment, Run, Recovery, Completion and snapshot-loading modules while preserving one Host authority.
 
-### Tool consequence inference by Tool name
+### Tool consequence inference by Tool name — closed by E1
 
-`native_tool_grant_effect_class()` currently infers read, mutation and process consequences from known Tool names. This is correct for the current catalog but is not a safe long-term extension mechanism.
-
-A new effectful Tool must not become implicitly read-only because a recovery switch was not updated.
+E1 replaced the live Tool-name switch with an Assignment-bound `NativeToolCatalogSnapshot`. Every current native Tool now has an explicit standard `ToolContract`, exact Runtime lowering identity, and Harness recovery consequence. Unknown or incomplete Tool semantics fail closed, while v1 historical objects remain readable through a frozen compatibility codec.
 
 ### Concentrated RuntimeToolBridge lowering
 
@@ -196,14 +194,14 @@ OH4 and OH5 live scripts repeat Runtime setup, Context compilation, Workspace li
 
 ## Promotion rule
 
-The read-only v0 boundary is promoted as complete. The next implementation boundary must address effect semantics before effect continuation. The code-backed E1–E2 design and rejected alternatives are recorded in [`ORDIVON_HARNESS_E1_E2_DESIGN.md`](ORDIVON_HARNESS_E1_E2_DESIGN.md).
+The read-only v0 boundary is promoted as complete. E1–E2 subsequently closed the Tool-semantics and Run-decision hazards without adding effect continuation. The implemented design, verified invariants and deviations are recorded in [`ORDIVON_HARNESS_E1_E2_DESIGN.md`](ORDIVON_HARNESS_E1_E2_DESIGN.md).
 
 The ordered gates are:
 
 ```text
-E1  Tool consequence metadata
-E2  unified internal RunDisposition derivation
-E3  one durable prebound run_check Tool step
+E1  Tool consequence metadata                         complete
+E2  unified internal RunDisposition derivation          complete
+E3  one durable prebound run_check Tool step             not started
 E4  effectful fault matrix
 E5  mutation lifecycle
 ```
@@ -221,13 +219,13 @@ resourceScope
 verificationMode
 ```
 
-E1 does not implement continuation.
+E1 is implemented and does not implement continuation.
 
 ### E2 — Unified RunDisposition
 
 Derive replacement, completion, Workspace-continuity and operator-action decisions from one internal pure model rather than reproducing them across Host admission, handoff, recovery and history validation.
 
-E2 is an internal Host refactor, not a public workflow protocol.
+E2 is implemented as an internal pure Host derivation, not a public workflow protocol or durable object.
 
 ### E3 — Durable prebound `run_check`
 

@@ -222,6 +222,7 @@ def _prepare_native(
         manifest=ordivon_harness_manifest(),
         context_object_digest=context_object.digest,
         tool_catalog_digest=catalog.digest,
+            tool_catalog=catalog,
         workspace_ref="workspace:oh4-native",
         source_ref="repository:ordivon-host@fixture",
         source_digest=canonical_digest({"revision": "fixture"}),
