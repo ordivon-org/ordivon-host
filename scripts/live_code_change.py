@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import hashlib
 from pathlib import Path
 import stat
 import subprocess
@@ -33,25 +34,36 @@ from ordivon_host.testing import (
     workspace_absent,
 )
 
-_SOURCE_PATH = "src/ordivon_host/ops/inspect.py"
-_TEST_PATH = "tests/test_operations.py"
+_SOURCE_PATH = "src/ordivon_host/objects/codecs.py"
+_TEST_PATH = "tests/test_boundaries.py"
 _SOURCE_OLD = (
-    '            "terminalTasks": terminal_count,\n'
-    '            "tasksByState": states,\n'
+    '    """Dispatch one durable semantic object by explicit kind and schema version."""\n'
+    '    kind = value.get("kind")\n'
 )
 _SOURCE_NEW = (
-    '            "terminalTasks": terminal_count,\n'
-    '            "nonterminalTasks": task_count - terminal_count,\n'
-    '            "tasksByState": states,\n'
+    '    """Dispatch one durable semantic object by explicit kind and schema version."""\n'
+    '    if not decoders:\n'
+    '        raise ObjectCodecError(f"{label} has no registered decoders")\n'
+    '    kind = value.get("kind")\n'
 )
 _TEST_OLD = (
-    '            self.assertEqual(inspection["terminalTasks"], 0)\n'
-    '            report = doctor_state(root, now_ms=10)\n'
+    '        with self.assertRaises(UnsupportedObjectVersion):\n'
+    '            CodeChangePlan.from_dict(value)\n'
 )
 _TEST_NEW = (
-    '            self.assertEqual(inspection["terminalTasks"], 0)\n'
-    '            self.assertEqual(inspection["nonterminalTasks"], 1)\n'
-    '            report = doctor_state(root, now_ms=10)\n'
+    '        with self.assertRaises(UnsupportedObjectVersion):\n'
+    '            CodeChangePlan.from_dict(value)\n'
+    '\n'
+    '    def test_codec_rejects_an_empty_decoder_registry(self) -> None:\n'
+    '        from ordivon_host.objects import ObjectCodecError, decode_versioned_object\n'
+    '\n'
+    '        with self.assertRaisesRegex(ObjectCodecError, "no registered decoders"):\n'
+    '            decode_versioned_object(\n'
+    '                {"schemaVersion": 1, "kind": "audit.object"},\n'
+    '                expected_kind="audit.object",\n'
+    '                decoders={},\n'
+    '                label="AuditObject",\n'
+    '            )\n'
 )
 
 
@@ -126,9 +138,9 @@ def main() -> None:
                 ("-m", "ruff", "check", _SOURCE_PATH, _TEST_PATH),
             ),
             ExecutionCheck(
-                "operations-tests",
+                "boundary-tests",
                 "/root/.local/bin/python3.12",
-                ("-m", "unittest", "tests.test_operations"),
+                ("-m", "unittest", "tests.test_boundaries"),
                 env=(("PYTHONPATH", f"{protocol_path}:src"),),
                 timeout_ms=120_000,
             ),
@@ -344,7 +356,7 @@ def main() -> None:
                 and not diff_value.get("deletedPaths")
                 and not diff_value.get("renamedPaths")
                 and not diff_value.get("untrackedPaths")
-                and diff_value.get("truncated") is False
+                and diff_value.get("truncated", False) is False
             ),
             "sourceStateBoundToClose": (
                 isinstance(source_state_digest, str)
@@ -366,6 +378,8 @@ def main() -> None:
             "kind": "ordivon.host-live-code-change",
             "capturedAt": datetime.now(timezone.utc).isoformat(),
             "hostRevision": args.source_revision,
+            "scenarioScriptDigest": "sha256:"
+            + hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             "runtimeRevision": args.runtime_revision,
             "runtimeDeploymentReceipt": args.runtime_deployment_receipt,
             "repositoryId": args.repository_id,

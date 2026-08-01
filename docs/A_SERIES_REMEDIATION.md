@@ -23,6 +23,10 @@ This change closes the source-level findings recorded by Ordivon Computer study 
 
 `RUNNING` and `activeNodeId` remain readable because they exist in durable schema-v3 history, but current workloads do not use them. `DispatchEnvelope.expectedObservationKind` remains a protocol-v1 compatibility field; it is not represented as an enforced Observation property and is not used as completion evidence. Removing it requires a separately versioned Computing protocol migration rather than a Host-local reinterpretation.
 
+## Remaining bounded transport limit
+
+The current `CodeChangeHost` replacement workload serializes new file bytes into one Base64 patch argument. Runtime correctly rejects any single argument above 16 KiB. This remediation does not weaken that bound. Larger source replacements require a future Artifact/stdin-backed request transport before they are admitted as a proven workload; the live closure uses a compact real source/test pair within the current contract.
+
 ## Non-goals
 
 No scheduler, DAG engine, distributed lease, second database, policy platform, Provider session store, or Host/Harness recoupling was introduced.
