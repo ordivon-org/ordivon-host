@@ -338,7 +338,7 @@ class CodeChangeHost:
             try:
                 return self._accept_prepared_verification(snapshot, plan)
             except RuntimeToolRejected as error:
-                if error.detail.code != "REVISION_MISMATCH":
+                if not _is_source_state_mismatch(error):
                     raise
                 snapshot = self.storage.read_task_event(task_id)
         prepared = self._prepare_verification(snapshot, plan)
@@ -1063,3 +1063,14 @@ class CodeChangeHost:
             reconciled=reconciled,
             completed=completed,
         )
+
+def _is_source_state_mismatch(error: RuntimeToolRejected) -> bool:
+    detail = error.detail
+    return (
+        detail.code == "REVISION_MISMATCH"
+        or (
+            detail.code == "INVALID_REQUEST"
+            and detail.field == "expectedSourceStateDigest"
+            and detail.commit_state == "not_committed"
+        )
+    )

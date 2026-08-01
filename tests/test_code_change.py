@@ -48,7 +48,7 @@ def source_state_mismatch(operation: str) -> RuntimeToolRejected:
     return RuntimeToolRejected(
         operation,
         RuntimeErrorDetail(
-            code="REVISION_MISMATCH",
+            code="INVALID_REQUEST",
             message="Workspace source state differs",
             field="expectedSourceStateDigest",
             retryable=False,
