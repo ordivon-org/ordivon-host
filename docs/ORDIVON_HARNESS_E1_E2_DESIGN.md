@@ -1,12 +1,77 @@
 # Ordivon Harness E1–E2 design audit
 
-Status: design complete; implementation not started
+Status: implemented and verified
 
-Bound Host revision: `facbb9f032315665c9cade905c898af7662b668d`
+Implementation commit: `ace186c712a1678b811a9ec6975f0618f78673dd`
+
+Base Host revision: `fa313039cf2f7c9f8df445a8ccbfed8d9e06f3aa`
+
+Pinned Protocol revision: `ca5af401eda77d1081487c2df07ce9d94003719e`
 
 Parent closeout: [`ORDIVON_HARNESS_OH1_OH5_CLOSEOUT.md`](ORDIVON_HARNESS_OH1_OH5_CLOSEOUT.md)
 
 Tracking issue: `#30`
+
+## Implementation result
+
+E1–E2 were implemented without beginning E3. The resulting production boundary is:
+
+```text
+production Runtime descriptors
+        + Provider-visible native Tool definitions
+        + explicit ToolContract semantics
+        + Harness recovery consequence
+                         ↓
+          NativeToolCatalogSnapshot
+                         ↓
+      Host CAS + native Assignment generation
+                         ↓
+ durable facts → pure NativeRunDisposition → Host admission / handoff / audit
+```
+
+The implementation added:
+
+```text
+src/ordivon_host/harness/tool_semantics.py
+src/ordivon_host/harness/disposition.py
+tests/test_ordivon_harness_e1_e2.py
+```
+
+and integrated them into native Assignment commit/reload, Runtime bridge admission, Recovery, recorded Run projection, Completion admission, operator handoff, and full-history validation.
+
+Verified results:
+
+- every current model-facing Tool has one explicit `ToolContract`, Runtime lowering set, and recovery consequence;
+- new native Assignments persist and bind the exact catalog snapshot in Host CAS;
+- `NativeHarnessRunContract` v2 binds the catalog object while v1 historical objects remain decodable through a closed seven-Tool compatibility path;
+- unknown or incomplete Tool semantics fail closed;
+- `native_tool_grant_effect_class()` has been removed from the live path;
+- one pure `NativeRunDisposition` drives native replacement, Recovery, Completion admission, handoff, and audit projections;
+- external Codex and Hermes Harness receipts retain their existing lifecycle and are not forced into native termination semantics;
+- candidate completion carrying UNKNOWN Tool evidence is rejected before persistence;
+- the metadata-declared Runtime lowering operation is tested against the actual bridge lowering for all seven Tools;
+- exact pinned-Protocol deterministic suite: `255 / 255`;
+- production Runtime catalog discovery passed as a read-only inspection without creating a Workspace or Job.
+
+The verified production Runtime snapshot at implementation time was:
+
+```text
+catalog object digest:
+sha256:0b2dcdb143ac1b961b9b7695f089ef7df84ac3b8e09a23e61bc2b984a7d4dee4
+
+semantic digest:
+sha256:41e5b6ca1298b68012a5ae13367a977c6142923800608b225decac14dc4a74b1
+```
+
+### Actual deviations from the design draft
+
+The implementation changed three details after code-backed validation:
+
+1. `HarnessAssignment.toolCatalogDigest` binds the canonical digest of the **complete snapshot object**, not only its inner semantic projection. `NativeToolCatalogSnapshot.semanticDigest` remains available as a separate revision identity. This matches the existing Host `_load_object()` invariant and makes CAS reload and historical audit exact.
+2. Replacement generations may inherit the previous retained catalog snapshot when the caller omits it; the initial native Assignment must always provide the complete snapshot. This removes repeated caller plumbing without allowing semantic drift.
+3. The implementation is larger than the initial estimate because the pinned `ToolContract` package has no decoder and because historical correctness required exact v1/v2 decoding plus event-level Doctor validation. The added structure remains local to Harness semantics and disposition; no service, database, daemon, Provider feature, or workflow language was introduced.
+
+No live model call was required: E1–E2 change Host semantics and auditability rather than model behavior. Existing frozen OH3–OH5 evidence remains the model/Runtime lifecycle evidence.
 
 ## Decision
 
@@ -35,7 +100,7 @@ pure NativeRunDisposition derivation ── never a second durable truth
 
 E1 establishes the durable semantic catalog. E2 centralizes decisions that consume it. Neither stage implements durable Tool-step continuation.
 
-## Findings from the current code
+## Findings from the pre-implementation code
 
 ### Provider schema and Host semantics are currently conflated in one catalog digest
 
@@ -76,9 +141,9 @@ This correctly answers what one Assignment permits. It does not answer what a gr
 
 Adding one aggregate consequence flag to `ToolGrant` would mix authority with catalog semantics and would not prove where that aggregate came from.
 
-### Recovery currently classifies by Tool name
+### Recovery previously classified by Tool name
 
-`native_tool_grant_effect_class()` contains the complete current policy:
+Before E1, `native_tool_grant_effect_class()` contained the complete policy:
 
 ```text
 run_check / run_in_workspace → process effect possible
@@ -228,7 +293,7 @@ The snapshot is stored in Host CAS as:
 kind = harness-runtime-catalog
 ```
 
-The existing Assignment `toolCatalogDigest` remains the semantic digest. A native Run Contract additionally binds the exact catalog object digest.
+The Assignment `toolCatalogDigest` binds the canonical digest of the complete snapshot object. The snapshot separately retains `semanticDigest` and revision identity, and a native Run Contract additionally binds the exact catalog object digest.
 
 ### Persistence changes
 
@@ -243,7 +308,7 @@ Assignment event.toolCatalogObjectDigest
 
 `CommittedHarnessAssignment` retains the decoded snapshot and StoredObject.
 
-The Runtime bridge rediscovers the live Runtime catalog and compares the complete new semantic digest before exposing Tools.
+The Runtime bridge rediscovers the live Runtime catalog and compares the canonical digest of the complete snapshot against the committed Assignment before exposing Tools.
 
 Recovery uses the retained snapshot, not the current binary's static Tool-name switch, even when Runtime is unavailable.
 
@@ -488,7 +553,7 @@ Deferred. The current Trace is digest-bound but not fully decoded and cross-chec
 
 ## Cost and benefit
 
-E1–E2 are not expected to reduce total line count immediately. A realistic implementation may add approximately 250–400 production lines and 400–700 test lines while deleting 80–150 lines of duplicated switches and projections.
+E1–E2 did not reduce total line count immediately. The implementation added two focused production modules, strict v1/v2 compatibility and historical validation, plus a dedicated 12-test matrix. This exceeded the early line estimate because historical semantic reconstruction required more code than the live-path refactor itself.
 
 The justification is semantic, not cosmetic:
 
@@ -506,7 +571,7 @@ E3 design may begin only when:
 1. every current Tool is catalog-bound through a durable semantic snapshot;
 2. current and historical Assignments fail closed on missing semantics;
 3. one pure disposition result drives Host replacement, Recovery, Handoff and historical validation;
-4. all 243 closure tests and new E1–E2 tests pass;
+4. all 255 deterministic tests pass under the exact pinned Protocol;
 5. no OH1–OH5 live evidence changes meaning.
 
-E3 should then target only prebound `run_check(checkId)` and establish durable Tool-step intent before Runtime delivery.
+All five E1–E2 promotion conditions are now satisfied. E3 is eligible for a separate design review, but it has not started. E3 should target only prebound `run_check(checkId)` and establish durable Tool-step intent before Runtime delivery.
