@@ -6,10 +6,19 @@ from typing import Protocol
 from anc_canonical import JsonValue, canonical_digest, validate_json_value
 
 from ...effects import ArtifactRef
-from ...runtime import RuntimeClient, RuntimeClientError, RuntimeProtocolError, RuntimeToolRejected
+from ...runtime import (
+    RuntimeClient,
+    RuntimeClientError,
+    RuntimeProtocolError,
+    RuntimeToolRejected,
+)
 from ...runtime.jobs import find_jobs_by_client_request
 from ..host import CommittedHarnessAssignment
 from ..runtime_refs import build_harness_workspace_exec_request
+from ..tool_semantics import (
+    NativeToolCatalogSnapshot,
+    build_native_tool_catalog_snapshot,
+)
 from .model import AgentToolCall, AgentToolDefinition
 
 
@@ -36,7 +45,8 @@ class ToolObservation:
             raise ValueError(f"unsupported Tool Observation status: {self.status}")
         validate_json_value(self.structured_content)
         if self.runtime_job_ref is not None and (
-            not self.runtime_job_ref or self.runtime_job_ref != self.runtime_job_ref.strip()
+            not self.runtime_job_ref
+            or self.runtime_job_ref != self.runtime_job_ref.strip()
         ):
             raise ValueError("Runtime Job reference must be trimmed")
         refs = [item.ref for item in self.artifact_refs]
@@ -85,22 +95,7 @@ class ToolBridge(Protocol):
     def execute(self, call: AgentToolCall, *, step_id: str) -> ToolObservation: ...
 
 
-@dataclass(frozen=True, slots=True)
-class HarnessRuntimeCatalog:
-    revision: str
-    digest: str
-    runtime_operations: tuple[str, ...]
-    model_tools: tuple[AgentToolDefinition, ...]
-
-    def to_dict(self) -> dict[str, JsonValue]:
-        return {
-            "schemaVersion": 1,
-            "kind": "ordivon.harness-runtime-catalog",
-            "revision": self.revision,
-            "digest": self.digest,
-            "runtimeOperations": list(self.runtime_operations),
-            "modelTools": [tool.to_dict() for tool in self.model_tools],
-        }
+HarnessRuntimeCatalog = NativeToolCatalogSnapshot
 
 
 _RUNTIME_OPERATIONS = (
@@ -114,7 +109,9 @@ _RUNTIME_OPERATIONS = (
 )
 
 
-def _object_schema(properties: dict[str, JsonValue], required: tuple[str, ...] = ()) -> dict[str, JsonValue]:
+def _object_schema(
+    properties: dict[str, JsonValue], required: tuple[str, ...] = ()
+) -> dict[str, JsonValue]:
     return {
         "type": "object",
         "additionalProperties": False,
@@ -174,7 +171,11 @@ def model_tool_definitions() -> tuple[AgentToolDefinition, ...]:
             _object_schema(
                 {
                     "executable": string,
-                    "args": {"type": "array", "items": {"type": "string"}, "maxItems": 128},
+                    "args": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "maxItems": 128,
+                    },
                     "cwdRelative": {"type": "string"},
                     "env": {"type": "object"},
                     "timeoutMs": integer,
@@ -224,7 +225,9 @@ def discover_harness_runtime_catalog(runtime: RuntimeClient) -> HarnessRuntimeCa
         if not isinstance(name, str) or not name:
             raise RuntimeProtocolError("Runtime Tool descriptor has no operation name")
         if name in raw_catalog:
-            raise RuntimeProtocolError(f"Runtime Tool catalog repeats operation: {name}")
+            raise RuntimeProtocolError(
+                f"Runtime Tool catalog repeats operation: {name}"
+            )
         selected: dict[str, JsonValue] = {
             "name": name,
             "inputSchema": raw.get("inputSchema"),
@@ -233,23 +236,16 @@ def discover_harness_runtime_catalog(runtime: RuntimeClient) -> HarnessRuntimeCa
         }
         validate_json_value(selected)
         raw_catalog[name] = selected
-    missing = [operation for operation in _RUNTIME_OPERATIONS if operation not in raw_catalog]
+    missing = [
+        operation for operation in _RUNTIME_OPERATIONS if operation not in raw_catalog
+    ]
     if missing:
-        raise RuntimeProtocolError(f"Runtime Harness catalog is missing operations: {missing}")
+        raise RuntimeProtocolError(
+            f"Runtime Harness catalog is missing operations: {missing}"
+        )
     model_tools = model_tool_definitions()
-    projection: dict[str, JsonValue] = {
-        "schemaVersion": 1,
-        "kind": "ordivon.harness-runtime-catalog-projection",
-        "runtimeTools": [raw_catalog[name] for name in _RUNTIME_OPERATIONS],
-        "modelTools": [tool.to_dict() for tool in model_tools],
-    }
-    digest = canonical_digest(projection)
-    return HarnessRuntimeCatalog(
-        revision=f"harness-runtime-catalog:{digest[7:]}",
-        digest=digest,
-        runtime_operations=_RUNTIME_OPERATIONS,
-        model_tools=model_tools,
-    )
+    descriptors = tuple(raw_catalog[name] for name in _RUNTIME_OPERATIONS)
+    return build_native_tool_catalog_snapshot(descriptors, model_tools)
 
 
 class RuntimeToolBridge:
@@ -271,10 +267,37 @@ class RuntimeToolBridge:
         self.runtime = runtime
         self.tool_grant = committed.tool_grant
         if committed.native_run_contract is not None:
+            native = committed.native_run_contract
             if self.tool_grant is None:
                 raise ValueError("native Harness Runtime bridge requires a Tool Grant")
-            if committed.native_run_contract.harness_run_id != harness_run_id:
-                raise ValueError("Runtime bridge Harness Run differs from native Run Contract")
+            if native.harness_run_id != harness_run_id:
+                raise ValueError(
+                    "Runtime bridge Harness Run differs from native Run Contract"
+                )
+            if native.tool_catalog_object_digest is not None:
+                if (
+                    committed.tool_catalog is None
+                    or committed.tool_catalog_object is None
+                ):
+                    raise ValueError(
+                        "v2 native Harness Runtime bridge requires its retained Tool catalog"
+                    )
+                if (
+                    committed.tool_catalog.digest
+                    != committed.assignment.tool_catalog_digest
+                    or committed.tool_catalog_object.digest
+                    != native.tool_catalog_object_digest
+                ):
+                    raise ValueError(
+                        "retained native Tool catalog differs from the Assignment"
+                    )
+            elif (
+                committed.tool_catalog is not None
+                or committed.tool_catalog_object is not None
+            ):
+                raise ValueError(
+                    "v1 native Harness Run cannot retain a v2 Tool catalog"
+                )
         self._known_job_ids: set[str] = set()
         self._known_artifacts: set[tuple[str, str]] = set()
         self.catalog = discover_harness_runtime_catalog(runtime)
@@ -297,7 +320,9 @@ class RuntimeToolBridge:
                 properties = dict(schema["properties"])
                 properties["checkId"] = {
                     "type": "string",
-                    "enum": [item.check_id for item in self.tool_grant.execution_checks],
+                    "enum": [
+                        item.check_id for item in self.tool_grant.execution_checks
+                    ],
                 }
                 schema["properties"] = properties
                 retained.append(
@@ -309,7 +334,9 @@ class RuntimeToolBridge:
 
     def execute(self, call: AgentToolCall, *, step_id: str) -> ToolObservation:
         if self.tool_grant is not None and not self.tool_grant.allows_tool(call.name):
-            raise ToolBridgeError(f"Tool is not granted for this Assignment: {call.name}")
+            raise ToolBridgeError(
+                f"Tool is not granted for this Assignment: {call.name}"
+            )
         if call.tool_call_id in self._seen_tool_calls:
             raise ToolBridgeError(f"duplicate Tool Call identity: {call.tool_call_id}")
         self._seen_tool_calls.add(call.tool_call_id)
@@ -343,9 +370,7 @@ class RuntimeToolBridge:
             relative_path = _required_string(arguments, "relativePath", call.name)
             if self.tool_grant is not None:
                 try:
-                    allowed_path = self.tool_grant.allows_path(
-                        call.name, relative_path
-                    )
+                    allowed_path = self.tool_grant.allows_path(call.name, relative_path)
                 except ValueError as error:
                     raise ToolBridgeError(str(error)) from error
                 if not allowed_path:
@@ -360,7 +385,9 @@ class RuntimeToolBridge:
                     "relativePath": relative_path,
                     "mode": _optional_string(arguments, "mode", "FULL"),
                     "offset": _optional_int(arguments, "offset", 0),
-                    "maxBytes": _optional_int(arguments, "maxBytes", 262_144, positive=True),
+                    "maxBytes": _optional_int(
+                        arguments, "maxBytes", 262_144, positive=True
+                    ),
                 },
                 None,
             )
@@ -368,11 +395,15 @@ class RuntimeToolBridge:
             _only(arguments, {"mutations"}, call.name)
             mutations = arguments.get("mutations")
             if not isinstance(mutations, list) or not mutations:
-                raise ToolBridgeError("mutate_workspace mutations must be a non-empty list")
+                raise ToolBridgeError(
+                    "mutate_workspace mutations must be a non-empty list"
+                )
             if self.tool_grant is not None:
                 for mutation in mutations:
                     if not isinstance(mutation, dict):
-                        raise ToolBridgeError("mutate_workspace mutations must be objects")
+                        raise ToolBridgeError(
+                            "mutate_workspace mutations must be objects"
+                        )
                     relative_path = mutation.get("relativePath")
                     if not isinstance(relative_path, str):
                         raise ToolBridgeError(
@@ -402,7 +433,9 @@ class RuntimeToolBridge:
                 {
                     "schemaVersion": 1,
                     "workspaceId": workspace_id,
-                    "maxBytes": _optional_int(arguments, "maxBytes", 1_048_576, positive=True),
+                    "maxBytes": _optional_int(
+                        arguments, "maxBytes", 1_048_576, positive=True
+                    ),
                 },
                 None,
             )
@@ -463,7 +496,9 @@ class RuntimeToolBridge:
             _only(arguments, allowed, call.name)
             executable = _required_string(arguments, "executable", call.name)
             raw_args = arguments.get("args", [])
-            if not isinstance(raw_args, list) or any(not isinstance(item, str) for item in raw_args):
+            if not isinstance(raw_args, list) or any(
+                not isinstance(item, str) for item in raw_args
+            ):
                 raise ToolBridgeError("run_in_workspace args must be strings")
             raw_env = arguments.get("env", {})
             if not isinstance(raw_env, dict) or any(
@@ -481,11 +516,19 @@ class RuntimeToolBridge:
                     cwd_relative=_optional_string(arguments, "cwdRelative", "."),
                     env=dict(raw_env),
                     timeout_ms=_optional_int(arguments, "timeoutMs", 30_000),
-                    stdout_limit_bytes=_optional_int(arguments, "stdoutLimitBytes", 262_144),
-                    stderr_limit_bytes=_optional_int(arguments, "stderrLimitBytes", 262_144),
+                    stdout_limit_bytes=_optional_int(
+                        arguments, "stdoutLimitBytes", 262_144
+                    ),
+                    stderr_limit_bytes=_optional_int(
+                        arguments, "stderrLimitBytes", 262_144
+                    ),
                     wait_ms=_optional_int(arguments, "waitMs", 0),
-                    stdout_tail_bytes=_optional_int(arguments, "stdoutTailBytes", 8_192),
-                    stderr_tail_bytes=_optional_int(arguments, "stderrTailBytes", 8_192),
+                    stdout_tail_bytes=_optional_int(
+                        arguments, "stdoutTailBytes", 8_192
+                    ),
+                    stderr_tail_bytes=_optional_int(
+                        arguments, "stderrTailBytes", 8_192
+                    ),
                 )
             except ValueError as error:
                 raise ToolBridgeError(str(error)) from error
@@ -494,18 +537,28 @@ class RuntimeToolBridge:
                 raise ToolBridgeError("Runtime request omitted clientRequestId")
             return "workspace.exec", request, client_request_id
         if call.name == "observe_job":
-            _only(arguments, {"jobId", "waitMs", "stdoutTailBytes", "stderrTailBytes"}, call.name)
+            _only(
+                arguments,
+                {"jobId", "waitMs", "stdoutTailBytes", "stderrTailBytes"},
+                call.name,
+            )
             job_id = _required_string(arguments, "jobId", call.name)
             if self.tool_grant is not None and job_id not in self._known_job_ids:
-                raise ToolBridgeError("observe_job may only observe a Job created by this Run")
+                raise ToolBridgeError(
+                    "observe_job may only observe a Job created by this Run"
+                )
             return (
                 "task.observe",
                 {
                     "schemaVersion": 1,
                     "jobId": job_id,
                     "waitMs": _optional_int(arguments, "waitMs", 0),
-                    "stdoutTailBytes": _optional_int(arguments, "stdoutTailBytes", 8_192),
-                    "stderrTailBytes": _optional_int(arguments, "stderrTailBytes", 8_192),
+                    "stdoutTailBytes": _optional_int(
+                        arguments, "stdoutTailBytes", 8_192
+                    ),
+                    "stderrTailBytes": _optional_int(
+                        arguments, "stderrTailBytes", 8_192
+                    ),
                 },
                 None,
             )
@@ -527,7 +580,9 @@ class RuntimeToolBridge:
                     "jobId": job_id,
                     "artifactId": artifact_id,
                     "offset": _optional_int(arguments, "offset", 0),
-                    "maxBytes": _optional_int(arguments, "maxBytes", 262_144, positive=True),
+                    "maxBytes": _optional_int(
+                        arguments, "maxBytes", 262_144, positive=True
+                    ),
                 },
                 None,
             )
@@ -601,10 +656,10 @@ class RuntimeToolBridge:
             raw_artifacts = payload.get("artifacts")
             if isinstance(raw_artifacts, list):
                 for item in raw_artifacts:
-                    if isinstance(item, dict) and isinstance(item.get("artifactId"), str):
-                        self._known_artifacts.add(
-                            (runtime_job_ref, item["artifactId"])
-                        )
+                    if isinstance(item, dict) and isinstance(
+                        item.get("artifactId"), str
+                    ):
+                        self._known_artifacts.add((runtime_job_ref, item["artifactId"]))
         return ToolObservation(
             tool_call_id=call.tool_call_id,
             tool_name=call.name,
@@ -643,7 +698,11 @@ def _extract_artifacts(payload: dict[str, JsonValue]) -> tuple[ArtifactRef, ...]
         artifact_id = item.get("artifactId")
         digest = item.get("digest")
         kind = item.get("kind")
-        if isinstance(artifact_id, str) and isinstance(digest, str) and isinstance(kind, str):
+        if (
+            isinstance(artifact_id, str)
+            and isinstance(digest, str)
+            and isinstance(kind, str)
+        ):
             try:
                 refs.append(ArtifactRef(ref=artifact_id, kind=kind, digest=digest))
             except ValueError:
@@ -658,7 +717,9 @@ def _only(arguments: dict[str, JsonValue], allowed: set[str], tool_name: str) ->
         raise ToolBridgeError(f"{tool_name} received unknown fields: {unknown}")
 
 
-def _required_string(arguments: dict[str, JsonValue], field: str, tool_name: str) -> str:
+def _required_string(
+    arguments: dict[str, JsonValue], field: str, tool_name: str
+) -> str:
     value = arguments.get(field)
     if not isinstance(value, str) or not value or value != value.strip():
         raise ToolBridgeError(f"{tool_name} requires trimmed string {field}")

@@ -47,14 +47,25 @@ from .models import (
     HarnessRunReceipt,
     TaskAttemptDescriptor,
 )
-from .recovery import (
-    NativeRunAbandonment,
-    NativeRunRecoveryAssessment,
-    native_tool_grant_effect_class,
+from .disposition import (
+    CompletionRoute,
+    NativeRunDisposition,
+    NativeRunFacts,
+    NativeRunOperatorAction,
+    NativeRunPhase,
+    ReplacementScope,
+    derive_native_run_disposition,
 )
+from .recovery import NativeRunAbandonment, NativeRunRecoveryAssessment
 from .recovery_controller import (
     NativeRunRecoveryController,
     NativeRunRecoveryResult,
+)
+from .tool_semantics import (
+    NativeToolCatalogSnapshot,
+    NativeToolRecoveryConsequence,
+    NativeToolSpec,
+    legacy_grant_recovery_consequence,
 )
 from .runtime_refs import (
     HostRuntimeReference,
@@ -97,23 +108,33 @@ __all__ = [
     "HarnessRunReceipt",
     "HarnessSuperseded",
     "HostRuntimeReference",
+    "CompletionRoute",
     "NativeHarnessRunContract",
+    "NativeRunDisposition",
+    "NativeRunFacts",
+    "NativeRunOperatorAction",
+    "NativeRunPhase",
     "NativeRunAbandonment",
     "NativeRunRecoveryAssessment",
     "NativeRunRecoveryController",
     "NativeRunRecoveryResult",
+    "NativeToolCatalogSnapshot",
+    "NativeToolRecoveryConsequence",
+    "NativeToolSpec",
     "PreparedHarnessAttempt",
     "ProposedCompletion",
     "RecordedHarnessRun",
     "RecordedNativeRunAbandonment",
     "RecordedNativeRunRecovery",
+    "ReplacementScope",
     "TaskAttemptDescriptor",
     "TaskContract",
     "ToolGrant",
     "build_harness_workspace_exec_request",
     "harness_run_runtime_binding_digest",
     "harness_runtime_client_request_id",
+    "derive_native_run_disposition",
     "host_runtime_references",
-    "native_tool_grant_effect_class",
+    "legacy_grant_recovery_consequence",
     "task_runtime_binding_digest",
 ]

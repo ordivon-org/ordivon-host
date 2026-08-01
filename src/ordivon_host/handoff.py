@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from anc_canonical import JsonValue, canonical_digest
 
 from .domain import EventKind, TaskState
+from .harness.disposition import NativeRunPhase, projected_native_run_disposition
 from .storage import HostStorage
 
 
@@ -105,26 +106,40 @@ def operator_handoff(storage: HostStorage, task_id: str) -> OperatorHandoffCapsu
     if snapshot.event_kind in {EventKind.EFFECT_OUTCOME_UNKNOWN, EventKind.RUNTIME_OUTCOME_UNKNOWN}:
         next_admissible = ("reconcile-existing-dispatch",)
     elif snapshot.event_kind is EventKind.HARNESS_ASSIGNMENT_COMMITTED:
-        next_admissible = ("run-current-harness-assignment",)
-    elif snapshot.event_kind is EventKind.HARNESS_RUN_RECOVERY_RECORDED:
-        next_admissible = (
-            ("abandon-current-harness-run",)
-            if data.get("harnessRunRecoverySafeToAbandon") is True
-            else ("reconcile-current-harness-run-unknown",)
+        disposition = projected_native_run_disposition(
+            phase=NativeRunPhase.ASSIGNED_UNRECORDED
         )
+        next_admissible = (disposition.operator_action.value,)
+    elif snapshot.event_kind is EventKind.HARNESS_RUN_RECOVERY_RECORDED:
+        disposition = projected_native_run_disposition(
+            phase=NativeRunPhase.RECOVERY_RECORDED,
+            recovery_safe_to_abandon=(
+                data.get("harnessRunRecoverySafeToAbandon") is True
+            ),
+        )
+        next_admissible = (disposition.operator_action.value,)
     elif snapshot.event_kind is EventKind.HARNESS_RUN_ABANDONED:
-        next_admissible = ("replace-harness-assignment",)
+        disposition = projected_native_run_disposition(phase=NativeRunPhase.ABANDONED)
+        next_admissible = (disposition.operator_action.value,)
     elif snapshot.event_kind is EventKind.HARNESS_RUN_RECORDED:
         termination = data.get("harnessRunTerminationCode")
         replacement_allowed = data.get("harnessRunReplacementAllowed")
-        if termination == "runtime_unknown":
-            next_admissible = ("reconcile-current-harness-run-unknown",)
-        elif termination == "candidate_completed":
-            next_admissible = (
-                ("replace-harness-or-propose-completion",)
-                if replacement_allowed is not False
-                else ("propose-completion-from-current-harness-run",)
+        if replacement_allowed is not None and type(replacement_allowed) is not bool:
+            raise ValueError("recorded Harness Run replacement projection is invalid")
+        native_run = isinstance(
+            data.get("nativeHarnessRunContractObjectDigest"), str
+        )
+        if native_run:
+            if not isinstance(termination, str):
+                raise ValueError(
+                    "recorded native Harness Run omitted its termination projection"
+                )
+            disposition = projected_native_run_disposition(
+                phase=NativeRunPhase.RUN_RECORDED,
+                termination_code=termination,
+                replacement_allowed=replacement_allowed,
             )
+            next_admissible = (disposition.operator_action.value,)
         elif replacement_allowed is False:
             next_admissible = ("verify-current-harness-run-before-replacement",)
         else:
