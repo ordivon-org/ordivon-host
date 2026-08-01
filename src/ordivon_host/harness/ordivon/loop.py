@@ -6,7 +6,7 @@ import threading
 import time
 from typing import Callable
 
-from anc_canonical import JsonValue, canonical_bytes
+from anc_canonical import JsonValue, canonical_bytes, canonical_digest
 
 from .events import HarnessTrace, TraceRecorder
 from .model import (
@@ -30,6 +30,7 @@ class RunStopCode(str, Enum):
     PROVIDER_REJECTED = "provider_rejected"
     PROVIDER_UNAVAILABLE = "provider_unavailable"
     INVALID_TOOL_CALL = "invalid_tool_call"
+    TOOL_CATALOG_MISMATCH = "tool_catalog_mismatch"
     RUNTIME_UNKNOWN = "runtime_unknown"
     INVALID_MODEL_OUTPUT = "invalid_model_output"
 
@@ -105,11 +106,24 @@ class OrdivonAgentLoop:
         tool_bridge: ToolBridge,
         *,
         budget: RunBudget,
+        expected_tool_definition_digest: str | None = None,
         clock_ms: Callable[[], int] | None = None,
     ) -> None:
+        if expected_tool_definition_digest is not None and (
+            len(expected_tool_definition_digest) != 71
+            or not expected_tool_definition_digest.startswith("sha256:")
+            or any(
+                character not in "0123456789abcdef"
+                for character in expected_tool_definition_digest[7:]
+            )
+        ):
+            raise ValueError(
+                "expected model-facing Tool-definition digest must be sha256:<64 lowercase hex>"
+            )
         self.adapter = adapter
         self.tool_bridge = tool_bridge
         self.budget = budget
+        self.expected_tool_definition_digest = expected_tool_definition_digest
         self.clock_ms = clock_ms or (lambda: time.time_ns() // 1_000_000)
 
     def run(
@@ -137,6 +151,7 @@ class OrdivonAgentLoop:
                 "assignmentId": assignment_id,
                 "contextDigest": context_digest,
                 "toolCatalogDigest": self.tool_bridge.catalog_digest,
+                "expectedToolDefinitionDigest": self.expected_tool_definition_digest,
                 "adapterId": self.adapter.adapter_id,
                 "modelId": self.adapter.model_id,
             },
@@ -184,6 +199,29 @@ class OrdivonAgentLoop:
                 return stop(RunStopCode.CANCELLED)
             if model_calls >= self.budget.max_model_calls or elapsed_ms() >= self.budget.max_wall_time_ms:
                 return stop(RunStopCode.BUDGET_EXHAUSTED)
+            tools = self.tool_bridge.definitions()
+            observed_tool_definition_digest = canonical_digest(
+                [tool.to_dict() for tool in tools]
+            )
+            if (
+                self.expected_tool_definition_digest is not None
+                and observed_tool_definition_digest
+                != self.expected_tool_definition_digest
+            ):
+                recorder.record(
+                    "tool_catalog_integrity_failed",
+                    {
+                        "expectedToolDefinitionDigest": self.expected_tool_definition_digest,
+                        "observedToolDefinitionDigest": observed_tool_definition_digest,
+                    },
+                )
+                return stop(
+                    RunStopCode.TOOL_CATALOG_MISMATCH,
+                    detail=(
+                        "model-facing Tool definitions differ from the "
+                        "Assignment-bound definition projection"
+                    ),
+                )
             sequence = model_calls + 1
             turn_id = f"turn:{harness_run_id.removeprefix('harness-run:')}:{sequence}"
             request = AgentTurnRequest(
@@ -194,7 +232,7 @@ class OrdivonAgentLoop:
                 context_digest=context_digest,
                 tool_catalog_digest=self.tool_bridge.catalog_digest,
                 messages=tuple(messages),
-                tools=self.tool_bridge.definitions(),
+                tools=tools,
                 remaining_budget=self.budget.remaining(
                     model_calls=model_calls,
                     tool_calls=tool_calls,

@@ -147,6 +147,66 @@ class OrdivonHarnessOH1Tests(unittest.TestCase):
         self.assertEqual(kinds[-1], "run_stopped")
         self.assertTrue(result.trace.digest.startswith("sha256:"))
 
+    def test_tool_definition_mismatch_stops_before_provider_call(self) -> None:
+        class _PoisonedBridge(_Bridge):
+            def definitions(self) -> tuple[AgentToolDefinition, ...]:
+                original = super().definitions()[0]
+                return (
+                    AgentToolDefinition(
+                        original.name,
+                        original.description + " uncommitted overlay",
+                        dict(original.input_schema),
+                    ),
+                )
+
+        adapter = ScriptedTurnAdapter(
+            (
+                _result(
+                    "unused-catalog-mismatch",
+                    conclusion=AgentRunConclusion("needs_input", "unused"),
+                ),
+            )
+        )
+        committed_definitions = _Bridge().definitions()
+        expected = canonical_digest(
+            [tool.to_dict() for tool in committed_definitions]
+        )
+        result = OrdivonAgentLoop(
+            adapter,
+            _PoisonedBridge(),
+            budget=RunBudget(2, 2, 64_000, 10_000),
+            expected_tool_definition_digest=expected,
+            clock_ms=_Clock(),
+        ).run(
+            harness_run_id="harness-run:test-tool-catalog-mismatch",
+            assignment_id="assignment:test-tool-catalog-mismatch",
+            context_digest=canonical_digest({"context": "catalog-mismatch"}),
+            initial_messages=({"role": "user", "content": "inspect"},),
+        )
+        self.assertEqual(result.stop_code, RunStopCode.TOOL_CATALOG_MISMATCH)
+        self.assertEqual(result.model_calls, 0)
+        self.assertFalse(adapter.requests)
+        self.assertEqual(
+            [event.kind for event in result.trace.events],
+            ["run_started", "tool_catalog_integrity_failed", "run_stopped"],
+        )
+
+    def test_invalid_expected_tool_definition_digest_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Tool-definition digest"):
+            OrdivonAgentLoop(
+                ScriptedTurnAdapter(
+                    (
+                        _result(
+                            "unused-invalid-digest",
+                            conclusion=AgentRunConclusion("needs_input", "unused"),
+                        ),
+                    )
+                ),
+                _Bridge(),
+                budget=RunBudget(2, 2, 64_000, 10_000),
+                expected_tool_definition_digest="sha256:not-a-digest",
+            )
+
     def test_model_budget_stops_before_an_unavailable_next_turn(self) -> None:
         call = AgentToolCall(
             "tool-call:read-budget",

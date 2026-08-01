@@ -8,6 +8,7 @@ from anc_canonical import JsonValue, canonical_digest, validate_json_value
 
 _EVENT_KINDS = {
     "run_started",
+    "tool_catalog_integrity_failed",
     "model_call_started",
     "model_call_completed",
     "tool_call_proposed",

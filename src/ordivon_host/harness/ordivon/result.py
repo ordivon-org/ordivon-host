@@ -19,6 +19,7 @@ _STOP_CLASS = {
     RunStopCode.PROVIDER_REJECTED: "failed",
     RunStopCode.PROVIDER_UNAVAILABLE: "failed",
     RunStopCode.INVALID_TOOL_CALL: "failed",
+    RunStopCode.TOOL_CATALOG_MISMATCH: "failed",
     RunStopCode.RUNTIME_UNKNOWN: "unknown",
     RunStopCode.INVALID_MODEL_OUTPUT: "failed",
 }
