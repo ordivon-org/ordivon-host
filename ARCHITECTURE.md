@@ -2,11 +2,11 @@
 
 This architecture was falsified and reduced in the Computing incubator before the independent repository was created. The extracted repository retains the proven v0 boundary while product and operational work proceed as separately reviewable changes.
 
-`docs/P0_P1_ALIGNMENT.md` records the post-audit correctness and stack-alignment changes. `docs/H_SERIES_OPEN_PROPOSAL.md` records the first open-cognition extension. Where this historical derivation conflicts with either later record, the later evidence-backed record is authoritative. A universal H7 scheduler remains frozen.
+`docs/P0_P1_ALIGNMENT.md` records the post-audit correctness and stack-alignment changes. `docs/HARNESS_EXTRACTION.md` records the later removal of Agent Harness implementation from this repository. A universal H7 scheduler remains frozen.
 
 ## Ownership
 
-- **Host** owns Goals, Tasks, Task Contracts, Host events and projections, Context compilation, ModelInvocation identity, Harness Assignments and native Run intent, Assignment-scoped Tool Grants, proposal compilation or closed-choice admission, Effect commitments, Tool bindings, retained Run evidence, verification receipts, participant-routed decisions, and Task outcomes.
+- **Host** owns Goals, Tasks, generic Host events and projections, Context compilation, ModelInvocation identity, proposal compilation or closed-choice admission, Effect commitments, Tool bindings, verification receipts, participant-routed decisions, and Task outcomes. It admits bounded extension event kinds and immutable references without importing extension-specific schemas.
 - **Runtime** owns Workspaces, committed physical Jobs, Runtime Attempts, process state, retained output, Artifacts, cancellation, and physical recovery.
 - **Domain systems** own authoritative world state, transition rules, domain coordination policy, and domain-specific verification sufficiency.
 - **Computing** owns promoted protocol definitions, reference behavior, conformance vectors, experiments, and evidence.
@@ -178,48 +178,37 @@ The profile proves:
 
 The profile is Host-local and experimental. No universal planning language or promoted Protocol object is implied.
 
-## Native Harness Run contract
+## Independent Harness extension boundary
 
-The first-party bare-model Harness retains the H1–H5 Host boundary but closes its native control plane before execution:
+Agent Harness implementation no longer lives in this repository. It was extracted with source history into the independently versioned `ordivon-harness` repository.
 
-```text
-TaskContract + TaskAttemptDescriptor
-→ CompiledContext CAS
-→ HarnessAssignment + ToolGrant + NativeHarnessRunContract
-→ Provider / Runtime activity
-→ persisted Trace + ToolObservations + conclusion + HarnessRunReceipt
-→ Host-derived CompletionProposal
-→ persisted CompletionVerification
-→ CompletionDecision / TaskOutcome
-```
-
-One native Assignment generation authorizes one durable Harness Run identity. The Assignment event commits the Task Contract, Tool Grant and Run Contract object references before any Provider or Runtime call. A fresh Host can therefore reconstruct the Run identity and authority without Provider process state.
-
-The Runtime catalog expresses connected physical capability; `ToolGrant` expresses the smaller Assignment-authorized model surface. Native Runs expose only granted Tools and paths. Prebound `run_check(checkId)` is preferred to opaque execution. Generic `run_in_workspace` requires an explicit opaque-exec grant. Observation Jobs and Artifacts remain accessible only after their identities have appeared in the current Run.
-
-The Host persists the complete native Trace, each Tool Observation, the model Run conclusion and the v2 Run receipt. Job and Artifact references must be derivable from those Observations. Model-declared evidence is advisory; the Host compiles the CompletionProposal from retained Run objects. Independent verifier output is retained as a `CompletionVerification` object before TaskOutcome.
-
-The first-party capability manifest declares cancellation between Turns rather than claiming in-flight Provider interruption. Provider Session continuation, parallel Tools, compaction, subagents and effectful external actions remain outside this verified slice.
-
-### Native Run fault and abandonment semantics
-
-A committed native Run Contract is not automatically replaceable merely because no `HarnessRunReceipt` exists. Absence of a receipt may mean the process died before any work, after a read, after a Workspace mutation, or after starting a process whose response was lost. OH5 therefore separates recovery evidence from abandonment authority:
+The dependency direction is deliberately one-way:
 
 ```text
-NativeHarnessRunContract with no receipt
-→ NativeRunRecoveryAssessment
-→ safe read-only cleanup?
-   ├─ yes → NativeRunAbandonment → replacement generation allowed
-   └─ no  → Task BLOCKED with explicit UNKNOWN → replacement forbidden
+ordivon-harness
+  Assignment / Run / Recovery / Completion
+  Provider-faithful adapters and bare-model execution
+             ↓
+ordivon-host
+  Task / Journal / CAS / Kernel / Runtime client
+             ↓
+ordivon-protocol
 ```
 
-The recovery controller re-discovers the Runtime catalog and attempts idempotent forced Workspace closure. Catalog drift is retained as evidence but is not itself an Effect UNKNOWN. Cleanup transport failure remains Workspace UNKNOWN and may be reassessed later.
+Host does not import `ordivon-harness`. The Host kernel accepts a bounded lowercase dotted event kind, stores it exactly in the Journal and event payload, and reconstructs it as an extension `EventKind` value after process restart. Generic Host Doctor validates event continuity, payload bytes, Task projections and every referenced CAS object. It deliberately does not decode Harness Assignment, Run or Recovery semantics.
 
-Automatic abandonment is limited to a read-only `ToolGrant` and a Workspace proven closed, already absent, or not applicable. A Grant containing `mutate_workspace`, `run_check`, or opaque `run_in_workspace` retains UNKNOWN after process loss even if the Workspace is later closed, because an unrecorded mutation or process effect may already have occurred. No missing Job inference converts that uncertainty into safety.
+The Harness extension owns:
 
-A recorded `runtime_unknown` receipt likewise blocks replacement. Other recorded terminal stops, including exact Provider timeout, transport failure, rejection and unavailability, may be replaced by a new Assignment generation only when the Run is read-only or has no Tool Observation, and must retain the same Workspace until a durable cleanup or release disposition exists. A recorded mutation/process-capable Observation requires verification, completion or a future explicit continuation protocol before replacement. Provider faults remain separately classified and are never automatically retried.
+- its event-kind constants;
+- Task Contract, Attempt, Assignment, Tool Grant and Run Contract models;
+- Provider adapters and the first-party bare-model loop;
+- Harness-aware operator handoff;
+- Harness semantic history validation and its own Doctor command;
+- Harness-specific tests, fixtures, live scripts, documents and evidence.
 
-Recovery and abandonment are Host CAS objects and Host events. Once recovery or abandonment advances the Task, a late result from the old process is superseded before Trace, Observation or receipt objects are written. Handoff exposes `reconcile-current-harness-run-unknown`, `abandon-current-harness-run`, or `replace-harness-assignment` according to the retained evidence.
+The objects are still stored in Host CAS and admitted by Host revision CAS because Host owns Task continuity. Code ownership and durable byte ownership are therefore distinct: an extension may define an object while the generic Host storage substrate preserves it.
+
+This split does not add a second database, a second Task projection, RPC between Host and Harness, or a compatibility shim under `ordivon_host.harness`.
 
 ## Capability and consequence separation
 

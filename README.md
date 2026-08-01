@@ -27,17 +27,14 @@ Current proven vertical slices:
 - immutable TaskDescriptor identity and Goal-scoped Task revision snapshots;
 - idempotent per-Task application of one joint VerificationReceipt with multiple result items;
 - recovery across fresh Host processes and local Runtime control-plane restarts;
-- Host-local Harness H1 contracts with durable Assignment generation, stale CompletionProposal rejection, required-Artifact and unresolved-UNKNOWN checks, and fresh-process recovery without a second database;
-- Harness H2 Runtime correlation with canonical `ordivon.host` Task, Task Attempt, Assignment, and Harness Run references, Assignment-bound request identity, live replay/conflict/terminal-evidence proof, and no new Runtime state owner;
-- Codex App Server H3 with a provider-faithful stdio driver, durable Thread/Turn and Tool-lifecycle evidence, Runtime-owned process execution, interrupt support, raw-event digest retention, and a live read-only Harness Run that leaves semantic completion with Host;
-- Hermes ACP H4 with a provider-faithful JSON-RPC stdio driver, Session provenance, cancel and fail-closed client-request handling, read-only Tool observation, usage and thought-event digest retention, and a live Runtime-owned Harness Run that leaves semantic completion with Host;
-- Harness H5 with both live Codex↔Hermes mid-Task replacement orders, one stable Task Attempt, fresh Assignment generation and Context, Artifact-first completion, stale-generation and missing-Artifact rejection, response-loss recovery without redispatch, and explicit rejection of a shared Provider lifecycle;
-- first-party Ordivon Harness OH1–OH5 with a real DeepSeek bare-model loop, Assignment-scoped Runtime ACI, durable Task/Run/Verification contracts, Assignment-bound Tool semantics, unified native Run disposition, fresh-Host completion, conservative Runtime UNKNOWN fencing, and evidence-backed read-only process-loss abandonment;
+- extension-safe Task events whose bounded dotted event kinds can be owned by independent workload repositories without adding Host package imports;
+- generic Host history and operator-handoff surfaces that preserve extension bytes, references, Task revision, UNKNOWN fences and ready frontiers without interpreting extension semantics;
+- a one-way integration boundary for the independently versioned `ordivon-harness` repository, which now owns Agent Assignment, Run, Recovery, Completion, Provider adapters and bare-model execution;
 - schema-v3 operational state, backup/restore, optional full-history Doctor, and measured 100,000-event behavior.
 
-The closed-choice path remains a useful deterministic and closed-domain profile. It is no longer treated as the only possible cognition interface. See `docs/H_SERIES_OPEN_PROPOSAL.md` for the first open-proposal boundary.
+The closed-choice path remains a useful deterministic and closed-domain profile. It is no longer treated as the only possible cognition interface. Agent Harness implementation and its historical evidence now live in the independent `ordivon-harness` repository.
 
-See `ARCHITECTURE.md`, `CLOSURE.md`, [`docs/ORDIVON_HARNESS_OH1_OH5_CLOSEOUT.md`](docs/ORDIVON_HARNESS_OH1_OH5_CLOSEOUT.md), `docs/ordivon-harness-v0.md`, `docs/PRE_H7_CLOSURE.md`, `docs/P0_P1_ALIGNMENT.md`, `docs/P2_P3_EXPLORATION.md`, `docs/H_SERIES_OPEN_PROPOSAL.md`, `docs/GAME_WORKLOAD_P0_P2.md`, [`docs/harness-boundary-stage1.md`](docs/harness-boundary-stage1.md), [`docs/harness-boundary-h5-decision.md`](docs/harness-boundary-h5-decision.md), and `evidence/` for exact boundaries, experiment decisions, and receipts.
+See `ARCHITECTURE.md`, `CLOSURE.md`, `docs/HARNESS_EXTRACTION.md`, `docs/PRE_H7_CLOSURE.md`, `docs/P0_P1_ALIGNMENT.md`, `docs/P2_P3_EXPLORATION.md`, `docs/GAME_WORKLOAD_P0_P2.md`, and `evidence/` for the retained Host boundary and receipts.
 
 ## Development
 

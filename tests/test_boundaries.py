@@ -30,6 +30,13 @@ class HostBoundaryTests(unittest.TestCase):
         self.assertTrue(callable(DeterministicReadHost))
         self.assertTrue(hasattr(RuntimeClient, "call_tool"))
 
+    def test_harness_implementation_is_not_bundled_in_host(self) -> None:
+        source = Path(__file__).resolve().parents[1] / "src" / "ordivon_host"
+        self.assertFalse((source / "harness").exists())
+        import ordivon_host
+
+        self.assertFalse(hasattr(ordivon_host, "HarnessHost"))
+
     def test_legacy_mutation_module_is_removed(self) -> None:
         source = Path(__file__).resolve().parents[1] / "src" / "ordivon_host" / "engine"
         self.assertFalse((source / "mutation_task.py").exists())
