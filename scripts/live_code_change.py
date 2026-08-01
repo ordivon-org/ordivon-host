@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+from pathlib import Path
+import stat
 import subprocess
 
 from anc_canonical import JsonValue
@@ -10,6 +12,7 @@ from ordivon_host import (
     CodeChangeHost,
     CodeChangePlan,
     CodeFileReplacement,
+    EventKind,
     ExecutionCheck,
     HostStorage,
     TaskState,
@@ -32,16 +35,22 @@ from ordivon_host.testing import (
 
 _SOURCE_PATH = "src/ordivon_host/ops/inspect.py"
 _TEST_PATH = "tests/test_operations.py"
-_SOURCE_OLD = '            "tasks": len(tasks),\n            "tasksByState": dict(sorted(states.items())),\n'
-_SOURCE_NEW = (
-    '            "tasks": len(tasks),\n'
-    '            "terminalTasks": sum(task.state.terminal for task in tasks),\n'
-    '            "tasksByState": dict(sorted(states.items())),\n'
+_SOURCE_OLD = (
+    '            "terminalTasks": terminal_count,\n'
+    '            "tasksByState": states,\n'
 )
-_TEST_OLD = '            self.assertEqual(inspection["tasks"], 1)\n            report = doctor_state(root, now_ms=10)\n'
-_TEST_NEW = (
-    '            self.assertEqual(inspection["tasks"], 1)\n'
+_SOURCE_NEW = (
+    '            "terminalTasks": terminal_count,\n'
+    '            "nonterminalTasks": task_count - terminal_count,\n'
+    '            "tasksByState": states,\n'
+)
+_TEST_OLD = (
     '            self.assertEqual(inspection["terminalTasks"], 0)\n'
+    '            report = doctor_state(root, now_ms=10)\n'
+)
+_TEST_NEW = (
+    '            self.assertEqual(inspection["terminalTasks"], 0)\n'
+    '            self.assertEqual(inspection["nonterminalTasks"], 1)\n'
     '            report = doctor_state(root, now_ms=10)\n'
 )
 
@@ -61,6 +70,8 @@ def parse_args() -> argparse.Namespace:
         "--repository-id", default="repository:ordivon-host"
     )
     parser.add_argument("--source-revision", required=True)
+    parser.add_argument("--runtime-revision", required=True)
+    parser.add_argument("--runtime-deployment-receipt", required=True)
     parser.add_argument("--state-root")
     parser.add_argument("--keep-state", action="store_true")
     return parser.parse_args()
@@ -193,22 +204,54 @@ def main() -> None:
                 break
         if reconciled is None or not reconciled.job_id:
             raise AssertionError("original code-change Runtime Job was not recovered")
+        close_loss = DropFirstSuccessfulToolResponse(
+            client("verify-close-loss"), "workspace.close"
+        )
+        try:
+            with HostStorage(state_root) as storage:
+                code_change_host(
+                    storage,
+                    close_loss,
+                    source_repo=args.source_repo,
+                    repository_id=args.repository_id,
+                ).verify(plan.task_id)
+        except RuntimeTransportError:
+            pass
+        else:
+            raise AssertionError("fenced Workspace close response loss was not injected")
+        if not close_loss.response_dropped:
+            raise AssertionError("workspace.close response loss did not occur")
         with HostStorage(state_root) as storage:
-            verified = code_change_host(
-                storage,
-                client("verify"),
-                source_repo=args.source_repo,
-                repository_id=args.repository_id,
-            ).verify(plan.task_id)
-            verification_snapshot = storage.read_task_event(plan.task_id)
-            if not isinstance(verification_snapshot.data, dict):
-                raise AssertionError("code-change verification event is not an object")
-            diff_digest = verification_snapshot.data.get("diffObjectDigest")
-            verification_digest = verification_snapshot.data.get("verificationDigest")
-            if not isinstance(diff_digest, str) or not isinstance(
-                verification_digest, str
+            prepared_verification_snapshot = storage.read_task_event(plan.task_id)
+            if (
+                prepared_verification_snapshot.event_kind
+                != EventKind.VERIFICATION_RECORDED
+                or prepared_verification_snapshot.projection.state
+                is not TaskState.VERIFYING
+                or not isinstance(prepared_verification_snapshot.data, dict)
             ):
-                raise AssertionError("code-change verification digests are missing")
+                raise AssertionError(
+                    "close response loss did not retain prepared Verification"
+                )
+            prepared_verification_revision = (
+                prepared_verification_snapshot.projection.revision
+            )
+            diff_digest = prepared_verification_snapshot.data.get("diffObjectDigest")
+            verification_digest = prepared_verification_snapshot.data.get(
+                "verificationDigest"
+            )
+            source_state_digest = prepared_verification_snapshot.data.get(
+                "sourceStateDigest"
+            )
+            if not all(
+                isinstance(value, str)
+                for value in (
+                    diff_digest,
+                    verification_digest,
+                    source_state_digest,
+                )
+            ):
+                raise AssertionError("prepared verification digests are missing")
             diff_value = storage.objects.get(
                 diff_digest, expected_kind="workspace-diff"
             )
@@ -217,9 +260,25 @@ def main() -> None:
                 expected_kind="code-change-verification-receipt",
             )
         with HostStorage(state_root) as storage:
+            verified = code_change_host(
+                storage,
+                client("verify-tombstone-replay"),
+                source_repo=args.source_repo,
+                repository_id=args.repository_id,
+            ).verify(plan.task_id)
+            accepted_snapshot = storage.read_task_event(plan.task_id)
+            if not isinstance(accepted_snapshot.data, dict):
+                raise AssertionError("accepted verification event is not an object")
+            workspace_close = accepted_snapshot.data.get("workspaceClose")
+            if (
+                not isinstance(workspace_close, dict)
+                or workspace_close.get("sourceStateDigest") != source_state_digest
+            ):
+                raise AssertionError("tombstone replay did not retain source state")
+        with HostStorage(state_root) as storage:
             closed = code_change_host(
                 storage,
-                client("close"),
+                client("complete"),
                 source_repo=args.source_repo,
                 repository_id=args.repository_id,
             ).close(plan.task_id)
@@ -235,14 +294,26 @@ def main() -> None:
             )
             event_count = storage.journal.event_count(plan.task_id)
             object_refs = storage.journal.object_refs()
+        state_modes = {
+            "stateRoot": oct(stat.S_IMODE(Path(state_root).stat().st_mode)),
+            "objects": oct(
+                stat.S_IMODE((Path(state_root) / "objects").stat().st_mode)
+            ),
+            "journal": oct(
+                stat.S_IMODE((Path(state_root) / "host.sqlite3").stat().st_mode)
+            ),
+        }
         audit = client("audit")
         jobs = jobs_for_request(audit, client_request_id)
         workspace_closed = workspace_absent(audit, plan.workspace_id)
         checks = {
             "responseDroppedAfterExecPlanAdmission": lossy.response_dropped,
+            "responseDroppedAfterFencedClose": close_loss.response_dropped,
             "unknownPersisted": unknown.revision == 4,
+            "preparedVerificationPersisted": prepared_verification_revision == 6,
             "freshHostStoragePerStage": True,
             "oneExecPlanInvocation": lossy.calls.count("workspace.execPlan") == 1,
+            "oneFencedCloseBeforeReplay": close_loss.calls.count("workspace.close") == 1,
             "oneRuntimeJobForRequest": len(jobs) == 1,
             "originalRuntimeJobRecovered": jobs[0].get("jobId") == reconciled.job_id,
             "allStructuredStepsCompleted": (
@@ -271,12 +342,18 @@ def main() -> None:
                 and not diff_value.get("untrackedPaths")
                 and diff_value.get("truncated") is False
             ),
+            "sourceStateBoundToClose": (
+                isinstance(source_state_digest, str)
+                and workspace_close.get("sourceStateDigest") == source_state_digest
+            ),
             "taskCompleted": (
                 closed.completed
                 and projection.state is TaskState.COMPLETED
-                and projection.revision == 7
+                and projection.revision == 8
             ),
             "runtimeWorkspaceClosed": workspace_closed,
+            "privateStateModes": state_modes
+            == {"stateRoot": "0o700", "objects": "0o700", "journal": "0o600"},
         }
         if not all(checks.values()):
             raise AssertionError(f"live code-change checks failed: {checks}")
@@ -284,7 +361,9 @@ def main() -> None:
             "schemaVersion": 1,
             "kind": "ordivon.host-live-code-change",
             "capturedAt": datetime.now(timezone.utc).isoformat(),
-            "hostRevision": "5076e6b42bcb65ddd9a3615e9215ebae18279ec9",
+            "hostRevision": args.source_revision,
+            "runtimeRevision": args.runtime_revision,
+            "runtimeDeploymentReceipt": args.runtime_deployment_receipt,
             "repositoryId": args.repository_id,
             "sourceRepoLocator": args.source_repo,
             "sourceRevision": args.source_revision,
@@ -299,12 +378,16 @@ def main() -> None:
             "reconciliation": reconciliation,
             "openedRevision": opened.revision,
             "unknownRevision": unknown.revision,
+            "preparedVerificationRevision": prepared_verification_revision,
             "verifiedRevision": verified.revision,
             "completedRevision": closed.revision,
             "hostEventCount": event_count,
             "objectRefCount": len(object_refs),
             "diffObjectDigest": diff_digest,
             "verificationDigest": verification_digest,
+            "sourceStateDigest": source_state_digest,
+            "workspaceClose": workspace_close,
+            "stateModes": state_modes,
             "generatedDiff": diff_value,
             "verification": verification_value,
             "outcome": outcome,
