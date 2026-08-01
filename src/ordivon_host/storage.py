@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -14,7 +15,7 @@ from .domain import (
     TaskDescriptor,
     TaskProjection,
 )
-from .journal import HostJournal, JournalCorruption
+from .journal import HostJournal, JournalCorruption, LeaseRecord
 from .objects import (
     ContentAddressedStore,
     ObjectCorrupt,
@@ -53,7 +54,10 @@ class HostStorage:
         if validation_mode not in {"cached", "full"}:
             raise ValueError("Host validation mode must be cached or full")
         self.root = Path(root)
-        self.root.mkdir(parents=True, exist_ok=True)
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if self.root.is_symlink():
+            raise ValueError("Host state root cannot be a symlink")
+        os.chmod(self.root, 0o700)
         self.objects = ContentAddressedStore(self.root / "objects")
         self.journal = HostJournal(self.root / "host.sqlite3")
         try:
@@ -232,6 +236,8 @@ class HostStorage:
         expected_revision: int,
         caused_by_event_id: str | None = None,
         referenced_objects: tuple[StoredObject, ...] = (),
+        expected_lease: LeaseRecord | None = None,
+        lease_checked_at_ms: int | None = None,
     ) -> EventAdmission:
         event_payload: JsonValue = {
             "schemaVersion": 1,
@@ -256,6 +262,8 @@ class HostStorage:
             projection=projection,
             payload_object=stored,
             referenced_objects=referenced_objects,
+            expected_lease=expected_lease,
+            lease_checked_at_ms=lease_checked_at_ms,
         )
 
     @staticmethod

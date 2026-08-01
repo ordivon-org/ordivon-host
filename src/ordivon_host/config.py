@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import stat
 import tomllib
 from typing import Mapping
 
@@ -163,9 +164,15 @@ def load_config(
 
 def read_token_file(path: str | Path, *, max_bytes: int = 16_384) -> str:
     token_path = Path(path)
-    if not token_path.is_file():
-        raise FileNotFoundError(token_path)
-    if token_path.stat().st_size > max_bytes:
+    try:
+        metadata = token_path.lstat()
+    except FileNotFoundError:
+        raise
+    if token_path.is_symlink() or not stat.S_ISREG(metadata.st_mode):
+        raise ValueError("Runtime token path must be a regular file")
+    if stat.S_IMODE(metadata.st_mode) & 0o077:
+        raise PermissionError("Runtime token file must not be accessible by group or others")
+    if metadata.st_size > max_bytes:
         raise ValueError("Runtime token file exceeds the configured bound")
     token = token_path.read_text().strip()
     if not token or any(character.isspace() for character in token):

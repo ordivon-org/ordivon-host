@@ -334,6 +334,21 @@ class CodeChangeHost:
     def verify(self, task_id: str) -> CodeChangeStep:
         snapshot = self._current(task_id, "verify", TaskState.VERIFYING)
         plan = self._load_plan(snapshot)
+        if snapshot.event_kind == EventKind.VERIFICATION_RECORDED:
+            try:
+                return self._accept_prepared_verification(snapshot, plan)
+            except RuntimeToolRejected as error:
+                if error.detail.code != "REVISION_MISMATCH":
+                    raise
+                snapshot = self.storage.read_task_event(task_id)
+        prepared = self._prepare_verification(snapshot, plan)
+        return self._accept_prepared_verification(prepared, plan)
+
+    def _prepare_verification(
+        self,
+        snapshot: TaskEventSnapshot,
+        plan: CodeChangePlan,
+    ) -> TaskEventSnapshot:
         data = require_object(snapshot.data, "code change observation data")
         dispatch = self._load_dispatch(data)
         job_id = require_string(data, "jobId")
@@ -344,6 +359,7 @@ class CodeChangeHost:
             raise CodeChangeVerificationError(
                 "Runtime Job did not complete every code-change step"
             )
+        before_state = self._workspace_source_state(plan)
         file_results: list[dict[str, JsonValue]] = []
         file_objects: list[StoredObject] = []
         for item in plan.files:
@@ -427,6 +443,11 @@ class CodeChangeHost:
             raise CodeChangeVerificationError(
                 "Workspace structured diff differs from the exact planned file set"
             )
+        after_state = self._workspace_source_state(plan)
+        if after_state != before_state:
+            raise CodeChangeVerificationError(
+                "Workspace source state changed while verification evidence was collected"
+            )
         diff_value = json_object(diff_payload, "Workspace diff")
         diff_object = self.storage.put_object(diff_value, kind="workspace-diff")
         accepted = all(result["accepted"] is True for result in file_results)
@@ -447,11 +468,11 @@ class CodeChangeHost:
             receipt.to_dict(), kind="code-change-verification-receipt"
         )
         with self.kernel.locked_task(
-            task_id,
+            plan.task_id,
             expected_revision=snapshot.projection.revision,
             expected_state=TaskState.VERIFYING,
             expected_frontier=(self._node(plan, "verify"),),
-            label="code-change",
+            label="code-change verification preparation",
             error_factory=self._kernel_error,
         ) as locked:
             self._require_same_plan(locked.snapshot, plan)
@@ -464,7 +485,7 @@ class CodeChangeHost:
             )
             projection = locked.commit(
                 event_id=self._event_id(plan, locked.projection.revision + 1),
-                kind=EventKind.VERIFICATION_ACCEPTED,
+                kind=EventKind.VERIFICATION_RECORDED,
                 payload={
                     **self._state_fields(current),
                     "jobId": job_id,
@@ -476,6 +497,71 @@ class CodeChangeHost:
                     "fileVerificationDigests": [item.digest for item in file_objects],
                     "diffObjectDigest": diff_object.digest,
                     "verificationDigest": verification_object.digest,
+                    "sourceStateDigest": before_state,
+                    "referenceDigests": [item.digest for item in references],
+                },
+                state=TaskState.VERIFYING,
+                frontier=(self._node(plan, "verify"),),
+                referenced_objects=references,
+            ).projection
+        return self.storage.read_task_event(projection.task_id)
+
+    def _accept_prepared_verification(
+        self,
+        snapshot: TaskEventSnapshot,
+        plan: CodeChangePlan,
+    ) -> CodeChangeStep:
+        if snapshot.event_kind != EventKind.VERIFICATION_RECORDED:
+            raise CodeChangeError("code-change verification evidence is not prepared")
+        data = require_object(snapshot.data, "prepared code change verification")
+        source_state_digest = require_string(data, "sourceStateDigest")
+        validate_digest(source_state_digest)
+        closed = self.runtime.call_tool(
+            "workspace.close",
+            {
+                "schemaVersion": 1,
+                "workspaceId": plan.workspace_id,
+                "force": True,
+                "expectedSourceStateDigest": source_state_digest,
+            },
+        )
+        if (
+            closed.get("workspaceId") != plan.workspace_id
+            or closed.get("sourceStateDigest") != source_state_digest
+        ):
+            raise RuntimeProtocolError(
+                "workspace.close did not preserve the verified source state"
+            )
+        close_value = json_object(closed, "verified Workspace close")
+        close_object = self.storage.put_object(
+            close_value, kind="workspace-close-receipt"
+        )
+        with self.kernel.locked_task(
+            plan.task_id,
+            expected_revision=snapshot.projection.revision,
+            expected_state=TaskState.VERIFYING,
+            expected_frontier=(self._node(plan, "verify"),),
+            label="code-change verification admission",
+            error_factory=self._kernel_error,
+        ) as locked:
+            self._require_same_plan(locked.snapshot, plan)
+            current = require_object(locked.snapshot.data, "prepared code change verification")
+            if (
+                require_string(current, "sourceStateDigest") != source_state_digest
+                or require_string(current, "verificationDigest")
+                != require_string(data, "verificationDigest")
+            ):
+                raise CodeChangeSuperseded(
+                    "prepared verification changed before Workspace closure admission"
+                )
+            references = self._reference_objects(current) + (close_object,)
+            projection = locked.commit(
+                event_id=self._event_id(plan, locked.projection.revision + 1),
+                kind=EventKind.VERIFICATION_ACCEPTED,
+                payload={
+                    **current,
+                    "workspaceClose": close_value,
+                    "workspaceCloseObjectDigest": close_object.digest,
                     "referenceDigests": [item.digest for item in references],
                 },
                 state=TaskState.READY,
@@ -484,9 +570,25 @@ class CodeChangeHost:
             ).projection
         return self._step(
             projection,
-            dispatch_id=dispatch.dispatch_id,
-            job_id=job_id,
+            dispatch_id=self._load_dispatch(data).dispatch_id,
+            job_id=require_string(data, "jobId"),
         )
+
+    def _workspace_source_state(self, plan: CodeChangePlan) -> str:
+        workspace = self.runtime.call_tool(
+            "workspace.get",
+            {"schemaVersion": 1, "workspaceId": plan.workspace_id},
+        )
+        if (
+            workspace.get("workspaceId") != plan.workspace_id
+            or workspace.get("sourceRevision") != plan.source_revision
+        ):
+            raise RuntimeProtocolError("Runtime returned another code-change Workspace")
+        digest = workspace.get("sourceStateDigest")
+        if not isinstance(digest, str):
+            raise RuntimeProtocolError("workspace.get omitted sourceStateDigest")
+        validate_digest(digest)
+        return digest
 
     def close(self, task_id: str) -> CodeChangeStep:
         snapshot = self.storage.read_task_event(task_id)
@@ -496,8 +598,18 @@ class CodeChangeHost:
         if snapshot.projection.state not in {TaskState.READY, TaskState.BLOCKED}:
             raise CodeChangeError("code-change close requires ready or blocked state")
         data = require_object(snapshot.data, "code change close data")
-        closed = ensure_workspace_closed(self.runtime, plan.workspace_id, force=True)
         succeeded = snapshot.projection.state is TaskState.READY
+        if succeeded:
+            closed = data.get("workspaceClose")
+            if not isinstance(closed, dict):
+                raise JournalCorruption(
+                    "verified code change has no fenced Workspace close receipt"
+                )
+            source_state_digest = require_string(data, "sourceStateDigest")
+            if closed.get("sourceStateDigest") != source_state_digest:
+                raise JournalCorruption("Workspace close receipt source state differs")
+        else:
+            closed = ensure_workspace_closed(self.runtime, plan.workspace_id, force=True)
         outcome: JsonValue = {
             "schemaVersion": 1,
             "kind": _OUTCOME_KIND,
@@ -512,6 +624,7 @@ class CodeChangeHost:
             "workspaceClosed": True,
             "diffObjectDigest": data.get("diffObjectDigest"),
             "verificationDigest": data.get("verificationDigest"),
+            "sourceStateDigest": data.get("sourceStateDigest"),
         }
         outcome_object = self.storage.put_object(outcome, kind="task-outcome")
         with self.kernel.locked_task(

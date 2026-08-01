@@ -10,6 +10,7 @@ import uuid
 from anc_canonical import JsonValue
 
 from .domain import EventAdmission, EventKind, TaskProjection, TaskState
+from .journal import LeaseConflict, LeaseRecord
 from .objects import StoredObject
 from .storage import HostStorage, TaskEventSnapshot
 
@@ -54,9 +55,15 @@ class TransitionReceipt:
 
 
 class LockedTask:
-    def __init__(self, kernel: HostKernel, snapshot: TaskEventSnapshot) -> None:
+    def __init__(
+        self,
+        kernel: HostKernel,
+        snapshot: TaskEventSnapshot,
+        lease: LeaseRecord,
+    ) -> None:
         self.kernel = kernel
         self.snapshot = snapshot
+        self.lease = lease
         self._committed = False
 
     @property
@@ -91,6 +98,8 @@ class LockedTask:
             expected_revision=self.snapshot.projection.revision,
             caused_by_event_id=caused_by_event_id,
             referenced_objects=referenced_objects,
+            expected_lease=self.lease,
+            lease_checked_at_ms=projection.updated_at_ms,
         )
         self._committed = True
         return TransitionReceipt(admission=admission, projection=projection)
@@ -202,6 +211,8 @@ class HostKernel:
             now_ms=self.clock_ms(),
             ttl_ms=self.lease_ttl_ms,
         )
+        locked: LockedTask | None = None
+        body_failed = False
         try:
             snapshot = self.current_snapshot(
                 task_id,
@@ -211,9 +222,18 @@ class HostKernel:
                 label=label,
                 error_factory=error_factory,
             )
-            yield LockedTask(self, snapshot)
+            locked = LockedTask(self, snapshot, lease)
+            yield locked
+        except BaseException:
+            body_failed = True
+            raise
         finally:
-            self.storage.journal.release_lease(lease)
+            if locked is None or not locked._committed:
+                try:
+                    self.storage.journal.release_lease(lease)
+                except LeaseConflict:
+                    if not body_failed:
+                        raise
 
     def next_projection(
         self,
@@ -223,6 +243,8 @@ class HostKernel:
         frontier: tuple[str, ...] | None = None,
         active_node_id: str | None = None,
     ) -> TaskProjection:
+        if current.state.terminal:
+            raise TaskStateMismatch("terminal Task cannot transition")
         next_state = current.state if state is None else state
         next_frontier = current.ready_frontier if frontier is None else frontier
         if next_state is TaskState.RUNNING and active_node_id is None:

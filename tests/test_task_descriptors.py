@@ -4,7 +4,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from ordivon_host import EffectLifecycleHost, HostKernel, HostStorage, TaskDescriptor
+from ordivon_host import HostKernel, HostStorage, TaskDescriptor
+from ordivon_host.effects import EffectLifecycleHost
 from ordivon_host.domain import EventKind
 
 

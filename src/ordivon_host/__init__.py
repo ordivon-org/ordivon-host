@@ -1,4 +1,3 @@
-from .boundary import ComponentOwner, OwnershipRule, owner_of
 from .config import HostConfig, ProviderSettings, RuntimeSettings, load_config
 from .coordination import (
     CoordinationError,
@@ -11,10 +10,7 @@ from .domain import EventAdmission, EventKind, TaskDescriptor, TaskProjection, T
 from .effects import (
     ArtifactRef,
     DispatchEnvelope,
-    EffectLifecycleError,
-    EffectLifecycleHost,
     EffectStep,
-    EffectSuperseded,
     ObservationEnvelope,
     StateRef,
     TaskOutcome,
@@ -73,7 +69,6 @@ __all__ = [
     "CodeChangePlan",
     "CodeChangeStep",
     "CodeFileReplacement",
-    "ComponentOwner",
     "ContentAddressedStore",
     "CoordinationError",
     "CoordinationSuperseded",
@@ -81,10 +76,7 @@ __all__ = [
     "DeterministicReadHost",
     "DispatchEnvelope",
     "EffectExecutor",
-    "EffectLifecycleError",
-    "EffectLifecycleHost",
     "EffectStep",
-    "EffectSuperseded",
     "EventAdmission",
     "EventKind",
     "ExecutionCheck",
@@ -104,7 +96,6 @@ __all__ = [
     "MutationStep",
     "ObservationEnvelope",
     "OperatorHandoffCapsule",
-    "OwnershipRule",
     "PreparedCodeChange",
     "PreparedMutation",
     "ProviderSettings",
@@ -138,5 +129,4 @@ __all__ = [
     "discover_runtime_catalog",
     "load_config",
     "operator_handoff",
-    "owner_of",
 ]

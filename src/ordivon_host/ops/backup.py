@@ -33,7 +33,8 @@ def create_backup(
     try:
         database = temporary / "host.sqlite3"
         objects_root = temporary / "objects"
-        objects_root.mkdir()
+        objects_root.mkdir(mode=0o700)
+        os.chmod(temporary, 0o700)
         with HostStorage(source) as storage:
             _backup_database(storage, database)
             refs = storage.journal.object_refs()
@@ -41,6 +42,7 @@ def create_backup(
                 source_path = storage.objects.root / f"{ref.digest[7:]}.json"
                 target_path = objects_root / source_path.name
                 shutil.copyfile(source_path, target_path)
+                os.chmod(target_path, 0o600)
                 _fsync_file(target_path)
             version = schema_version(storage.journal.connection)
             migrations = list(migration_history(storage.journal.connection))
@@ -121,7 +123,12 @@ def restore_backup(
     previous: Path | None = None
     try:
         shutil.copyfile(backup / "host.sqlite3", temporary / "host.sqlite3")
+        os.chmod(temporary / "host.sqlite3", 0o600)
         shutil.copytree(backup / "objects", temporary / "objects")
+        os.chmod(temporary, 0o700)
+        os.chmod(temporary / "objects", 0o700)
+        for path in (temporary / "objects").glob("*.json"):
+            os.chmod(path, 0o600)
         with HostStorage(temporary):
             pass
         if target.exists():
@@ -156,6 +163,7 @@ def _backup_database(storage: HostStorage, destination: Path) -> None:
         raise
     else:
         target.close()
+    os.chmod(destination, 0o600)
     _fsync_file(destination)
 
 

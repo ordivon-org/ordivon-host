@@ -79,7 +79,11 @@ class ObjectFileIdentity:
 class ContentAddressedStore:
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root)
-        self.root.mkdir(parents=True, exist_ok=True)
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self._ensure_mode(self.root, 0o700)
+        for path in self.root.glob("*.json"):
+            if path.is_file() and not path.is_symlink():
+                self._ensure_mode(path, 0o600)
 
     def put(self, value: JsonValue, *, kind: str) -> StoredObject:
         if not kind or kind != kind.strip():
@@ -93,6 +97,9 @@ class ContentAddressedStore:
         digest = canonical_digest(envelope)
         path = self._path(digest)
         if path.exists():
+            if path.is_symlink():
+                raise ObjectCorrupt("content-addressed object cannot be a symlink")
+            self._ensure_mode(path, 0o600)
             if path.read_bytes() != encoded:
                 raise ObjectCorrupt("content address maps to different bytes")
             return StoredObject(digest, len(encoded), kind)
@@ -100,10 +107,12 @@ class ContentAddressedStore:
         directory_fd: int | None = None
         try:
             with temporary.open("xb") as handle:
+                os.chmod(temporary, 0o600)
                 handle.write(encoded)
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temporary, path)
+            os.chmod(path, 0o600)
             directory_fd = os.open(
                 self.root,
                 os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
@@ -179,6 +188,11 @@ class ContentAddressedStore:
         except ValueError as error:
             raise ObjectCorrupt("object envelope metadata is invalid") from error
         return value, stored, after
+
+    @staticmethod
+    def _ensure_mode(path: Path, mode: int) -> None:
+        if stat.S_IMODE(path.stat().st_mode) != mode:
+            os.chmod(path, mode)
 
     def _path(self, digest: str) -> Path:
         if (
