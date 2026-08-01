@@ -161,6 +161,12 @@ class HostJournal:
                 actual = tuple(existing)
                 if actual != expected:
                     raise EventConflict("event identity is already bound to different content")
+                if expected_lease is not None:
+                    self._validate_exact_lease(
+                        expected_lease,
+                        checked_at_ms=lease_checked_at_ms,
+                    )
+                    self._consume_exact_lease(expected_lease)
                 return EventAdmission.EXISTING
 
             stream = self.connection.execute(
@@ -182,18 +188,10 @@ class HostJournal:
                 if TaskState(current_task["state"]).terminal:
                     raise TerminalTaskConflict("terminal Task cannot admit another event")
             if expected_lease is not None:
-                lease = self.connection.execute(
-                    "SELECT owner_id, revision, expires_at_ms FROM leases WHERE task_id = ?",
-                    (expected_lease.task_id,),
-                ).fetchone()
-                if (
-                    lease is None
-                    or lease["owner_id"] != expected_lease.owner_id
-                    or int(lease["revision"]) != expected_lease.revision
-                    or int(lease["expires_at_ms"]) != expected_lease.expires_at_ms
-                    or int(lease["expires_at_ms"]) <= lease_checked_at_ms
-                ):
-                    raise LeaseConflict("Task transition lease is absent, superseded, or expired")
+                self._validate_exact_lease(
+                    expected_lease,
+                    checked_at_ms=lease_checked_at_ms,
+                )
             if event.caused_by_event_id is not None:
                 cause = self.connection.execute(
                     "SELECT sequence FROM events WHERE event_id = ?",
@@ -262,17 +260,37 @@ class HostJournal:
                 ),
             )
             if expected_lease is not None:
-                changed = self.connection.execute(
-                    "DELETE FROM leases WHERE task_id = ? AND owner_id = ? AND revision = ?",
-                    (
-                        expected_lease.task_id,
-                        expected_lease.owner_id,
-                        expected_lease.revision,
-                    ),
-                ).rowcount
-                if changed != 1:
-                    raise LeaseConflict("Task transition lease changed during admission")
+                self._consume_exact_lease(expected_lease)
         return EventAdmission.CREATED
+
+    def _validate_exact_lease(
+        self,
+        lease: LeaseRecord,
+        *,
+        checked_at_ms: int | None,
+    ) -> None:
+        if checked_at_ms is None:
+            raise ValueError("lease check time is required")
+        current = self.connection.execute(
+            "SELECT owner_id, revision, expires_at_ms FROM leases WHERE task_id = ?",
+            (lease.task_id,),
+        ).fetchone()
+        if (
+            current is None
+            or current["owner_id"] != lease.owner_id
+            or int(current["revision"]) != lease.revision
+            or int(current["expires_at_ms"]) != lease.expires_at_ms
+            or int(current["expires_at_ms"]) <= checked_at_ms
+        ):
+            raise LeaseConflict("Task transition lease is absent, superseded, or expired")
+
+    def _consume_exact_lease(self, lease: LeaseRecord) -> None:
+        changed = self.connection.execute(
+            "DELETE FROM leases WHERE task_id = ? AND owner_id = ? AND revision = ?",
+            (lease.task_id, lease.owner_id, lease.revision),
+        ).rowcount
+        if changed != 1:
+            raise LeaseConflict("Task transition lease changed during admission")
 
     def get_task(self, task_id: str) -> TaskProjection | None:
         row = self.connection.execute(

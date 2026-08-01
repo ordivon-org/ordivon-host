@@ -135,6 +135,59 @@ class ASeriesRemediationTests(unittest.TestCase):
                     )
                 self.assertEqual(storage.journal.get_task(first.task_id), first)
 
+    def test_existing_noncreation_event_consumes_replay_lease(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            clock = ManualClock(1)
+            with HostStorage(directory) as storage:
+                kernel = HostKernel(
+                    storage,
+                    clock_ms=clock,
+                    owner_id="host:idempotent-original",
+                    lease_ttl_ms=100,
+                )
+                created = kernel.create_task(
+                    event_id="event:idempotent-lease:create",
+                    kind=EventKind.TASK_CREATED,
+                    task_id="task:idempotent-lease",
+                    goal_id="goal:idempotent-lease",
+                    payload={},
+                    frontier=("node:idempotent-lease:start",),
+                ).projection
+                with kernel.locked_task(
+                    created.task_id,
+                    expected_revision=created.revision,
+                    expected_state=TaskState.READY,
+                    expected_frontier=created.ready_frontier,
+                ) as locked:
+                    transition = locked.commit(
+                        event_id="event:idempotent-lease:advance",
+                        kind=EventKind.TASK_FRONTIER_CHANGED,
+                        payload={"stage": "advanced"},
+                        frontier=("node:idempotent-lease:next",),
+                    )
+                clock.value = transition.projection.updated_at_ms + 1
+                replay_lease = storage.journal.acquire_lease(
+                    created.task_id,
+                    owner_id="host:idempotent-replay",
+                    now_ms=clock.value,
+                    ttl_ms=100,
+                )
+                admission = storage.record_task_event(
+                    event_id="event:idempotent-lease:advance",
+                    kind=EventKind.TASK_FRONTIER_CHANGED,
+                    payload={"stage": "advanced"},
+                    projection=transition.projection,
+                    expected_revision=created.revision,
+                    expected_lease=replay_lease,
+                    lease_checked_at_ms=clock.value,
+                )
+                self.assertEqual(admission.value, "existing")
+                self.assertEqual(storage.journal.lease_records(), ())
+                self.assertEqual(
+                    storage.journal.get_task(created.task_id),
+                    transition.projection,
+                )
+
     def test_extension_event_is_thread_stable_and_core_typos_fail_closed(self) -> None:
         for value in (
             "task.creatd",
