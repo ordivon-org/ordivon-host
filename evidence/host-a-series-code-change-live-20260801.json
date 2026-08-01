@@ -1,0 +1,195 @@
+{
+  "capturedAt": "2026-08-01T06:09:19.544272+00:00",
+  "checks": {
+    "allStructuredStepsCompleted": true,
+    "freshHostStoragePerStage": true,
+    "oneExecPlanInvocation": true,
+    "oneFencedCloseBeforeReplay": true,
+    "oneRuntimeJobForRequest": true,
+    "originalRuntimeJobRecovered": true,
+    "preparedVerificationPersisted": true,
+    "privateStateModes": true,
+    "responseDroppedAfterExecPlanAdmission": true,
+    "responseDroppedAfterFencedClose": true,
+    "runtimeWorkspaceClosed": true,
+    "sourceStateBoundToClose": true,
+    "structuredDiffMatchesExactPlan": true,
+    "taskCompleted": true,
+    "twoFilesVerified": true,
+    "unknownPersisted": true
+  },
+  "checksPlan": [
+    {
+      "args": [
+        "-m",
+        "ruff",
+        "check",
+        "src/ordivon_host/objects/codecs.py",
+        "tests/test_boundaries.py"
+      ],
+      "cwdRelative": ".",
+      "env": {},
+      "executable": "/root/.local/bin/python3.12",
+      "id": "ruff",
+      "timeoutMs": 120000
+    },
+    {
+      "args": [
+        "-m",
+        "unittest",
+        "tests.test_boundaries"
+      ],
+      "cwdRelative": ".",
+      "env": {
+        "PYTHONPATH": "/root/projects/ordivon-computing/packages/ordivon-protocol/src:src"
+      },
+      "executable": "/root/.local/bin/python3.12",
+      "id": "boundary-tests",
+      "timeoutMs": 120000
+    }
+  ],
+  "clientRequestId": "request:code-change:live-code-change-1785564558284-87e516865e58:r1",
+  "completedRevision": 8,
+  "diffObjectDigest": "sha256:2a7c9c278d2c7012606ff8f6e2db42f0c8aa0b899ea26aad4e35f6444eb7e3db",
+  "dispatchId": "dispatch:live-code-change-1785564558284-87e516865e58:exec-plan:r1",
+  "files": [
+    {
+      "content": "from __future__ import annotations\n\nfrom collections.abc import Callable, Mapping\nfrom typing import Any, TypeVar\n\nT = TypeVar(\"T\")\n\n\nclass ObjectCodecError(ValueError):\n    pass\n\n\nclass UnsupportedObjectVersion(ObjectCodecError):\n    pass\n\n\ndef decode_versioned_object(\n    value: dict[str, Any],\n    *,\n    expected_kind: str,\n    decoders: Mapping[int, Callable[[dict[str, Any]], T]],\n    label: str,\n) -> T:\n    \"\"\"Dispatch one durable semantic object by explicit kind and schema version.\"\"\"\n    if not decoders:\n        raise ObjectCodecError(f\"{label} has no registered decoders\")\n    kind = value.get(\"kind\")\n    version = value.get(\"schemaVersion\")\n    if kind != expected_kind:\n        raise ObjectCodecError(f\"{label} kind is {kind!r}, expected {expected_kind!r}\")\n    if type(version) is not int:\n        raise ObjectCodecError(f\"{label} schemaVersion must be an integer\")\n    decoder = decoders.get(version)\n    if decoder is None:\n        raise UnsupportedObjectVersion(\n            f\"unsupported {label} schema version: {version}\"\n        )\n    return decoder(value)\n",
+      "expectedDigest": "sha256:e903269685f38b5e845b8a44c6efd05103116402a6033f2209c00ebebdc46155",
+      "relativePath": "src/ordivon_host/objects/codecs.py",
+      "resultDigest": "sha256:47430cefa89b193bbf4292b93aa59ef4ae8bf6cfb12467fff2c05beb3920876c"
+    },
+    {
+      "content": "from __future__ import annotations\n\nfrom pathlib import Path\nimport unittest\n\nfrom anc_canonical import canonical_digest\nfrom ordivon_host import TaskProjection\nfrom ordivon_host.engine import DeterministicReadHost, GuardedMutationHost\nfrom ordivon_host.engine.mutation import GuardedMutationHost as MutationPackageHost\nfrom ordivon_host.runtime import RuntimeClient\nfrom ordivon_semantics import EffectState\n\n\nclass HostBoundaryTests(unittest.TestCase):\n    def test_host_uses_promoted_protocol(self) -> None:\n        self.assertEqual(canonical_digest({\"state\": EffectState.UNKNOWN.value})[:7], \"sha256:\")\n\n    def test_extracted_public_imports_remain_stable(self) -> None:\n        self.assertIs(MutationPackageHost, GuardedMutationHost)\n        self.assertTrue(callable(DeterministicReadHost))\n        self.assertTrue(hasattr(RuntimeClient, \"call_tool\"))\n\n    def test_harness_implementation_is_not_bundled_in_host(self) -> None:\n        source = Path(__file__).resolve().parents[1] / \"src\" / \"ordivon_host\"\n        self.assertFalse((source / \"harness\").exists())\n        import ordivon_host\n\n        self.assertFalse(hasattr(ordivon_host, \"HarnessHost\"))\n        self.assertFalse(hasattr(ordivon_host, \"EffectLifecycleHost\"))\n        self.assertFalse(hasattr(ordivon_host, \"owner_of\"))\n\n    def test_legacy_mutation_module_is_removed(self) -> None:\n        source = Path(__file__).resolve().parents[1] / \"src\" / \"ordivon_host\" / \"engine\"\n        self.assertFalse((source / \"mutation_task.py\").exists())\n\n    def test_projection_decoder_rejects_coerced_revision_types(self) -> None:\n        value = {\n            \"taskId\": \"task:strict\",\n            \"goalId\": \"goal:strict\",\n            \"state\": \"ready\",\n            \"activeNodeId\": None,\n            \"readyFrontier\": [\"node:inspect\"],\n            \"revision\": \"1\",\n            \"updatedAtMs\": 1,\n        }\n        with self.assertRaisesRegex(ValueError, \"must be integers\"):\n            TaskProjection.from_dict(value)\n        value[\"revision\"] = True\n        with self.assertRaisesRegex(ValueError, \"must be integers\"):\n            TaskProjection.from_dict(value)\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n\nclass DurableObjectCodecTests(unittest.TestCase):\n    def test_workload_plan_rejects_unknown_schema_version_explicitly(self) -> None:\n        from ordivon_host.engine.code_change import CodeChangePlan\n        from ordivon_host.objects import UnsupportedObjectVersion\n\n        value = {\n            \"schemaVersion\": 99,\n            \"kind\": \"ordivon.host-code-change-plan\",\n        }\n        with self.assertRaises(UnsupportedObjectVersion):\n            CodeChangePlan.from_dict(value)\n\n    def test_codec_rejects_an_empty_decoder_registry(self) -> None:\n        from ordivon_host.objects import ObjectCodecError, decode_versioned_object\n\n        with self.assertRaisesRegex(ObjectCodecError, \"no registered decoders\"):\n            decode_versioned_object(\n                {\"schemaVersion\": 1, \"kind\": \"audit.object\"},\n                expected_kind=\"audit.object\",\n                decoders={},\n                label=\"AuditObject\",\n            )\n",
+      "expectedDigest": "sha256:87646b0b707717b83521efff5550ca5ecda12d776936a73cab90d9fc716cf1bd",
+      "relativePath": "tests/test_boundaries.py",
+      "resultDigest": "sha256:e4f6e699908ae5a0cabfbaf978c7e6e0ec21917f329ccaca974287260208068f"
+    }
+  ],
+  "generatedDiff": {
+    "addedPaths": [],
+    "changedPaths": [
+      "src/ordivon_host/objects/codecs.py",
+      "tests/test_boundaries.py"
+    ],
+    "deletedPaths": [],
+    "diff": "diff --git a/src/ordivon_host/objects/codecs.py b/src/ordivon_host/objects/codecs.py\nindex d9433d0..c138354 100644\n--- a/src/ordivon_host/objects/codecs.py\n+++ b/src/ordivon_host/objects/codecs.py\n@@ -22,6 +22,8 @@ def decode_versioned_object(\n     label: str,\n ) -> T:\n     \"\"\"Dispatch one durable semantic object by explicit kind and schema version.\"\"\"\n+    if not decoders:\n+        raise ObjectCodecError(f\"{label} has no registered decoders\")\n     kind = value.get(\"kind\")\n     version = value.get(\"schemaVersion\")\n     if kind != expected_kind:\ndiff --git a/tests/test_boundaries.py b/tests/test_boundaries.py\nindex 10084e4..a6a4637 100644\n--- a/tests/test_boundaries.py\n+++ b/tests/test_boundaries.py\n@@ -64,3 +64,14 @@ class DurableObjectCodecTests(unittest.TestCase):\n         }\n         with self.assertRaises(UnsupportedObjectVersion):\n             CodeChangePlan.from_dict(value)\n+\n+    def test_codec_rejects_an_empty_decoder_registry(self) -> None:\n+        from ordivon_host.objects import ObjectCodecError, decode_versioned_object\n+\n+        with self.assertRaisesRegex(ObjectCodecError, \"no registered decoders\"):\n+            decode_versioned_object(\n+                {\"schemaVersion\": 1, \"kind\": \"audit.object\"},\n+                expected_kind=\"audit.object\",\n+                decoders={},\n+                label=\"AuditObject\",\n+            )\n",
+    "modifiedPaths": [
+      "src/ordivon_host/objects/codecs.py",
+      "tests/test_boundaries.py"
+    ],
+    "renamedPaths": [],
+    "untrackedPaths": []
+  },
+  "goalId": "goal:live-code-change-1785564558284-87e516865e58",
+  "hostEventCount": 8,
+  "hostRevision": "9ccdf1cbf6d2c03948224fcb664ab2eedf29b8d8",
+  "integrity": {
+    "algorithm": "sha256",
+    "canonicalization": "ordivon-canonical-json-v1",
+    "payloadDigest": "sha256:60b6091cc3b013471180c6442878723f9e7a81eff8fc075170496bb49fed1b01"
+  },
+  "kind": "ordivon.host-live-code-change",
+  "matchingRuntimeJobs": [
+    {
+      "artifactCount": 4,
+      "artifactsAvailable": true,
+      "attemptId": "attempt-019fbbf0-f4b3-79b3-a14b-ed743e508b2b",
+      "clientRequestId": "request:code-change:live-code-change-1785564558284-87e516865e58:r1",
+      "createdAtMs": 1785564558515,
+      "cwdRelative": ".",
+      "durationMs": 426,
+      "executableName": "python3.12",
+      "exitCode": 0,
+      "finishedAtMs": 1785564559073,
+      "jobId": "job-019fbbf0-f4b3-79b3-a14b-ed6438eb4a67",
+      "resultAvailable": true,
+      "sourceRevision": "9ccdf1cbf6d2c03948224fcb664ab2eedf29b8d8",
+      "startedAtMs": 1785564558647,
+      "status": "succeeded",
+      "workspaceId": "host-live-code-change-1785564558284-87e516865e58"
+    }
+  ],
+  "objectRefCount": 23,
+  "openedRevision": 2,
+  "outcome": {
+    "clientRequestId": "request:code-change:live-code-change-1785564558284-87e516865e58:r1",
+    "diffObjectDigest": "sha256:2a7c9c278d2c7012606ff8f6e2db42f0c8aa0b899ea26aad4e35f6444eb7e3db",
+    "dispatchId": "dispatch:live-code-change-1785564558284-87e516865e58:exec-plan:r1",
+    "goalId": "goal:live-code-change-1785564558284-87e516865e58",
+    "jobId": "job-019fbbf0-f4b3-79b3-a14b-ed6438eb4a67",
+    "kind": "ordivon.code-change-task-outcome",
+    "schemaVersion": 1,
+    "sourceRevision": "9ccdf1cbf6d2c03948224fcb664ab2eedf29b8d8",
+    "sourceStateDigest": "sha256:c4a70dae12adc6809c6567621bc4b368a1b5726638de3749617fd07b77c33dee",
+    "status": "completed",
+    "taskId": "task:live-code-change-1785564558284-87e516865e58",
+    "verificationDigest": "sha256:39151407b67eee6f74b51ae911ab58182fa16b91b5b78e8438e8a2cd3fa05fbc",
+    "workspaceClosed": true,
+    "workspaceId": "host-live-code-change-1785564558284-87e516865e58"
+  },
+  "preparedVerificationRevision": 6,
+  "reconciliation": [
+    {
+      "jobId": "job-019fbbf0-f4b3-79b3-a14b-ed6438eb4a67",
+      "revision": 5,
+      "state": "verifying"
+    }
+  ],
+  "repositoryId": "repository:ordivon-host",
+  "runtimeDeploymentReceipt": "/var/lib/ordivon/deployments/20260801T054716Z-0cb306a5bf0d",
+  "runtimeJobId": "job-019fbbf0-f4b3-79b3-a14b-ed6438eb4a67",
+  "runtimeRevision": "0cb306a5bf0dd2c4f4c3983cbb7ad5d5ca4c4685",
+  "scenarioScriptDigest": "sha256:6a713faf64a8dc71ac773e3bedf9eb273fc824d022c805a06a4242ae2755ec5c",
+  "schemaVersion": 1,
+  "sourceRepoLocator": "/var/lib/ordivon/runtime/workspaces/ordivon-host-a-series-remediation-20260801",
+  "sourceRevision": "9ccdf1cbf6d2c03948224fcb664ab2eedf29b8d8",
+  "sourceStateDigest": "sha256:c4a70dae12adc6809c6567621bc4b368a1b5726638de3749617fd07b77c33dee",
+  "stateModes": {
+    "journal": "0o600",
+    "objects": "0o700",
+    "stateRoot": "0o700"
+  },
+  "stateRoot": null,
+  "taskId": "task:live-code-change-1785564558284-87e516865e58",
+  "unknownRevision": 4,
+  "verification": {
+    "accepted": true,
+    "changedPaths": [
+      "src/ordivon_host/objects/codecs.py",
+      "tests/test_boundaries.py"
+    ],
+    "completedSteps": 3,
+    "diffAccepted": true,
+    "diffDigest": "sha256:5acbefba0e80a2805ade9aaec788bc0125bc5745d153261e47e29a21fdfab39e",
+    "dispatchId": "dispatch:live-code-change-1785564558284-87e516865e58:exec-plan:r1",
+    "fileResults": [
+      {
+        "accepted": true,
+        "expectedDigest": "sha256:47430cefa89b193bbf4292b93aa59ef4ae8bf6cfb12467fff2c05beb3920876c",
+        "observedDigest": "sha256:47430cefa89b193bbf4292b93aa59ef4ae8bf6cfb12467fff2c05beb3920876c",
+        "relativePath": "src/ordivon_host/objects/codecs.py",
+        "runtimeDigest": "sha256:47430cefa89b193bbf4292b93aa59ef4ae8bf6cfb12467fff2c05beb3920876c"
+      },
+      {
+        "accepted": true,
+        "expectedDigest": "sha256:e4f6e699908ae5a0cabfbaf978c7e6e0ec21917f329ccaca974287260208068f",
+        "observedDigest": "sha256:e4f6e699908ae5a0cabfbaf978c7e6e0ec21917f329ccaca974287260208068f",
+        "relativePath": "tests/test_boundaries.py",
+        "runtimeDigest": "sha256:e4f6e699908ae5a0cabfbaf978c7e6e0ec21917f329ccaca974287260208068f"
+      }
+    ],
+    "jobId": "job-019fbbf0-f4b3-79b3-a14b-ed6438eb4a67",
+    "kind": "ordivon.code-change-verification-receipt",
+    "schemaVersion": 1,
+    "totalSteps": 3
+  },
+  "verificationDigest": "sha256:39151407b67eee6f74b51ae911ab58182fa16b91b5b78e8438e8a2cd3fa05fbc",
+  "verifiedRevision": 7,
+  "workspaceClose": {
+    "removed": false,
+    "sourceStateDigest": "sha256:c4a70dae12adc6809c6567621bc4b368a1b5726638de3749617fd07b77c33dee",
+    "workspaceId": "host-live-code-change-1785564558284-87e516865e58"
+  },
+  "workspaceId": "host-live-code-change-1785564558284-87e516865e58"
+}

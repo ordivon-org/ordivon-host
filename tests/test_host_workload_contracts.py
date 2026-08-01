@@ -12,7 +12,6 @@ from ordivon_protocol.host_workload import (
     validate_host_workload_object,
 )
 
-from ordivon_host import ComponentOwner, owner_of
 
 
 class HostWorkloadContractTests(unittest.TestCase):
@@ -51,10 +50,6 @@ class HostWorkloadContractTests(unittest.TestCase):
                         )
                     self.assertEqual(captured.exception.code, expected["code"])
 
-    def test_domain_ownership_is_explicit_without_moving_world_into_host(self) -> None:
-        self.assertEqual(owner_of("domain-world"), ComponentOwner.DOMAIN)
-        self.assertEqual(owner_of("domain-coordination-policy"), ComponentOwner.DOMAIN)
-        self.assertEqual(owner_of("dispatch-lifecycle"), ComponentOwner.HOST)
 
 
 if __name__ == "__main__":

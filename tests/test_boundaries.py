@@ -4,7 +4,7 @@ from pathlib import Path
 import unittest
 
 from anc_canonical import canonical_digest
-from ordivon_host import ComponentOwner, TaskProjection, owner_of
+from ordivon_host import TaskProjection
 from ordivon_host.engine import DeterministicReadHost, GuardedMutationHost
 from ordivon_host.engine.mutation import GuardedMutationHost as MutationPackageHost
 from ordivon_host.runtime import RuntimeClient
@@ -12,16 +12,6 @@ from ordivon_semantics import EffectState
 
 
 class HostBoundaryTests(unittest.TestCase):
-    def test_ownership_is_executable(self) -> None:
-        self.assertEqual(owner_of("goal"), ComponentOwner.HOST)
-        self.assertEqual(owner_of("job"), ComponentOwner.RUNTIME)
-        self.assertEqual(owner_of("protocol"), ComponentOwner.COMPUTING)
-        self.assertEqual(owner_of("provider-session"), ComponentOwner.PROVIDER)
-
-    def test_unknown_objects_fail_closed(self) -> None:
-        with self.assertRaises(KeyError):
-            owner_of("generic-agent-state")
-
     def test_host_uses_promoted_protocol(self) -> None:
         self.assertEqual(canonical_digest({"state": EffectState.UNKNOWN.value})[:7], "sha256:")
 
@@ -36,6 +26,8 @@ class HostBoundaryTests(unittest.TestCase):
         import ordivon_host
 
         self.assertFalse(hasattr(ordivon_host, "HarnessHost"))
+        self.assertFalse(hasattr(ordivon_host, "EffectLifecycleHost"))
+        self.assertFalse(hasattr(ordivon_host, "owner_of"))
 
     def test_legacy_mutation_module_is_removed(self) -> None:
         source = Path(__file__).resolve().parents[1] / "src" / "ordivon_host" / "engine"

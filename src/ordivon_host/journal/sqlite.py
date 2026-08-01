@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 import sqlite3
 from typing import Iterator
@@ -43,6 +44,10 @@ class LeaseConflict(HostJournalError):
     pass
 
 
+class TerminalTaskConflict(HostJournalError):
+    pass
+
+
 @dataclass(frozen=True, slots=True)
 class LeaseRecord:
     task_id: str
@@ -62,14 +67,19 @@ class TaskHead:
 class HostJournal:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(self.path.parent, 0o700)
+        if self.path.is_symlink():
+            raise JournalCorruption("Host Journal cannot be a symlink")
         self.connection = sqlite3.connect(self.path, isolation_level=None)
+        os.chmod(self.path, 0o600)
         try:
             self.connection.row_factory = sqlite3.Row
             self.connection.execute("PRAGMA foreign_keys = ON")
             self.connection.execute("PRAGMA busy_timeout = 5000")
             self.connection.execute("PRAGMA journal_mode = WAL")
             self.connection.execute("PRAGMA synchronous = FULL")
+            self._harden_database_files()
             try:
                 initialize_schema(self.connection, self.path)
             except SchemaMigrationError as error:
@@ -81,6 +91,18 @@ class HostJournal:
 
     def close(self) -> None:
         self.connection.close()
+        self._harden_database_files()
+
+    def _harden_database_files(self) -> None:
+        for path in (
+            self.path,
+            Path(str(self.path) + "-wal"),
+            Path(str(self.path) + "-shm"),
+        ):
+            if path.exists():
+                if path.is_symlink() or not path.is_file():
+                    raise JournalCorruption(f"Host Journal file is not regular: {path.name}")
+                os.chmod(path, 0o600)
 
     def __enter__(self) -> HostJournal:
         return self
@@ -96,6 +118,8 @@ class HostJournal:
         projection: TaskProjection,
         payload_object: StoredObject,
         referenced_objects: tuple[StoredObject, ...] = (),
+        expected_lease: LeaseRecord | None = None,
+        lease_checked_at_ms: int | None = None,
     ) -> EventAdmission:
         if event.stream_kind is not StreamKind.TASK:
             raise ValueError("task projection requires a task stream")
@@ -109,6 +133,15 @@ class HostJournal:
             raise ValueError("projection revision must advance expected revision exactly once")
         if event.recorded_at_ms != projection.updated_at_ms:
             raise ValueError("event and projection timestamps must match")
+        if expected_revision > 0 and expected_lease is None:
+            raise LeaseConflict("non-creation Task event requires an exact live lease")
+        if (expected_lease is None) != (lease_checked_at_ms is None):
+            raise ValueError("lease identity and check time must be supplied together")
+        if expected_lease is not None:
+            if expected_revision < 1 or expected_lease.task_id != projection.task_id:
+                raise ValueError("Task transition lease identity differs")
+            if lease_checked_at_ms is None or lease_checked_at_ms < 0:
+                raise ValueError("lease check time is invalid")
 
         with self._transaction():
             existing = self.connection.execute(
@@ -128,6 +161,12 @@ class HostJournal:
                 actual = tuple(existing)
                 if actual != expected:
                     raise EventConflict("event identity is already bound to different content")
+                if expected_lease is not None:
+                    self._validate_exact_lease(
+                        expected_lease,
+                        checked_at_ms=lease_checked_at_ms,
+                    )
+                    self._consume_exact_lease(expected_lease)
                 return EventAdmission.EXISTING
 
             stream = self.connection.execute(
@@ -139,6 +178,27 @@ class HostJournal:
                 raise RevisionConflict(
                     f"stream revision is {current_revision}, expected {expected_revision}"
                 )
+            if expected_revision > 0:
+                current_task = self.connection.execute(
+                    "SELECT state FROM task_projection WHERE task_id = ?",
+                    (event.stream_id,),
+                ).fetchone()
+                if current_task is None:
+                    raise JournalCorruption("Task stream has no current projection")
+                if TaskState(current_task["state"]).terminal:
+                    raise TerminalTaskConflict("terminal Task cannot admit another event")
+            if expected_lease is not None:
+                self._validate_exact_lease(
+                    expected_lease,
+                    checked_at_ms=lease_checked_at_ms,
+                )
+            if event.caused_by_event_id is not None:
+                cause = self.connection.execute(
+                    "SELECT sequence FROM events WHERE event_id = ?",
+                    (event.caused_by_event_id,),
+                ).fetchone()
+                if cause is None:
+                    raise EventConflict("caused-by Event identity does not exist")
 
             self._admit_object(payload_object, event.recorded_at_ms)
             for referenced_object in referenced_objects:
@@ -199,7 +259,38 @@ class HostJournal:
                     projection.updated_at_ms,
                 ),
             )
+            if expected_lease is not None:
+                self._consume_exact_lease(expected_lease)
         return EventAdmission.CREATED
+
+    def _validate_exact_lease(
+        self,
+        lease: LeaseRecord,
+        *,
+        checked_at_ms: int | None,
+    ) -> None:
+        if checked_at_ms is None:
+            raise ValueError("lease check time is required")
+        current = self.connection.execute(
+            "SELECT owner_id, revision, expires_at_ms FROM leases WHERE task_id = ?",
+            (lease.task_id,),
+        ).fetchone()
+        if (
+            current is None
+            or current["owner_id"] != lease.owner_id
+            or int(current["revision"]) != lease.revision
+            or int(current["expires_at_ms"]) != lease.expires_at_ms
+            or int(current["expires_at_ms"]) <= checked_at_ms
+        ):
+            raise LeaseConflict("Task transition lease is absent, superseded, or expired")
+
+    def _consume_exact_lease(self, lease: LeaseRecord) -> None:
+        changed = self.connection.execute(
+            "DELETE FROM leases WHERE task_id = ? AND owner_id = ? AND revision = ?",
+            (lease.task_id, lease.owner_id, lease.revision),
+        ).rowcount
+        if changed != 1:
+            raise LeaseConflict("Task transition lease changed during admission")
 
     def get_task(self, task_id: str) -> TaskProjection | None:
         row = self.connection.execute(
@@ -444,6 +535,16 @@ class HostJournal:
         if missing_projection is not None:
             raise JournalCorruption(
                 f"Task stream has no projection: {missing_projection['stream_id']}"
+            )
+
+        dangling_cause = self.connection.execute(
+            "SELECT child.event_id FROM events child LEFT JOIN events parent "
+            "ON parent.event_id = child.caused_by_event_id "
+            "WHERE child.caused_by_event_id IS NOT NULL AND parent.event_id IS NULL LIMIT 1"
+        ).fetchone()
+        if dangling_cause is not None:
+            raise JournalCorruption(
+                f"Event has a dangling cause: {dangling_cause['event_id']}"
             )
 
         projection_mismatch = self.connection.execute(

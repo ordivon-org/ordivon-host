@@ -168,6 +168,10 @@ class GoalCoordinatorHost:
     ) -> TaskProjection:
         if not next_frontier.startswith("node:"):
             raise ValueError("coordinated Task frontier must start with node:")
+        if not verification.accepted:
+            raise CoordinationError(
+                "rejected joint Verification cannot advance an Actor Task"
+            )
         result = self._result_for(verification, task_ref.task_id)
         verification_object = self.storage.put_object(
             verification.to_dict(), kind="verification-receipt"

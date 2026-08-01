@@ -2,7 +2,7 @@
 
 Persistent coordination and commitment plane for Ordivon.
 
-Ordivon Host owns durable Goals, Tasks, Host events and projections, bounded cognition Contexts, proposal compilation or admission, Effect commitments, Runtime Dispatch identities, verification receipts, participant-routed decisions, and Task outcomes. It treats model sessions and Runtime processes as replaceable dependencies rather than owners of work continuity.
+Ordivon Host owns durable Tasks, Goal-scoped Task coordination, Host events and projections, bounded cognition Contexts, proposal compilation or admission, Effect commitments, Runtime Dispatch identities, verification receipts, participant-routed decisions, and Task outcomes. It treats model sessions and Runtime processes as replaceable dependencies rather than owners of work continuity.
 
 The Host controls durable work and external commitment lifecycles. It does not own model intelligence, domain-world truth, physical execution, or a permanent hierarchy among participants.
 
@@ -23,14 +23,15 @@ Current proven vertical slices:
 - durable two-file source change through structured Runtime checks and exact structured diff verification;
 - conservative one-shot recovery assessment that never redispatches an uncertain Effect;
 - MCP Session lifecycle support without persisting transport sessions as Task truth;
-- executor-neutral Dispatch / Observation / Verification lifecycle with a Runtime adapter;
+- an experimental package-scoped executor-neutral Dispatch / Observation / Verification lifecycle candidate;
 - immutable TaskDescriptor identity and Goal-scoped Task revision snapshots;
 - idempotent per-Task application of one joint VerificationReceipt with multiple result items;
 - recovery across fresh Host processes and local Runtime control-plane restarts;
-- extension-safe Task events whose bounded dotted event kinds can be owned by independent workload repositories without adding Host package imports;
+- extension-safe immutable Task events with reserved Host namespaces, thread-stable extension identity, and no dynamic Enum mutation;
 - generic Host history and operator-handoff surfaces that preserve extension bytes, references, Task revision, UNKNOWN fences and ready frontiers without interpreting extension semantics;
 - a one-way integration boundary for the independently versioned [`ordivon-harness`](https://github.com/zycxfyh/ordivon-harness) repository, which now owns Agent Assignment, Run, Recovery, Completion, Provider adapters and bare-model execution;
-- schema-v3 operational state, backup/restore, optional full-history Doctor, and measured 100,000-event behavior.
+- schema-v3 operational state with private 0700/0600 modes, backup/restore, optional full-history Doctor, and measured 100,000-event behavior;
+- exact lease-fenced event admission, irreversible terminal Tasks, causal-link validation, and version-bound code-change completion through Runtime compare-and-close.
 
 The closed-choice path remains a useful deterministic and closed-domain profile. It is no longer treated as the only possible cognition interface. Agent Harness implementation and its historical evidence now live in the independent `ordivon-harness` repository.
 

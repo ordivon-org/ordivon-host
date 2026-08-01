@@ -6,11 +6,11 @@ import unittest
 
 from anc_canonical import canonical_digest
 
+from ordivon_host.effects import EffectLifecycleHost
 from ordivon_host import (
     ArtifactRef,
     DeliveryUncertain,
     DispatchEnvelope,
-    EffectLifecycleHost,
     HostStorage,
     ObservationEnvelope,
     StateRef,

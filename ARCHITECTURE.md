@@ -6,7 +6,7 @@ This architecture was falsified and reduced in the Computing incubator before th
 
 ## Ownership
 
-- **Host** owns Goals, Tasks, generic Host events and projections, Context compilation, ModelInvocation identity, proposal compilation or closed-choice admission, Effect commitments, Tool bindings, verification receipts, participant-routed decisions, and Task outcomes. It admits bounded extension event kinds and immutable references without importing extension-specific schemas.
+- **Host** owns Tasks, Goal-scoped Task coordination, generic Host events and projections, Context compilation, ModelInvocation identity, proposal compilation or closed-choice admission, Effect commitments, Tool bindings, verification receipts, participant-routed decisions, and Task outcomes. It does not yet own a durable Goal stream or Goal commitment object. It admits immutable references and extension event kinds outside reserved Host namespaces without importing extension-specific schemas.
 - **Runtime** owns Workspaces, committed physical Jobs, Runtime Attempts, process state, retained output, Artifacts, cancellation, and physical recovery.
 - **Domain systems** own authoritative world state, transition rules, domain coordination policy, and domain-specific verification sufficiency.
 - **Computing** owns promoted protocol definitions, reference behavior, conformance vectors, experiments, and evidence.
@@ -20,8 +20,9 @@ The Host controls durable work and external commitments. It does not own model i
 - one SQLite Host journal;
 - one materialized Task projection derived in the same transaction;
 - immutable objects written before journal references are committed;
-- at most one active writer per Task;
-- Task-local frontier state with a single running node;
+- every non-creation Task transition is fenced by one exact live lease generation and stream revision;
+- terminal Task identities are irreversible;
+- Task-local frontier state; `RUNNING` and `activeNodeId` remain legacy-readable but are not a current workload lifecycle;
 - deterministic progress before model invocation;
 - no automatic redispatch after an uncertain external Effect;
 - TaskCapsule is an export/checkpoint, not the primary database;
@@ -44,9 +45,10 @@ A Task state change follows this order:
 1. canonicalize the typed event payload;
 2. fsync the immutable object and its directory entry;
 3. acquire a SQLite IMMEDIATE transaction;
-4. compare the expected stream revision;
-5. admit the object reference, event, stream head, and Task projection;
-6. commit them together.
+4. compare the expected stream revision and exact lease owner/generation/expiry;
+5. reject terminal reopening and dangling causal references;
+6. admit the object reference, event, stream head, and Task projection;
+7. consume the lease and commit them together.
 ```
 
 The event payload binds the complete resulting `TaskProjection`. A new Host process validates every referenced CAS object and rebuilds each Task from its event head before accepting work. The materialized projection is therefore a checked cache, not an independent source of truth.
@@ -58,7 +60,9 @@ Expected consequences:
 - a repeated identical event identity is idempotent;
 - a repeated event identity with different payload or resulting projection fails closed;
 - event-history gaps, stream-kind drift, projection drift, missing objects, and object corruption prevent startup;
-- a lease coordinates the active writer but does not replace stream revision CAS.
+- a lease and stream revision CAS are complementary admission predicates; neither can be bypassed for a non-creation transition;
+- successful admission consumes the exact lease generation, while a lost or expired lease cannot write;
+- terminal Tasks cannot be reopened under the same identity.
 
 ## Minimal HostKernel
 
@@ -69,8 +73,8 @@ read current Task projection and event head
 → acquire the short Task lease
 → recheck revision, state, frontier, and projection equality
 → let the workload build semantic objects and the next event payload
-→ append at most one event and resulting projection with revision CAS
-→ release the lease on success or failure
+→ append at most one event and resulting projection with lease + revision CAS
+→ atomically consume the lease on success, or release it on an uncommitted exit
 ```
 
 `HostKernel` and `LockedTask` therefore own lease lifetime, monotonic timestamps, current-state admission, one-transition-per-lock enforcement, and atomic event/projection commit. Workload code still owns Context compilation, proposal lowering or candidate admission, Effect and Binding construction, Runtime calls, delivery classification, reconciliation, independent verification, and TaskOutcome semantics.
@@ -80,8 +84,9 @@ The Kernel preserves these boundaries:
 - it is not a workflow DSL, scheduler, DAG engine, provider router, Runtime adapter, or policy engine;
 - it never invokes a Provider or Runtime Tool;
 - workload-specific public exceptions are preserved through explicit error mapping;
-- external execution and Provider invocation remain outside the Task lease;
-- deterministic coordination and verification operations may remain inside a short transition until real latency data proves a need to split them;
+- Provider invocation and effectful Runtime delivery remain outside the Task lease;
+- external observations are collected outside the lease and must carry an independently recheckable version when the observed world can change before admission;
+- only bounded deterministic state readers may run inside a short transition;
 - one locked transition may append at most one Host event;
 - existing workloads remain regression specifications for Kernel behavior.
 
@@ -195,7 +200,7 @@ ordivon-host
 ordivon-protocol
 ```
 
-Host does not import `ordivon-harness`. The Host kernel accepts a bounded lowercase dotted event kind, stores it exactly in the Journal and event payload, and reconstructs it as an extension `EventKind` value after process restart. Generic Host Doctor validates event continuity, payload bytes, Task projections and every referenced CAS object. It deliberately does not decode Harness Assignment, Run or Recovery semantics.
+Host does not import `ordivon-harness`. The Host kernel accepts immutable lowercase dotted event kinds outside reserved Host namespaces, stores them exactly in the Journal and event payload, and reconstructs one thread-stable interned `EventKind` value after process restart. Misspellings under `task.*`, `cognition.*`, `effect.*`, `verification.*`, `runtime.*`, or `wakeup.*` fail closed. Generic Host Doctor validates event continuity, payload bytes, Task projections and every referenced CAS object. It deliberately does not decode Harness Assignment, Run or Recovery semantics.
 
 The Harness extension owns:
 
@@ -253,6 +258,28 @@ The mutation boundary preserves these invariants:
 - the dirty test Workspace is force-closed only after evidence is retained.
 
 The workload deliberately allows only one root-level file created with `O_EXCL`. This is a falsifiable recovery slice, not a general mutation DSL or shell workflow engine.
+
+
+## Version-bound source-change completion
+
+Code-change completion uses a two-event verification boundary rather than treating a successful check process as final truth:
+
+```text
+Runtime Job succeeds
+→ Host collects exact file and structured diff evidence
+→ workspace.get sourceStateDigest is stable before and after collection
+→ Host persists VERIFICATION_RECORDED while Task remains VERIFYING
+→ workspace.close(expectedSourceStateDigest) compare-and-closes under Runtime lifecycle lock
+→ Runtime tombstone retains the exact digest for response-loss replay
+→ Host admits VERIFICATION_ACCEPTED
+→ terminal TaskOutcome is recorded without another mutable Workspace read
+```
+
+The Runtime digest commits HEAD, Git index state, tracked and untracked source bytes, file modes, symlinks, and nested worktrees. Runtime owns the physical compare-and-close; Host owns whether the retained evidence is semantically sufficient. A mismatch preserves the Workspace and leaves the Task at the prepared verification frontier so evidence can be recollected. Extending a Task lease across Runtime calls is deliberately not used as a world-version substitute.
+
+## Experimental generic Effect lifecycle
+
+`ordivon_host.effects.EffectLifecycleHost` is package-scoped experimental code, not part of the top-level stable Host API. It remains only as a falsifiable executor-neutral lifecycle candidate. Promotion requires two materially different external consumers, unified recovery, and net deletion of specialized lifecycle mechanics. Until then, recovery assessment reports an explicit manual stage because executor identity and the domain observation source are required.
 
 ## MCP transport lifecycle
 

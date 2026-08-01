@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 import sqlite3
+import stat
 import time
 
 from ..config import HostConfig, read_token_file
@@ -53,8 +54,32 @@ def doctor_state(
         )
     except sqlite3.Error as error:
         checks.append(DoctorCheck("sqlite.quick_check", "error", str(error)))
+    permission_paths = [
+        (state_root, 0o700),
+        (state_root / "objects", 0o700),
+        (database, 0o600),
+    ]
+    permission_paths.extend(
+        (path, 0o600) for path in (state_root / "objects").glob("*.json")
+    )
+    insecure_before = [
+        f"{path.name}:{stat.S_IMODE(path.stat().st_mode):04o}"
+        for path, expected in permission_paths
+        if path.exists() and stat.S_IMODE(path.stat().st_mode) != expected
+    ]
     try:
         with HostStorage(state_root, validation_mode="full") as storage:
+            checks.append(
+                DoctorCheck(
+                    "state.permissions",
+                    "warning" if insecure_before else "ok",
+                    (
+                        "hardened on open: " + ", ".join(insecure_before)
+                        if insecure_before
+                        else "private"
+                    ),
+                )
+            )
             checks.append(
                 DoctorCheck(
                     "journal.schema",

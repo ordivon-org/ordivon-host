@@ -1,3 +1,9 @@
+"""Experimental executor-neutral Effect lifecycle and wire models.
+
+The lifecycle remains package-scoped until two materially different external
+consumers replace specialized Host state machines with net semantic deletion.
+"""
+
 from .lifecycle import (
     EffectLifecycleError,
     EffectLifecycleHost,

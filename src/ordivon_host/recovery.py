@@ -128,6 +128,12 @@ def assess_recovery(storage: HostStorage, task_id: str) -> RecoveryAssessment:
             workload,
             "workload stage is deterministic but not an uncertain-delivery recovery point",
         )
+    if workload == "experimental-effect-lifecycle":
+        return _manual(
+            snapshot,
+            workload,
+            "executor identity and domain observation source are required for Effect reconciliation",
+        )
     if workload == "cognition":
         if projection.state is TaskState.WAITING:
             return RecoveryAssessment(
@@ -212,6 +218,8 @@ class TaskReconciler:
 
 def _workload(storage: HostStorage, snapshot: TaskEventSnapshot) -> str:
     descriptor = storage.read_task_descriptor(snapshot.projection.task_id)
+    if snapshot.event_kind.value.startswith("effect."):
+        return "experimental-effect-lifecycle"
     if descriptor is not None:
         return descriptor.workload_id
     if snapshot.event_kind.value.startswith("cognition."):

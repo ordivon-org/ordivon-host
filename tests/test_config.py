@@ -44,6 +44,7 @@ class HostConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "token"
             path.write_text("secret-token\n")
+            path.chmod(0o600)
             self.assertEqual(read_token_file(path), "secret-token")
             path.write_text("two tokens")
             with self.assertRaises(ValueError):

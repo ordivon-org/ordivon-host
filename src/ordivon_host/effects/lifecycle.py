@@ -307,6 +307,36 @@ class EffectLifecycleHost:
         retained_verification = data.get("verificationDigest")
         if outcome.verification_digest != retained_verification:
             raise ValueError("TaskOutcome verification differs from Task head")
+        verification: VerificationReceipt | None = None
+        verification_object_digest = data.get("verificationObjectDigest")
+        if verification_object_digest is not None:
+            if not isinstance(verification_object_digest, str):
+                raise JournalCorruption("Effect verification object digest is invalid")
+            value = self.storage.objects.get(
+                verification_object_digest,
+                expected_kind="verification-receipt",
+            )
+            if not isinstance(value, dict):
+                raise ObjectCorrupt("Verification receipt must be an object")
+            try:
+                verification = VerificationReceipt.from_dict(value)
+            except ValueError as error:
+                raise ObjectCorrupt("Verification receipt is invalid") from error
+        if snapshot.projection.state is TaskState.READY:
+            if (
+                outcome.status != "completed"
+                or verification is None
+                or not verification.accepted
+            ):
+                raise EffectLifecycleError(
+                    "READY Effect completion requires accepted verification and completed outcome"
+                )
+        elif outcome.status not in {"failed", "blocked", "cancelled"}:
+            raise EffectLifecycleError(
+                "BLOCKED Effect completion cannot claim successful completion"
+            )
+        elif verification is not None and verification.accepted:
+            raise JournalCorruption("BLOCKED Effect retains accepted verification")
         state = {
             "completed": TaskState.COMPLETED,
             "failed": TaskState.FAILED,

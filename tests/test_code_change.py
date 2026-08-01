@@ -8,7 +8,9 @@ import tempfile
 from typing import Any
 import unittest
 
-from ordivon_host import HostStorage, TaskState
+from anc_canonical import canonical_digest
+
+from ordivon_host import EventKind, HostStorage, TaskState
 from ordivon_host.authority import CapabilityDenied, TrustedLocalAuthorizer
 from ordivon_host.domain import RepositoryRef, StaticRepositoryResolver
 from ordivon_host.engine.code_change import (
@@ -32,6 +34,23 @@ def missing_workspace(operation: str) -> RuntimeToolRejected:
             code="INVALID_REQUEST",
             message="missing workspace",
             field="workspaceId",
+            retryable=False,
+            retry_class="never",
+            commit_state="not_committed",
+            origin="runtime_core",
+            trace_id="test",
+            raw={},
+        ),
+    )
+
+
+def source_state_mismatch(operation: str) -> RuntimeToolRejected:
+    return RuntimeToolRejected(
+        operation,
+        RuntimeErrorDetail(
+            code="INVALID_REQUEST",
+            message="Workspace source state differs",
+            field="expectedSourceStateDigest",
             retryable=False,
             retry_class="never",
             commit_state="not_committed",
@@ -76,6 +95,7 @@ class FakeCodeChangeRuntime:
         self.response_dropped = False
         self.fail_check = False
         self.catalog_generation = 1
+        self.closed_source_digests: dict[str, str] = {}
 
     def initialize(self) -> dict[str, Any]:
         self.calls.append("initialize")
@@ -104,7 +124,9 @@ class FakeCodeChangeRuntime:
             workspace_id = arguments["workspaceId"]
             if workspace_id not in self.workspaces:
                 raise missing_workspace(name)
-            return deepcopy(self.workspaces[workspace_id])
+            result = deepcopy(self.workspaces[workspace_id])
+            result["sourceStateDigest"] = self._source_state_digest(workspace_id)
+            return result
         if name == "workspace.open":
             workspace_id = arguments["workspaceId"]
             record = {
@@ -157,10 +179,42 @@ class FakeCodeChangeRuntime:
         if name == "workspace.close":
             workspace_id = arguments["workspaceId"]
             if workspace_id not in self.workspaces:
-                raise missing_workspace(name)
+                digest = self.closed_source_digests.get(workspace_id)
+                if digest is None:
+                    raise missing_workspace(name)
+                expected = arguments.get("expectedSourceStateDigest")
+                if expected is not None and expected != digest:
+                    raise source_state_mismatch(name)
+                return {
+                    "workspaceId": workspace_id,
+                    "removed": False,
+                    "sourceStateDigest": digest,
+                }
+            digest = self._source_state_digest(workspace_id)
+            expected = arguments.get("expectedSourceStateDigest")
+            if expected is not None and expected != digest:
+                raise source_state_mismatch(name)
+            self.closed_source_digests[workspace_id] = digest
             del self.workspaces[workspace_id]
-            return {"workspaceId": workspace_id, "closed": True}
+            return {
+                "workspaceId": workspace_id,
+                "removed": True,
+                "sourceStateDigest": digest,
+            }
         raise AssertionError(name)
+
+    def _source_state_digest(self, workspace_id: str) -> str:
+        return canonical_digest(
+            {
+                "workspaceId": workspace_id,
+                "sourceRevision": self.workspaces[workspace_id]["sourceRevision"],
+                "files": [
+                    {"path": path, "content": content}
+                    for (observed_workspace, path), content in sorted(self.files.items())
+                    if observed_workspace == workspace_id
+                ],
+            }
+        )
 
     def _exec_plan(self, arguments: dict[str, Any]) -> dict[str, Any]:
         client_request_id = arguments["clientRequestId"]
@@ -397,7 +451,7 @@ class CodeChangeTests(unittest.TestCase):
                 closed = code_change_host(storage, runtime, self.clock).close(
                     plan().task_id
                 )
-                self.assertEqual(closed.revision, 7)
+                self.assertEqual(closed.revision, 8)
             self.assertEqual(runtime.physical_deliveries, 1)
 
     def test_failed_check_persists_blocked_then_closes_failed(self) -> None:
@@ -425,6 +479,78 @@ class CodeChangeTests(unittest.TestCase):
                 )
                 self.assertFalse(closed.completed)
                 self.assertEqual(closed.state, TaskState.FAILED)
+
+    def test_verification_close_response_loss_replays_tombstone_without_reexecution(self) -> None:
+        class CloseResponseLossRuntime(FakeCodeChangeRuntime):
+            def __init__(self) -> None:
+                super().__init__()
+                self.drop_close_response = True
+
+            def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+                result = super().call_tool(name, arguments)
+                if name == "workspace.close" and self.drop_close_response:
+                    self.drop_close_response = False
+                    raise RuntimeTransportError(
+                        "response lost after fenced Workspace closure"
+                    )
+                return result
+
+        runtime = CloseResponseLossRuntime()
+        with tempfile.TemporaryDirectory() as directory:
+            with HostStorage(directory) as storage:
+                host = code_change_host(storage, runtime, self.clock)
+                host.create(plan())
+                host.open_workspace(plan().task_id)
+                prepared = host.prepare(plan().task_id)
+                host.deliver(prepared)
+                with self.assertRaisesRegex(
+                    RuntimeTransportError,
+                    "response lost after fenced Workspace closure",
+                ):
+                    host.verify(plan().task_id)
+                snapshot = storage.read_task_event(plan().task_id)
+                self.assertEqual(snapshot.event_kind, EventKind.VERIFICATION_RECORDED)
+                self.assertEqual(snapshot.projection.state, TaskState.VERIFYING)
+                self.assertNotIn(plan().workspace_id, runtime.workspaces)
+                self.assertIn(plan().workspace_id, runtime.closed_source_digests)
+                verified = host.verify(plan().task_id)
+                self.assertEqual(verified.state, TaskState.READY)
+                completed = host.close(plan().task_id)
+                self.assertEqual(completed.state, TaskState.COMPLETED)
+                self.assertEqual(runtime.physical_deliveries, 1)
+
+    def test_verification_close_fence_rejects_post_evidence_workspace_race(self) -> None:
+        class RacingRuntime(FakeCodeChangeRuntime):
+            def __init__(self) -> None:
+                super().__init__()
+                self.race_once = True
+
+            def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+                if name == "workspace.close" and self.race_once:
+                    self.race_once = False
+                    self.files[(arguments["workspaceId"], "src/example.py")] = "VALUE = 999\n"
+                return super().call_tool(name, arguments)
+
+        runtime = RacingRuntime()
+        with tempfile.TemporaryDirectory() as directory:
+            with HostStorage(directory) as storage:
+                host = code_change_host(storage, runtime, self.clock)
+                host.create(plan())
+                host.open_workspace(plan().task_id)
+                prepared = host.prepare(plan().task_id)
+                host.deliver(prepared)
+                with self.assertRaisesRegex(RuntimeToolRejected, "source state differs"):
+                    host.verify(plan().task_id)
+                snapshot = storage.read_task_event(plan().task_id)
+                self.assertEqual(snapshot.event_kind.value, "verification.recorded")
+                self.assertEqual(snapshot.projection.state, TaskState.VERIFYING)
+                self.assertIn(plan().workspace_id, runtime.workspaces)
+                runtime.files[(plan().workspace_id, "src/example.py")] = "VALUE = 2\n"
+                verified = host.verify(plan().task_id)
+                self.assertEqual(verified.state, TaskState.READY)
+                self.assertNotIn(plan().workspace_id, runtime.workspaces)
+                completed = host.close(plan().task_id)
+                self.assertEqual(completed.state, TaskState.COMPLETED)
 
     def test_catalog_drift_blocks_preparation(self) -> None:
         runtime = FakeCodeChangeRuntime()

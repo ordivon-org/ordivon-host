@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import replace
 import itertools
 import tempfile
 import unittest
 
-from ordivon_host import EventKind, HostStorage, TaskProjection, TaskState
+from ordivon_host import EventKind, HostKernel, HostStorage, TaskProjection, TaskState
 from ordivon_host.cognition import (
     AdmissionState,
     BlockKind,
@@ -151,18 +150,22 @@ class AdvancingAdapter:
         with HostStorage(self.directory) as concurrent:
             current = concurrent.journal.get_task(TASK_ID)
             assert current is not None
-            advanced = replace(
-                current,
-                revision=current.revision + 1,
-                updated_at_ms=current.updated_at_ms + 1,
+            kernel = HostKernel(
+                concurrent,
+                clock_ms=itertools.count(current.updated_at_ms + 1).__next__,
+                owner_id="host:concurrent-entrypoint",
             )
-            concurrent.record_task_event(
-                event_id="event:cognition-turn:concurrent",
-                kind=EventKind.TASK_FRONTIER_CHANGED,
-                payload={"source": "concurrent-entrypoint"},
-                projection=advanced,
+            with kernel.locked_task(
+                TASK_ID,
                 expected_revision=current.revision,
-            )
+                expected_state=current.state,
+                expected_frontier=current.ready_frontier,
+            ) as locked:
+                locked.commit(
+                    event_id="event:cognition-turn:concurrent",
+                    kind=EventKind.TASK_FRONTIER_CHANGED,
+                    payload={"source": "concurrent-entrypoint"},
+                )
         return decision
 
 

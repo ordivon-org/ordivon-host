@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ordivon_host import EventKind, HostStorage, TaskProjection, TaskState
+from ordivon_host import EventKind, HostKernel, HostStorage, TaskProjection, TaskState
 from ordivon_host.ops import (
     create_backup,
     doctor_state,
@@ -46,6 +46,22 @@ class HostOperationsTests(unittest.TestCase):
             ):
                 inspection = inspect_state(root)
             self.assertEqual(inspection["tasks"], 1)
+
+    def test_doctor_reports_and_hardens_legacy_public_state_modes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            populate(root)
+            (root / "objects").chmod(0o755)
+            (root / "host.sqlite3").chmod(0o644)
+            report = doctor_state(root)
+            self.assertTrue(report["healthy"])
+            check = next(
+                item for item in report["checks"] if item["name"] == "state.permissions"
+            )
+            self.assertEqual(check["status"], "warning")
+            self.assertIn("hardened on open", check["detail"])
+            self.assertEqual((root / "objects").stat().st_mode & 0o777, 0o700)
+            self.assertEqual((root / "host.sqlite3").stat().st_mode & 0o777, 0o600)
 
     def test_inspect_doctor_and_gc_plan(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -124,22 +140,24 @@ class HostHistoryDoctorTests(unittest.TestCase):
                 projection=first,
                 expected_revision=0,
             )
-            second = TaskProjection(
-                task_id="task:history",
-                goal_id="goal:history",
-                state=TaskState.COMPLETED,
-                active_node_id=None,
-                ready_frontier=(),
-                revision=2,
-                updated_at_ms=2,
+            kernel = HostKernel(
+                storage,
+                clock_ms=iter((2, 2)).__next__,
+                owner_id="host:history-test",
             )
-            storage.record_task_event(
-                event_id="event:history:r2",
-                kind=EventKind.TASK_STATE_CHANGED,
-                payload={"stage": "completed"},
-                projection=second,
+            with kernel.locked_task(
+                first.task_id,
                 expected_revision=1,
-            )
+                expected_state=TaskState.READY,
+                expected_frontier=first.ready_frontier,
+            ) as locked:
+                locked.commit(
+                    event_id="event:history:r2",
+                    kind=EventKind.TASK_STATE_CHANGED,
+                    payload={"stage": "completed"},
+                    state=TaskState.COMPLETED,
+                    frontier=(),
+                )
 
     def test_history_doctor_validates_every_event(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
