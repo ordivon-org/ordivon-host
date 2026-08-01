@@ -14,6 +14,8 @@ from ordivon_host.harness.ordivon import (
     RunBudget,
     RunStopCode,
     ScriptedTurnAdapter,
+    ToolBridgeError,
+    ToolBridgeFailureCode,
     ToolObservation,
     ordivon_harness_manifest,
 )
@@ -31,8 +33,16 @@ class _Clock:
 class _Bridge:
     catalog_digest = canonical_digest({"catalog": "test"})
 
-    def __init__(self, *, unknown: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        unknown: bool = False,
+        denied: bool = False,
+        invalid: bool = False,
+    ) -> None:
         self.unknown = unknown
+        self.denied = denied
+        self.invalid = invalid
         self.calls: list[tuple[AgentToolCall, str]] = []
 
     def definitions(self) -> tuple[AgentToolDefinition, ...]:
@@ -51,6 +61,13 @@ class _Bridge:
 
     def execute(self, call: AgentToolCall, *, step_id: str) -> ToolObservation:
         self.calls.append((call, step_id))
+        if self.denied:
+            raise ToolBridgeError(
+                "read_workspace path is outside the Tool Grant: secret.txt",
+                failure_code=ToolBridgeFailureCode.TOOL_GRANT_DENIED,
+            )
+        if self.invalid:
+            raise ToolBridgeError("read_workspace received malformed arguments")
         if self.unknown:
             return ToolObservation(
                 call.tool_call_id,
@@ -146,6 +163,71 @@ class OrdivonHarnessOH1Tests(unittest.TestCase):
         self.assertIn("tool_call_dispatched", kinds)
         self.assertEqual(kinds[-1], "run_stopped")
         self.assertTrue(result.trace.digest.startswith("sha256:"))
+
+    def test_tool_grant_denial_is_observed_and_model_can_recover(self) -> None:
+        call = AgentToolCall(
+            "tool-call:denied",
+            "read_workspace",
+            {"relativePath": "secret.txt"},
+        )
+        adapter = ScriptedTurnAdapter(
+            (
+                _result("denied", calls=(call,)),
+                _result(
+                    "recovered",
+                    conclusion=AgentRunConclusion(
+                        "candidate_completed",
+                        "Recovered after the denied action and completed the authorized task.",
+                    ),
+                ),
+            )
+        )
+        result = OrdivonAgentLoop(
+            adapter,
+            _Bridge(denied=True),
+            budget=RunBudget(4, 4, 64_000, 10_000),
+            clock_ms=_Clock(),
+        ).run(
+            harness_run_id="harness-run:test-denied",
+            assignment_id="assignment:test-denied",
+            context_digest=canonical_digest({"context": "denied"}),
+            initial_messages=({"role": "user", "content": "inspect"},),
+        )
+        self.assertEqual(result.stop_code, RunStopCode.CANDIDATE_COMPLETED)
+        self.assertEqual(result.model_calls, 2)
+        self.assertEqual(result.tool_calls, 1)
+        self.assertEqual(result.observations[0].status, "rejected")
+        self.assertEqual(
+            result.observations[0].structured_content["error"]["type"],
+            ToolBridgeFailureCode.TOOL_GRANT_DENIED.value,
+        )
+        self.assertEqual(adapter.requests[1].messages[-1]["role"], "tool")
+        kinds = [event.kind for event in result.trace.events]
+        self.assertIn("tool_call_rejected", kinds)
+        self.assertNotIn("tool_call_dispatched", kinds)
+
+    def test_invalid_tool_call_remains_terminal(self) -> None:
+        call = AgentToolCall(
+            "tool-call:invalid",
+            "read_workspace",
+            {"relativePath": "README.md"},
+        )
+        adapter = ScriptedTurnAdapter((_result("invalid", calls=(call,)),))
+        result = OrdivonAgentLoop(
+            adapter,
+            _Bridge(invalid=True),
+            budget=RunBudget(4, 4, 64_000, 10_000),
+            clock_ms=_Clock(),
+        ).run(
+            harness_run_id="harness-run:test-invalid",
+            assignment_id="assignment:test-invalid",
+            context_digest=canonical_digest({"context": "invalid"}),
+            initial_messages=({"role": "user", "content": "inspect"},),
+        )
+        self.assertEqual(result.stop_code, RunStopCode.INVALID_TOOL_CALL)
+        self.assertEqual(result.model_calls, 1)
+        self.assertEqual(result.tool_calls, 0)
+        self.assertFalse(result.observations)
 
     def test_model_budget_stops_before_an_unavailable_next_turn(self) -> None:
         call = AgentToolCall(

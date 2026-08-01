@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import Protocol
 
 from anc_canonical import JsonValue, canonical_digest, validate_json_value
@@ -22,8 +23,20 @@ from ..tool_semantics import (
 from .model import AgentToolCall, AgentToolDefinition
 
 
+class ToolBridgeFailureCode(str, Enum):
+    INVALID_CALL = "invalid_call"
+    TOOL_GRANT_DENIED = "tool_grant_denied"
+
+
 class ToolBridgeError(RuntimeError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        failure_code: ToolBridgeFailureCode = ToolBridgeFailureCode.INVALID_CALL,
+    ) -> None:
+        super().__init__(message)
+        self.failure_code = failure_code
 
 
 @dataclass(frozen=True, slots=True)
@@ -360,7 +373,8 @@ class RuntimeToolBridge:
     def execute(self, call: AgentToolCall, *, step_id: str) -> ToolObservation:
         if self.tool_grant is not None and not self.tool_grant.allows_tool(call.name):
             raise ToolBridgeError(
-                f"Tool is not granted for this Assignment: {call.name}"
+                f"Tool is not granted for this Assignment: {call.name}",
+                failure_code=ToolBridgeFailureCode.TOOL_GRANT_DENIED,
             )
         if call.tool_call_id in self._seen_tool_calls:
             raise ToolBridgeError(f"duplicate Tool Call identity: {call.tool_call_id}")
@@ -400,7 +414,8 @@ class RuntimeToolBridge:
                     raise ToolBridgeError(str(error)) from error
                 if not allowed_path:
                     raise ToolBridgeError(
-                        f"read_workspace path is outside the Tool Grant: {relative_path}"
+                        f"read_workspace path is outside the Tool Grant: {relative_path}",
+                        failure_code=ToolBridgeFailureCode.TOOL_GRANT_DENIED,
                     )
             return (
                 "workspace.read",
@@ -442,7 +457,8 @@ class RuntimeToolBridge:
                         raise ToolBridgeError(str(error)) from error
                     if not allowed_path:
                         raise ToolBridgeError(
-                            f"mutate_workspace path is outside the Tool Grant: {relative_path}"
+                            f"mutate_workspace path is outside the Tool Grant: {relative_path}",
+                            failure_code=ToolBridgeFailureCode.TOOL_GRANT_DENIED,
                         )
             request: dict[str, JsonValue] = {
                 "schemaVersion": 1,
@@ -471,12 +487,18 @@ class RuntimeToolBridge:
                 call.name,
             )
             if self.tool_grant is None:
-                raise ToolBridgeError("run_check requires a Tool Grant")
+                raise ToolBridgeError(
+                    "run_check requires a Tool Grant",
+                    failure_code=ToolBridgeFailureCode.TOOL_GRANT_DENIED,
+                )
             check_id = _required_string(arguments, "checkId", call.name)
             try:
                 check = self.tool_grant.execution_check(check_id)
             except KeyError as error:
-                raise ToolBridgeError(str(error)) from error
+                raise ToolBridgeError(
+                    str(error),
+                    failure_code=ToolBridgeFailureCode.TOOL_GRANT_DENIED,
+                ) from error
             try:
                 request = build_harness_workspace_exec_request(
                     self.committed,
@@ -505,7 +527,10 @@ class RuntimeToolBridge:
             return "workspace.exec", request, client_request_id
         if call.name == "run_in_workspace":
             if self.tool_grant is not None and not self.tool_grant.allow_opaque_exec:
-                raise ToolBridgeError("opaque Runtime execution is not granted")
+                raise ToolBridgeError(
+                    "opaque Runtime execution is not granted",
+                    failure_code=ToolBridgeFailureCode.TOOL_GRANT_DENIED,
+                )
             allowed = {
                 "executable",
                 "args",
@@ -570,7 +595,8 @@ class RuntimeToolBridge:
             job_id = _required_string(arguments, "jobId", call.name)
             if self.tool_grant is not None and job_id not in self._known_job_ids:
                 raise ToolBridgeError(
-                    "observe_job may only observe a Job created by this Run"
+                    "observe_job may only observe a Job created by this Run",
+                    failure_code=ToolBridgeFailureCode.TOOL_GRANT_DENIED,
                 )
             return (
                 "task.observe",
@@ -596,7 +622,8 @@ class RuntimeToolBridge:
                 and (job_id, artifact_id) not in self._known_artifacts
             ):
                 raise ToolBridgeError(
-                    "read_artifact may only read an Artifact observed in this Run"
+                    "read_artifact may only read an Artifact observed in this Run",
+                    failure_code=ToolBridgeFailureCode.TOOL_GRANT_DENIED,
                 )
             return (
                 "artifact.read",

@@ -16,7 +16,12 @@ from .model import (
     AgentTurnFailureCode,
     AgentTurnRequest,
 )
-from .tools import ToolBridge, ToolBridgeError, ToolObservation
+from .tools import (
+    ToolBridge,
+    ToolBridgeError,
+    ToolBridgeFailureCode,
+    ToolObservation,
+)
 
 
 class RunStopCode(str, Enum):
@@ -283,7 +288,20 @@ class OrdivonAgentLoop:
                 try:
                     observation = self.tool_bridge.execute(call, step_id=step_id)
                 except ToolBridgeError as error:
-                    return stop(RunStopCode.INVALID_TOOL_CALL, detail=str(error))
+                    if error.failure_code is not ToolBridgeFailureCode.TOOL_GRANT_DENIED:
+                        return stop(RunStopCode.INVALID_TOOL_CALL, detail=str(error))
+                    observation = ToolObservation(
+                        tool_call_id=call.tool_call_id,
+                        tool_name=call.name,
+                        status="rejected",
+                        structured_content={
+                            "error": {
+                                "type": error.failure_code.value,
+                                "message": str(error)[:2_048],
+                                "retryable": False,
+                            }
+                        },
+                    )
                 tool_calls += 1
                 observations.append(observation)
                 if observation.status != "rejected":
