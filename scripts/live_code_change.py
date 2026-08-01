@@ -165,7 +165,7 @@ def main() -> None:
             dispatch_id = prepared.dispatch.dispatch_id
             client_request_id = prepared.dispatch.client_request_id
         lossy = DropFirstSuccessfulToolResponse(
-            client("deliver"), "workspace.execPlan"
+            client("deliver", initialize=True), "workspace.execPlan"
         )
         with HostStorage(state_root) as storage:
             recovered = code_change_host(
@@ -181,14 +181,18 @@ def main() -> None:
                 repository_id=args.repository_id,
             ).deliver(recovered)
         if unknown.state is not TaskState.WAITING or not lossy.response_dropped:
-            raise AssertionError("code change did not persist UNKNOWN after response loss")
+            raise AssertionError(
+                "code change did not persist UNKNOWN after response loss: "
+                f"state={unknown.state.value}, revision={unknown.revision}, "
+                f"responseDropped={lossy.response_dropped}, calls={lossy.calls}"
+            )
         reconciled = None
         reconciliation: list[dict[str, JsonValue]] = []
         for index in range(10):
             with HostStorage(state_root) as storage:
                 result = code_change_host(
                     storage,
-                    client(f"reconcile-{index}"),
+                    client(f"reconcile-{index}", initialize=True),
                     source_repo=args.source_repo,
                     repository_id=args.repository_id,
                 ).reconcile(plan.task_id, wait_ms=30_000)
@@ -205,7 +209,7 @@ def main() -> None:
         if reconciled is None or not reconciled.job_id:
             raise AssertionError("original code-change Runtime Job was not recovered")
         close_loss = DropFirstSuccessfulToolResponse(
-            client("verify-close-loss"), "workspace.close"
+            client("verify-close-loss", initialize=True), "workspace.close"
         )
         try:
             with HostStorage(state_root) as storage:
@@ -262,7 +266,7 @@ def main() -> None:
         with HostStorage(state_root) as storage:
             verified = code_change_host(
                 storage,
-                client("verify-tombstone-replay"),
+                client("verify-tombstone-replay", initialize=True),
                 source_repo=args.source_repo,
                 repository_id=args.repository_id,
             ).verify(plan.task_id)
@@ -303,7 +307,7 @@ def main() -> None:
                 stat.S_IMODE((Path(state_root) / "host.sqlite3").stat().st_mode)
             ),
         }
-        audit = client("audit")
+        audit = client("audit", initialize=True)
         jobs = jobs_for_request(audit, client_request_id)
         workspace_closed = workspace_absent(audit, plan.workspace_id)
         checks = {
@@ -400,7 +404,7 @@ def main() -> None:
     finally:
         if not completed:
             try:
-                client("cleanup").call_tool(
+                client("cleanup", initialize=True).call_tool(
                     "workspace.close",
                     {
                         "schemaVersion": 1,
