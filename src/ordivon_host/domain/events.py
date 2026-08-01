@@ -35,12 +35,6 @@ class EventKind(StrEnum):
     COGNITION_INVOCATION_PREPARED = "cognition.invocation-prepared"
     COGNITION_DECISION_ADMITTED = "cognition.decision-admitted"
     COGNITION_PROPOSAL_RESOLVED = "cognition.proposal-resolved"
-    HARNESS_ASSIGNMENT_COMMITTED = "harness.assignment-committed"
-    HARNESS_RUN_RECOVERY_RECORDED = "harness.run-recovery-recorded"
-    HARNESS_RUN_ABANDONED = "harness.run-abandoned"
-    HARNESS_RUN_RECORDED = "harness.run-recorded"
-    COMPLETION_PROPOSED = "completion.proposed"
-    COMPLETION_DECIDED = "completion.decided"
     EFFECT_DISPATCH_PREPARED = "effect.dispatch-prepared"
     EFFECT_OUTCOME_UNKNOWN = "effect.outcome-unknown"
     EFFECT_DISPATCH_OBSERVED = "effect.dispatch-observed"
@@ -53,6 +47,26 @@ class EventKind(StrEnum):
     RUNTIME_DISPATCH_OBSERVED = "runtime.dispatch-observed"
     VERIFICATION_ACCEPTED = "verification.accepted"
     WAKEUP_SCHEDULED = "wakeup.scheduled"
+
+    @classmethod
+    def _missing_(cls, value: object) -> "EventKind | None":
+        if (
+            not isinstance(value, str)
+            or value != value.strip()
+            or not value
+            or "." not in value
+            or len(value.encode("utf-8")) > 200
+            or any(
+                character not in "abcdefghijklmnopqrstuvwxyz0123456789._-"
+                for character in value
+            )
+        ):
+            return None
+        member = str.__new__(cls, value)
+        member._name_ = f"EXTENSION_{len(cls._value2member_map_)}"
+        member._value_ = value
+        cls._value2member_map_[value] = member
+        return member
 
 
 class EventAdmission(StrEnum):

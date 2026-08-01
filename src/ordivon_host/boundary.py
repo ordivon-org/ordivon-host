@@ -27,34 +27,107 @@ class OwnershipRule:
 
 
 _RULES = (
-    OwnershipRule("goal", ComponentOwner.HOST, "The Host preserves participant purpose and commitments across cognition processes."),
-    OwnershipRule("task", ComponentOwner.HOST, "The Host coordinates semantic progress and readiness."),
-    OwnershipRule("task-node", ComponentOwner.HOST, "Legacy boundary name for Task-local frontier tokens; no Task graph storage is implied."),
-    OwnershipRule("task-descriptor", ComponentOwner.HOST, "The Host binds one Task identity to one workload and assignee."),
-    OwnershipRule("host-event", ComponentOwner.HOST, "The Host event stream is the semantic control truth."),
-    OwnershipRule("context-manifest", ComponentOwner.HOST, "Context is compiled from durable task state."),
-    OwnershipRule("task-contract", ComponentOwner.HOST, "The Host preserves the authoritative objective, acceptance criteria, constraints, and consequence policy independently from model Context projection."),
-    OwnershipRule("tool-grant", ComponentOwner.HOST, "The Host binds one Assignment to an explicit model-visible Tool and resource scope."),
-    OwnershipRule("native-harness-run-contract", ComponentOwner.HOST, "The Host commits the native Harness Run identity before Provider or Runtime activity."),
-    OwnershipRule("native-run-recovery-assessment", ComponentOwner.HOST, "The Host preserves cleanup evidence and unresolved UNKNOWN state after a native Run process disappears."),
-    OwnershipRule("native-run-abandonment", ComponentOwner.HOST, "The Host alone decides when a lost native Run is safely terminated and replaceable."),
-    OwnershipRule("harness-trace", ComponentOwner.HOST, "The Host retains Run evidence while the Harness owns only the live model loop."),
-    OwnershipRule("completion-verification", ComponentOwner.HOST, "The Host persists independent acceptance evidence before producing TaskOutcome."),
-    OwnershipRule("model-invocation", ComponentOwner.HOST, "Providers are replaceable cognition transports."),
-    OwnershipRule("effect-proposal", ComponentOwner.HOST, "The Host compiles or admits proposals into explicit commitments before execution."),
-    OwnershipRule("effect-binding", ComponentOwner.HOST, "The Host binds semantic intent to a current executable contract."),
-    OwnershipRule("dispatch-lifecycle", ComponentOwner.HOST, "The Host preserves delivery identity, uncertainty, observation, and reconciliation."),
-    OwnershipRule("verification-receipt", ComponentOwner.HOST, "Task completion is independent from executor termination."),
-    OwnershipRule("workspace", ComponentOwner.RUNTIME, "The Runtime owns physical workspace identity and isolation."),
-    OwnershipRule("job", ComponentOwner.RUNTIME, "The Runtime owns committed physical execution."),
-    OwnershipRule("runtime-attempt", ComponentOwner.RUNTIME, "The Runtime records each physical delivery attempt."),
-    OwnershipRule("artifact-bytes", ComponentOwner.RUNTIME, "The Runtime retains physical execution evidence."),
-    OwnershipRule("protocol", ComponentOwner.COMPUTING, "Computing owns reference semantics and conformance."),
-    OwnershipRule("provider-session", ComponentOwner.PROVIDER, "A provider session is disposable transport state."),
-    OwnershipRule("domain-world", ComponentOwner.DOMAIN, "The domain owns authoritative world state and transition rules."),
-    OwnershipRule("domain-coordination-policy", ComponentOwner.DOMAIN, "The domain owns proposal compatibility and selection semantics."),
-    OwnershipRule("domain-message-reachability", ComponentOwner.DOMAIN, "Reachability depends on domain world facts."),
-    OwnershipRule("source-revision", ComponentOwner.GIT, "Git is the source-history authority."),
+    OwnershipRule(
+        "goal",
+        ComponentOwner.HOST,
+        "The Host preserves participant purpose and commitments across cognition processes.",
+    ),
+    OwnershipRule(
+        "task",
+        ComponentOwner.HOST,
+        "The Host coordinates semantic progress and readiness.",
+    ),
+    OwnershipRule(
+        "task-node",
+        ComponentOwner.HOST,
+        "Legacy boundary name for Task-local frontier tokens; no Task graph storage is implied.",
+    ),
+    OwnershipRule(
+        "task-descriptor",
+        ComponentOwner.HOST,
+        "The Host binds one Task identity to one workload and assignee.",
+    ),
+    OwnershipRule(
+        "host-event",
+        ComponentOwner.HOST,
+        "The Host event stream is the semantic control truth.",
+    ),
+    OwnershipRule(
+        "context-manifest",
+        ComponentOwner.HOST,
+        "Context is compiled from durable task state.",
+    ),
+    OwnershipRule(
+        "model-invocation",
+        ComponentOwner.HOST,
+        "Providers are replaceable cognition transports.",
+    ),
+    OwnershipRule(
+        "effect-proposal",
+        ComponentOwner.HOST,
+        "The Host compiles or admits proposals into explicit commitments before execution.",
+    ),
+    OwnershipRule(
+        "effect-binding",
+        ComponentOwner.HOST,
+        "The Host binds semantic intent to a current executable contract.",
+    ),
+    OwnershipRule(
+        "dispatch-lifecycle",
+        ComponentOwner.HOST,
+        "The Host preserves delivery identity, uncertainty, observation, and reconciliation.",
+    ),
+    OwnershipRule(
+        "verification-receipt",
+        ComponentOwner.HOST,
+        "Task completion is independent from executor termination.",
+    ),
+    OwnershipRule(
+        "workspace",
+        ComponentOwner.RUNTIME,
+        "The Runtime owns physical workspace identity and isolation.",
+    ),
+    OwnershipRule(
+        "job", ComponentOwner.RUNTIME, "The Runtime owns committed physical execution."
+    ),
+    OwnershipRule(
+        "runtime-attempt",
+        ComponentOwner.RUNTIME,
+        "The Runtime records each physical delivery attempt.",
+    ),
+    OwnershipRule(
+        "artifact-bytes",
+        ComponentOwner.RUNTIME,
+        "The Runtime retains physical execution evidence.",
+    ),
+    OwnershipRule(
+        "protocol",
+        ComponentOwner.COMPUTING,
+        "Computing owns reference semantics and conformance.",
+    ),
+    OwnershipRule(
+        "provider-session",
+        ComponentOwner.PROVIDER,
+        "A provider session is disposable transport state.",
+    ),
+    OwnershipRule(
+        "domain-world",
+        ComponentOwner.DOMAIN,
+        "The domain owns authoritative world state and transition rules.",
+    ),
+    OwnershipRule(
+        "domain-coordination-policy",
+        ComponentOwner.DOMAIN,
+        "The domain owns proposal compatibility and selection semantics.",
+    ),
+    OwnershipRule(
+        "domain-message-reachability",
+        ComponentOwner.DOMAIN,
+        "Reachability depends on domain world facts.",
+    ),
+    OwnershipRule(
+        "source-revision", ComponentOwner.GIT, "Git is the source-history authority."
+    ),
 )
 
 _RULE_BY_KIND = {rule.object_kind: rule for rule in _RULES}

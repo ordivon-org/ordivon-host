@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from anc_canonical import JsonValue, canonical_digest
 
 from .domain import EventKind, TaskState
-from .harness.disposition import NativeRunPhase, projected_native_run_disposition
 from .storage import HostStorage
 
 
@@ -25,12 +24,6 @@ class OperatorHandoffCapsule:
     dispatch_object_digest: str | None
     backend_job_id: str | None
     outcome_object_digest: str | None
-    task_attempt_id: str | None
-    assignment_id: str | None
-    assignment_generation: int | None
-    harness_run_id: str | None
-    completion_proposal_id: str | None
-    completion_decision_id: str | None
     must_not_repeat_object_digests: tuple[str, ...]
     next_admissible: tuple[str, ...]
 
@@ -40,7 +33,7 @@ class OperatorHandoffCapsule:
 
     def to_dict(self) -> dict[str, JsonValue]:
         return {
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "kind": "ordivon.operator-handoff-capsule",
             "taskId": self.task_id,
             "goalId": self.goal_id,
@@ -56,12 +49,6 @@ class OperatorHandoffCapsule:
             "dispatchObjectDigest": self.dispatch_object_digest,
             "backendJobId": self.backend_job_id,
             "outcomeObjectDigest": self.outcome_object_digest,
-            "taskAttemptId": self.task_attempt_id,
-            "assignmentId": self.assignment_id,
-            "assignmentGeneration": self.assignment_generation,
-            "harnessRunId": self.harness_run_id,
-            "completionProposalId": self.completion_proposal_id,
-            "completionDecisionId": self.completion_decision_id,
             "mustNotRepeatObjectDigests": list(self.must_not_repeat_object_digests),
             "nextAdmissible": list(self.next_admissible),
         }
@@ -70,11 +57,6 @@ class OperatorHandoffCapsule:
 def _optional_string(data: dict[str, JsonValue], field: str) -> str | None:
     value = data.get(field)
     return value if isinstance(value, str) else None
-
-
-def _optional_int(data: dict[str, JsonValue], field: str) -> int | None:
-    value = data.get(field)
-    return value if type(value) is int else None
 
 
 def operator_handoff(storage: HostStorage, task_id: str) -> OperatorHandoffCapsule:
@@ -87,12 +69,6 @@ def operator_handoff(storage: HostStorage, task_id: str) -> OperatorHandoffCapsu
     dispatch_digest = _optional_string(data, "dispatchDigest")
     job_id = _optional_string(data, "jobId")
     outcome_digest = _optional_string(data, "outcomeDigest")
-    task_attempt_id = _optional_string(data, "taskAttemptId")
-    assignment_id = _optional_string(data, "assignmentId")
-    assignment_generation = _optional_int(data, "assignmentGeneration")
-    harness_run_id = _optional_string(data, "harnessRunId")
-    completion_proposal_id = _optional_string(data, "completionProposalId")
-    completion_decision_id = _optional_string(data, "completionDecisionId")
     must_not_repeat: list[str] = []
     effect_digest = data.get("effectDigest")
     if isinstance(effect_digest, str) and snapshot.event_kind in {
@@ -103,55 +79,15 @@ def operator_handoff(storage: HostStorage, task_id: str) -> OperatorHandoffCapsu
         EventKind.TASK_STATE_CHANGED,
     }:
         must_not_repeat.append(effect_digest)
-    if snapshot.event_kind in {EventKind.EFFECT_OUTCOME_UNKNOWN, EventKind.RUNTIME_OUTCOME_UNKNOWN}:
+    if snapshot.event_kind in {
+        EventKind.EFFECT_OUTCOME_UNKNOWN,
+        EventKind.RUNTIME_OUTCOME_UNKNOWN,
+    }:
         next_admissible = ("reconcile-existing-dispatch",)
-    elif snapshot.event_kind is EventKind.HARNESS_ASSIGNMENT_COMMITTED:
-        disposition = projected_native_run_disposition(
-            phase=NativeRunPhase.ASSIGNED_UNRECORDED
-        )
-        next_admissible = (disposition.operator_action.value,)
-    elif snapshot.event_kind is EventKind.HARNESS_RUN_RECOVERY_RECORDED:
-        disposition = projected_native_run_disposition(
-            phase=NativeRunPhase.RECOVERY_RECORDED,
-            recovery_safe_to_abandon=(
-                data.get("harnessRunRecoverySafeToAbandon") is True
-            ),
-        )
-        next_admissible = (disposition.operator_action.value,)
-    elif snapshot.event_kind is EventKind.HARNESS_RUN_ABANDONED:
-        disposition = projected_native_run_disposition(phase=NativeRunPhase.ABANDONED)
-        next_admissible = (disposition.operator_action.value,)
-    elif snapshot.event_kind is EventKind.HARNESS_RUN_RECORDED:
-        termination = data.get("harnessRunTerminationCode")
-        replacement_allowed = data.get("harnessRunReplacementAllowed")
-        if replacement_allowed is not None and type(replacement_allowed) is not bool:
-            raise ValueError("recorded Harness Run replacement projection is invalid")
-        native_run = isinstance(
-            data.get("nativeHarnessRunContractObjectDigest"), str
-        )
-        if native_run:
-            if not isinstance(termination, str):
-                raise ValueError(
-                    "recorded native Harness Run omitted its termination projection"
-                )
-            disposition = projected_native_run_disposition(
-                phase=NativeRunPhase.RUN_RECORDED,
-                termination_code=termination,
-                replacement_allowed=replacement_allowed,
-            )
-            next_admissible = (disposition.operator_action.value,)
-        elif replacement_allowed is False:
-            next_admissible = ("verify-current-harness-run-before-replacement",)
-        else:
-            next_admissible = ("replace-harness-assignment",)
-    elif snapshot.event_kind is EventKind.COMPLETION_PROPOSED:
-        next_admissible = ("adjudicate-completion-proposal",)
     elif (
-        snapshot.event_kind is EventKind.COMPLETION_DECIDED
-        and data.get("completionAccepted") is False
+        snapshot.projection.state is TaskState.BLOCKED
+        and decision_request_id is not None
     ):
-        next_admissible = ("continue-current-harness-assignment",)
-    elif snapshot.projection.state is TaskState.BLOCKED and decision_request_id is not None:
         next_admissible = ("resolve-decision-request",)
     elif snapshot.projection.ready_frontier:
         next_admissible = snapshot.projection.ready_frontier
@@ -174,12 +110,6 @@ def operator_handoff(storage: HostStorage, task_id: str) -> OperatorHandoffCapsu
         dispatch_object_digest=dispatch_digest,
         backend_job_id=job_id,
         outcome_object_digest=outcome_digest,
-        task_attempt_id=task_attempt_id,
-        assignment_id=assignment_id,
-        assignment_generation=assignment_generation,
-        harness_run_id=harness_run_id,
-        completion_proposal_id=completion_proposal_id,
-        completion_decision_id=completion_decision_id,
         must_not_repeat_object_digests=tuple(must_not_repeat),
         next_admissible=tuple(next_admissible),
     )
