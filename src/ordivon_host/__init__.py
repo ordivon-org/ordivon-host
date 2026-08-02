@@ -10,7 +10,6 @@ from .domain import EventAdmission, EventKind, TaskDescriptor, TaskProjection, T
 from .effects import (
     ArtifactRef,
     DispatchEnvelope,
-    EffectStep,
     ObservationEnvelope,
     StateRef,
     TaskOutcome,
@@ -32,7 +31,6 @@ from .engine import (
     ReadTaskPlan,
     ReadTaskStep,
 )
-from .executors import DeliveryUncertain, EffectExecutor, RuntimeEffectExecutor
 from .extensions import HostExtensionError, HostExtensionPort, HostExtensionSnapshot
 from .handoff import OperatorHandoffCapsule, operator_handoff
 from .journal import HostJournal, LeaseHeld, RevisionConflict
@@ -73,11 +71,8 @@ __all__ = [
     "ContentAddressedStore",
     "CoordinationError",
     "CoordinationSuperseded",
-    "DeliveryUncertain",
     "DeterministicReadHost",
     "DispatchEnvelope",
-    "EffectExecutor",
-    "EffectStep",
     "EventAdmission",
     "EventKind",
     "ExecutionCheck",
@@ -110,7 +105,6 @@ __all__ = [
     "RecoveryResult",
     "RevisionConflict",
     "RuntimeCatalog",
-    "RuntimeEffectExecutor",
     "RuntimeSettings",
     "StateRef",
     "TaskDescriptor",

@@ -106,6 +106,15 @@ class ExtensionPortTests(unittest.TestCase):
                 self.assertEqual(committed.data["baseObjectDigest"], base.digest)
                 self.assertEqual(committed.data["extensionObjectDigest"], item.digest)
                 self.assertNotIn("activeExtensionToken", committed.data)
+                # Payload names are component-local and do not implicitly retain CAS.
+                opaque = port.append_preserving(
+                    task_id=created.task_id,
+                    expected_revision=committed.projection.revision,
+                    event_id="event:extension-port:opaque",
+                    kind=EventKind("harness.extension-recorded"),
+                    updates={"looksLikeObjectDigest": item.digest},
+                )
+                self.assertEqual(opaque.data["looksLikeObjectDigest"], item.digest)
                 with self.assertRaises(TaskRevisionMismatch):
                     port.append_preserving(
                         task_id=created.task_id,

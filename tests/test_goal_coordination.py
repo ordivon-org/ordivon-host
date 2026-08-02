@@ -6,10 +6,11 @@ import unittest
 
 from anc_canonical import canonical_digest
 
-from ordivon_host.effects import EffectLifecycleHost
 from ordivon_host import (
     CoordinationSuperseded,
+    EventKind,
     GoalCoordinatorHost,
+    HostKernel,
     HostStorage,
     TaskDescriptor,
     TaskState,
@@ -38,20 +39,21 @@ class GoalCoordinationTests(unittest.TestCase):
             coordinator_id = "task:station-zero:coordinator"
 
             with HostStorage(root) as storage:
-                lifecycle = EffectLifecycleHost(storage, clock_ms=clock)
-                for actor, task_id in zip(actor_ids, task_ids, strict=True):
-                    lifecycle.create_task(
-                        TaskDescriptor(
-                            task_id=task_id,
-                            goal_id=goal_id,
-                            workload_id="ordivon.game.actor-turn.v1",
-                            assignee_ref=f"actor:{actor}",
-                            provider_policy_ref="provider-policy:fixture-team-v1",
-                            domain_ref="game-run:station-zero",
-                        ),
-                        frontier=f"node:station-zero:{actor}:decide",
+                kernel = HostKernel(
+                    storage, clock_ms=clock, owner_id="host:test-goal-coordination"
+                )
+                descriptors = [
+                    TaskDescriptor(
+                        task_id=task_id,
+                        goal_id=goal_id,
+                        workload_id="ordivon.game.actor-turn.v1",
+                        assignee_ref=f"actor:{actor}",
+                        provider_policy_ref="provider-policy:fixture-team-v1",
+                        domain_ref="game-run:station-zero",
                     )
-                lifecycle.create_task(
+                    for actor, task_id in zip(actor_ids, task_ids, strict=True)
+                ]
+                descriptors.append(
                     TaskDescriptor(
                         task_id=coordinator_id,
                         goal_id=goal_id,
@@ -59,9 +61,25 @@ class GoalCoordinationTests(unittest.TestCase):
                         assignee_ref=None,
                         provider_policy_ref=None,
                         domain_ref="game-run:station-zero",
-                    ),
-                    frontier="node:station-zero:coordinator:collect",
+                    )
                 )
+                for descriptor in descriptors:
+                    descriptor_object = storage.put_object(
+                        descriptor.to_dict(), kind="task-descriptor"
+                    )
+                    actor = descriptor.assignee_ref.removeprefix("actor:") if descriptor.assignee_ref else "coordinator"
+                    kernel.create_task(
+                        event_id=f"event:{descriptor.task_id}:created",
+                        kind=EventKind.TASK_CREATED,
+                        task_id=descriptor.task_id,
+                        goal_id=descriptor.goal_id,
+                        payload={
+                            "descriptorDigest": descriptor.digest,
+                            "descriptorObjectDigest": descriptor_object.digest,
+                        },
+                        frontier=(f"node:station-zero:{actor}:{'collect' if actor == 'coordinator' else 'decide'}",),
+                        referenced_objects=(descriptor_object,),
+                    )
                 coordinator = GoalCoordinatorHost(storage, clock_ms=clock)
                 frozen = coordinator.snapshot(goal_id)
                 self.assertEqual(

@@ -1,20 +1,13 @@
-"""Experimental executor-neutral Effect lifecycle and wire models.
+"""Stable Host workload wire models.
 
-The lifecycle remains package-scoped until two materially different external
-consumers replace specialized Host state machines with net semantic deletion.
+Execution lifecycles remain owner-local in current workloads; Host exports only the
+shared evidence and outcome objects consumed across real boundaries.
 """
 
-from .lifecycle import (
-    EffectLifecycleError,
-    EffectLifecycleHost,
-    EffectSuperseded,
-)
 from .models import (
     ArtifactRef,
     DispatchEnvelope,
-    EffectStep,
     ObservationEnvelope,
-    PreparedDispatch,
     StateRef,
     TaskOutcome,
     VerificationReceipt,
@@ -24,12 +17,7 @@ from .models import (
 __all__ = [
     "ArtifactRef",
     "DispatchEnvelope",
-    "EffectLifecycleError",
-    "EffectLifecycleHost",
-    "EffectStep",
-    "EffectSuperseded",
     "ObservationEnvelope",
-    "PreparedDispatch",
     "StateRef",
     "TaskOutcome",
     "VerificationReceipt",
