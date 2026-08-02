@@ -36,7 +36,7 @@ Current proven vertical slices:
 
 The closed-choice path remains a useful deterministic and closed-domain profile. It is no longer treated as the only possible cognition interface. Agent Harness implementation and its historical evidence now live in the independent `ordivon-harness` repository.
 
-See `ARCHITECTURE.md`, `CLOSURE.md`, `docs/HARNESS_EXTRACTION.md`, `docs/PRE_H7_CLOSURE.md`, `docs/P0_P1_ALIGNMENT.md`, `docs/P2_P3_EXPLORATION.md`, `docs/GAME_WORKLOAD_P0_P2.md`, and `evidence/` for the retained Host boundary and receipts.
+See `ARCHITECTURE.md`, `CLOSURE.md`, `docs/HARNESS_EXTRACTION.md`, `docs/PRE_H7_CLOSURE.md`, `docs/P0_P1_ALIGNMENT.md`, `docs/P2_P3_EXPLORATION.md`, and `evidence/` for the retained Host boundary and receipts.
 
 ## Development
 

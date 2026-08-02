@@ -277,9 +277,9 @@ Runtime Job succeeds
 
 The Runtime digest commits HEAD, Git index state, tracked and untracked source bytes, file modes, symlinks, and nested worktrees. Runtime owns the physical compare-and-close; Host owns whether the retained evidence is semantically sufficient. A mismatch preserves the Workspace and leaves the Task at the prepared verification frontier so evidence can be recollected. Extending a Task lease across Runtime calls is deliberately not used as a world-version substitute.
 
-## Experimental generic Effect lifecycle
+## Effect lifecycle ownership
 
-`ordivon_host.effects.EffectLifecycleHost` is package-scoped experimental code, not part of the top-level stable Host API. It remains only as a falsifiable executor-neutral lifecycle candidate. Promotion requires two materially different external consumers, unified recovery, and net deletion of specialized lifecycle mechanics. Until then, recovery assessment reports an explicit manual stage because executor identity and the domain observation source are required.
+Host does not expose a generic executor-neutral Effect lifecycle. The former candidate duplicated the specialized read, mutation, code-change, and Harness paths without an external consumer, so it was removed. Shared Host responsibility stops at durable Task state, explicit commitment and uncertainty, referenced evidence, and terminal admission; each workload owns the narrow lifecycle required to produce those facts.
 
 ## MCP transport lifecycle
 
