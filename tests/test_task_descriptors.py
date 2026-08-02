@@ -5,7 +5,6 @@ import tempfile
 import unittest
 
 from ordivon_host import HostKernel, HostStorage, TaskDescriptor
-from ordivon_host.effects import EffectLifecycleHost
 from ordivon_host.domain import EventKind
 
 
@@ -23,11 +22,23 @@ class TaskDescriptorTests(unittest.TestCase):
                 domain_ref="game-run:test",
             )
             with HostStorage(root) as storage:
-                host = EffectLifecycleHost(storage, clock_ms=clock)
-                created = host.create_task(
-                    descriptor,
-                    frontier="node:descriptor:test:decide",
+                descriptor_object = storage.put_object(
+                    descriptor.to_dict(), kind="task-descriptor"
                 )
+                created = HostKernel(
+                    storage, clock_ms=clock, owner_id="host:test-descriptor"
+                ).create_task(
+                    event_id="event:descriptor:created",
+                    kind=EventKind.TASK_CREATED,
+                    task_id=descriptor.task_id,
+                    goal_id=descriptor.goal_id,
+                    payload={
+                        "descriptorDigest": descriptor.digest,
+                        "descriptorObjectDigest": descriptor_object.digest,
+                    },
+                    frontier=("node:descriptor:test:decide",),
+                    referenced_objects=(descriptor_object,),
+                ).projection
                 self.assertEqual(storage.read_task_descriptor(created.task_id), descriptor)
                 head = storage.read_task_event(created.task_id)
                 self.assertIsInstance(head.data, dict)

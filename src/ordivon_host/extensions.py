@@ -27,8 +27,9 @@ class HostExtensionPort:
     """Small public port for append-only component extension events.
 
     Components retain their own schemas. The Host only preserves the current Task
-    projection, performs revision/state/frontier fencing, and retains referenced
-    CAS objects named by top-level ``*ObjectDigest`` fields.
+    projection, performs revision/state/frontier fencing, and retains the CAS
+    objects the caller supplies explicitly. Payload field names have no Host
+    semantics.
     """
 
     def __init__(self, storage: HostStorage, kernel: HostKernel) -> None:
@@ -80,9 +81,12 @@ class HostExtensionPort:
             data.pop(field, None)
         data.update(updates)
         validate_json_value(data)
-        retained = self._dedupe_objects(
-            (*self._payload_objects(data), *referenced_objects)
-        )
+        retained = self._dedupe_objects(referenced_objects)
+        for value in retained:
+            if self.storage.objects.inspect(value.digest) != value:
+                raise HostExtensionError(
+                    f"Host extension object metadata is not owned by this store: {value.digest}"
+                )
         with self.kernel.locked_task(
             task_id,
             expected_revision=expected_revision,
@@ -100,21 +104,6 @@ class HostExtensionPort:
                 referenced_objects=retained,
             )
         return self.load(receipt.projection.task_id)
-
-    def _payload_objects(self, data: dict[str, JsonValue]) -> tuple[StoredObject, ...]:
-        values: list[StoredObject] = []
-        for field, value in data.items():
-            if field.endswith("ObjectDigest") and isinstance(value, str):
-                values.append(self.storage.objects.inspect(value))
-            elif field.endswith("ObjectDigests"):
-                if not isinstance(value, list) or any(
-                    not isinstance(item, str) for item in value
-                ):
-                    raise HostExtensionError(
-                        f"Host extension object reference list is invalid: {field}"
-                    )
-                values.extend(self.storage.objects.inspect(item) for item in value)
-        return self._dedupe_objects(values)
 
     @staticmethod
     def _dedupe_objects(values: Iterable[StoredObject]) -> tuple[StoredObject, ...]:

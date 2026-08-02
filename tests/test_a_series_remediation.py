@@ -11,23 +11,17 @@ import unittest
 
 from anc_canonical import canonical_digest
 
-from ordivon_host.effects import EffectLifecycleError, EffectLifecycleHost
 from ordivon_host import (
     CoordinationError,
-    DispatchEnvelope,
     EventKind,
     GoalCoordinatorHost,
     HostKernel,
     HostStorage,
-    ObservationEnvelope,
-    StateRef,
     TaskDescriptor,
-    TaskOutcome,
     TaskProjection,
     TaskState,
     VerificationReceipt,
     VerificationResultItem,
-    assess_recovery,
 )
 from ordivon_host.config import read_token_file
 from ordivon_host.journal import EventConflict, LeaseConflict
@@ -42,19 +36,26 @@ class ManualClock:
         return self.value
 
 
-class FailedExecutor:
-    executor_id = "executor:a-series-failure"
 
-    def deliver(self, dispatch, request):
-        return ObservationEnvelope(
-            dispatch_id=dispatch.dispatch_id,
-            executor_id=self.executor_id,
-            status="failed",
-            payload_digest=canonical_digest({"failed": True}),
-        )
 
-    def observe(self, dispatch, request):
-        return None
+def create_descriptor_task(
+    storage: HostStorage, descriptor: TaskDescriptor, frontier: str, clock
+):
+    descriptor_object = storage.put_object(descriptor.to_dict(), kind="task-descriptor")
+    return HostKernel(
+        storage, clock_ms=clock, owner_id=f"host:test:{descriptor.task_id}"
+    ).create_task(
+        event_id=f"event:{descriptor.task_id}:created",
+        kind=EventKind.TASK_CREATED,
+        task_id=descriptor.task_id,
+        goal_id=descriptor.goal_id,
+        payload={
+            "descriptorDigest": descriptor.digest,
+            "descriptorObjectDigest": descriptor_object.digest,
+        },
+        frontier=(frontier,),
+        referenced_objects=(descriptor_object,),
+    ).projection
 
 
 class ASeriesRemediationTests(unittest.TestCase):
@@ -210,109 +211,7 @@ class ASeriesRemediationTests(unittest.TestCase):
         self.assertEqual(len({id(value) for value in values}), 1)
         self.assertIs(values[0], EventKind("harness.concurrent-stable"))
 
-    def test_failed_generic_effect_cannot_claim_completed_outcome(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            clock = itertools.count(1).__next__
-            descriptor = TaskDescriptor(
-                task_id="task:effect-failure",
-                goal_id="goal:effect-failure",
-                workload_id="audit.effect.v1",
-            )
-            request = {"operation": "fail"}
-            effect = {
-                "schemaVersion": 1,
-                "kind": "audit.effect",
-                "effectId": "effect:a-series:failure",
-            }
-            dispatch = DispatchEnvelope(
-                dispatch_id="dispatch:a-series:failure",
-                effect_id="effect:a-series:failure",
-                executor_id=FailedExecutor.executor_id,
-                request_digest=canonical_digest(request),
-                idempotency_key="a-series-failure",
-                required_state_refs=(
-                    StateRef(
-                        "state:a-series",
-                        canonical_digest({"revision": 1}),
-                    ),
-                ),
-                expected_observation_kind="audit.failure-observation.v1",
-            )
-            with HostStorage(directory) as storage:
-                host = EffectLifecycleHost(storage, clock_ms=clock)
-                host.create_task(descriptor, frontier="node:effect-failure:prepare")
-                prepared = host.prepare(
-                    task_id=descriptor.task_id,
-                    prepare_frontier="node:effect-failure:prepare",
-                    reconcile_frontier="node:effect-failure:reconcile",
-                    verify_frontier="node:effect-failure:verify",
-                    result_frontier="node:effect-failure:result",
-                    effect=effect,
-                    request=request,
-                    dispatch=dispatch,
-                )
-                blocked = host.deliver(prepared, FailedExecutor())
-                self.assertEqual(blocked.state, TaskState.BLOCKED)
-                with self.assertRaisesRegex(
-                    EffectLifecycleError,
-                    "cannot claim successful completion",
-                ):
-                    host.complete(
-                        descriptor.task_id,
-                        TaskOutcome(
-                            task_id=descriptor.task_id,
-                            goal_id=descriptor.goal_id,
-                            status="completed",
-                            verification_digest=None,
-                        ),
-                    )
-                current = storage.journal.get_task(descriptor.task_id)
-                self.assertIsNotNone(current)
-                assert current is not None
-                self.assertEqual(current.revision, blocked.revision)
-                self.assertEqual(current.state, TaskState.BLOCKED)
 
-    def test_experimental_effect_recovery_is_explicitly_manual(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            clock = itertools.count(1).__next__
-            descriptor = TaskDescriptor(
-                task_id="task:effect-recovery-manual",
-                goal_id="goal:effect-recovery-manual",
-                workload_id="ordivon.game.actor-turn.v1",
-            )
-            request = {"operation": "unknown"}
-            effect = {
-                "schemaVersion": 1,
-                "kind": "audit.effect",
-                "effectId": "effect:a-series:manual-recovery",
-            }
-            dispatch = DispatchEnvelope(
-                dispatch_id="dispatch:a-series:manual-recovery",
-                effect_id="effect:a-series:manual-recovery",
-                executor_id=FailedExecutor.executor_id,
-                request_digest=canonical_digest(request),
-                idempotency_key="a-series-manual-recovery",
-                required_state_refs=(),
-                expected_observation_kind="audit.observation.v1",
-            )
-            with HostStorage(directory) as storage:
-                host = EffectLifecycleHost(storage, clock_ms=clock)
-                host.create_task(descriptor, frontier="node:effect-manual:prepare")
-                host.prepare(
-                    task_id=descriptor.task_id,
-                    prepare_frontier="node:effect-manual:prepare",
-                    reconcile_frontier="node:effect-manual:reconcile",
-                    verify_frontier="node:effect-manual:verify",
-                    result_frontier="node:effect-manual:result",
-                    effect=effect,
-                    request=request,
-                    dispatch=dispatch,
-                )
-                assessment = assess_recovery(storage, descriptor.task_id)
-                self.assertEqual(assessment.workload, "experimental-effect-lifecycle")
-                self.assertFalse(assessment.automatic)
-                self.assertEqual(assessment.action.value, "manual-stage")
-                self.assertIn("executor identity", assessment.reason)
 
     def test_terminal_task_cannot_reopen_under_same_identity(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -323,9 +222,8 @@ class ASeriesRemediationTests(unittest.TestCase):
                 workload_id="audit.terminal.v1",
             )
             with HostStorage(directory) as storage:
-                EffectLifecycleHost(storage, clock_ms=clock).create_task(
-                    descriptor,
-                    frontier="node:terminal-fence:start",
+                create_descriptor_task(
+                    storage, descriptor, "node:terminal-fence:start", clock
                 )
                 coordinator = GoalCoordinatorHost(storage, clock_ms=clock)
                 first = coordinator.snapshot(descriptor.goal_id).task(descriptor.task_id)
@@ -359,9 +257,8 @@ class ASeriesRemediationTests(unittest.TestCase):
                 workload_id="audit.coordination.v1",
             )
             with HostStorage(directory) as storage:
-                EffectLifecycleHost(storage, clock_ms=clock).create_task(
-                    descriptor,
-                    frontier="node:coordination-rejected:start",
+                create_descriptor_task(
+                    storage, descriptor, "node:coordination-rejected:start", clock
                 )
                 coordinator = GoalCoordinatorHost(storage, clock_ms=clock)
                 task_ref = coordinator.snapshot(descriptor.goal_id).task(

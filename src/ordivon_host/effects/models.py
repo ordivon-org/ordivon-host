@@ -6,8 +6,6 @@ from typing import Any
 from anc_canonical import JsonValue
 from ordivon_protocol import validate_host_workload_object
 
-from ..domain import TaskDescriptor, TaskState
-from ..objects import StoredObject
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,31 +223,3 @@ class TaskOutcome:
             ),
             artifact_refs=tuple(ArtifactRef.from_dict(item) for item in refs),
         )
-
-
-@dataclass(frozen=True, slots=True)
-class PreparedDispatch:
-    descriptor: TaskDescriptor
-    task_revision: int
-    effect_object: StoredObject
-    request_object: StoredObject
-    dispatch_object: StoredObject
-    effect: dict[str, JsonValue]
-    request: dict[str, JsonValue]
-    dispatch: DispatchEnvelope
-    reconcile_frontier: str
-    verify_frontier: str
-    result_frontier: str
-
-
-@dataclass(frozen=True, slots=True)
-class EffectStep:
-    task_id: str
-    revision: int
-    state: TaskState
-    frontier: str | None
-    dispatch_id: str | None = None
-    observation_digest: str | None = None
-    verification_digest: str | None = None
-    outcome_digest: str | None = None
-    reconciled: bool = False
