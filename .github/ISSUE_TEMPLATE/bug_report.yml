@@ -1,0 +1,67 @@
+name: Bug report
+description: Report a reproducible Host state, admission, verification, or recovery defect
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not report vulnerabilities here. Use the private channel in SECURITY.md.
+  - type: input
+    id: revision
+    attributes:
+      label: Host revision or package version
+      placeholder: Git commit or version
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected boundary
+      options:
+        - Journal, CAS, schema, or migration
+        - Task revision, lease, or projection
+        - Context, proposal, or decision admission
+        - Effect, Dispatch, or uncertainty
+        - Runtime transport or Tool catalog
+        - Verification or TaskOutcome
+        - Recovery, handoff, Doctor, backup, or restore
+        - Extension or Harness boundary
+        - Documentation or packaging
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+      description: Include exact Task state and whether an external effect may already have occurred.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction
+      description: Include commands or API calls with secrets and private content removed.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Task revisions, event kinds, object digests, Runtime Job IDs, Doctor checks, or receipts. Do not attach raw state.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I removed tokens, raw databases, CAS objects, private source, and personal data.
+          required: true
+        - label: This is not a vulnerability report.
+          required: true

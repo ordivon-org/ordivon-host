@@ -1,0 +1,246 @@
+#!/usr/bin/env python3
+"""Validate canonical Host documents and repository contract markers."""
+
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+PROJECT = ROOT / ".ordivon/project.yaml"
+PYPROJECT = ROOT / "pyproject.toml"
+RUNTIME_CLIENT = ROOT / "src/ordivon_host/runtime/mcp.py"
+
+REQUIRED_FRONTMATTER = {
+    "schema_version",
+    "id",
+    "title",
+    "type",
+    "profile",
+    "lifecycle",
+    "source_role",
+    "visibility",
+    "owners",
+    "audience",
+    "updated",
+    "summary",
+    "evidence_status",
+    "readiness",
+    "applies_to",
+}
+REQUIRED_README_HEADINGS = {
+    "Purpose",
+    "Responsibility boundary",
+    "Status",
+    "Runtime transport",
+    "Requirements",
+    "Quick start",
+    "Operations",
+    "Documentation map",
+    "Security and data",
+    "License",
+}
+FRONTMATTER_END = "\n---\n"
+DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+LINK_PATTERN = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
+PROTOCOL_PIN = re.compile(
+    r"ordivon-computing\.git@([0-9a-f]{40})#subdirectory=packages/ordivon-protocol"
+)
+
+
+class DocumentError(ValueError):
+    pass
+
+
+def parse_frontmatter(path: Path) -> dict[str, object] | None:
+    text = path.read_text(encoding="utf-8")
+    if not text.startswith("---\n"):
+        return None
+    end = text.find(FRONTMATTER_END, 4)
+    if end < 0:
+        raise DocumentError(f"{path.relative_to(ROOT)} has unterminated frontmatter")
+    values: dict[str, object] = {}
+    active_list: str | None = None
+    for line_number, raw in enumerate(text[4:end].splitlines(), start=2):
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        if raw.startswith("  - "):
+            if active_list is None:
+                raise DocumentError(
+                    f"{path.relative_to(ROOT)}:{line_number} has a list item without a key"
+                )
+            current = values.setdefault(active_list, [])
+            if not isinstance(current, list):
+                raise DocumentError(
+                    f"{path.relative_to(ROOT)}:{line_number} mixes scalar and list"
+                )
+            current.append(raw[4:].strip())
+            continue
+        match = re.fullmatch(r"([a-z][a-z0-9_]*)\s*:\s*(.*)", raw)
+        if not match:
+            raise DocumentError(
+                f"{path.relative_to(ROOT)}:{line_number} has unsupported frontmatter"
+            )
+        key, scalar = match.groups()
+        if key in values:
+            raise DocumentError(
+                f"{path.relative_to(ROOT)}:{line_number} repeats {key}"
+            )
+        active_list = key if not scalar else None
+        values[key] = scalar if scalar else []
+    return values
+
+
+def managed_paths() -> list[Path]:
+    paths: list[Path] = []
+    active = False
+    for line in PROJECT.read_text(encoding="utf-8").splitlines():
+        if line == "managed_paths:":
+            active = True
+            continue
+        if active and re.match(r"^[a-zA-Z_]", line):
+            break
+        if active and line.startswith("  - "):
+            paths.append(ROOT / line[4:].strip())
+    if not paths:
+        raise DocumentError(".ordivon/project.yaml defines no managed_paths")
+    return paths
+
+
+def validate_frontmatter() -> list[str]:
+    errors: list[str] = []
+    ids: dict[str, Path] = {}
+    managed = managed_paths()
+    for path in managed:
+        if not path.is_file():
+            errors.append(f"managed path is missing: {path.relative_to(ROOT)}")
+            continue
+        values = parse_frontmatter(path)
+        if values is None:
+            errors.append(f"managed Markdown lacks frontmatter: {path.relative_to(ROOT)}")
+            continue
+        missing = sorted(REQUIRED_FRONTMATTER - values.keys())
+        if missing:
+            errors.append(
+                f"{path.relative_to(ROOT)} lacks frontmatter keys: {', '.join(missing)}"
+            )
+        identifier = values.get("id")
+        if not isinstance(identifier, str) or not identifier:
+            errors.append(f"{path.relative_to(ROOT)} has no scalar id")
+        elif identifier in ids:
+            errors.append(
+                f"duplicate document id {identifier}: "
+                f"{ids[identifier].relative_to(ROOT)} and {path.relative_to(ROOT)}"
+            )
+        else:
+            ids[identifier] = path
+        updated = values.get("updated")
+        if not isinstance(updated, str) or not DATE_PATTERN.fullmatch(updated):
+            errors.append(f"{path.relative_to(ROOT)} has invalid updated date")
+        if values.get("source_role") != "canonical":
+            errors.append(f"managed document is not canonical: {path.relative_to(ROOT)}")
+
+    for path in sorted(ROOT.rglob("*.md")):
+        if ".git" in path.parts or "build" in path.parts or "dist" in path.parts:
+            continue
+        values = parse_frontmatter(path)
+        if values is None:
+            continue
+        identifier = values.get("id")
+        if isinstance(identifier, str) and identifier in ids and ids[identifier] != path:
+            errors.append(
+                f"duplicate document id {identifier}: "
+                f"{ids[identifier].relative_to(ROOT)} and {path.relative_to(ROOT)}"
+            )
+        elif isinstance(identifier, str):
+            ids[identifier] = path
+    return errors
+
+
+def validate_links() -> list[str]:
+    errors: list[str] = []
+    for path in sorted(ROOT.rglob("*.md")):
+        if ".git" in path.parts or "build" in path.parts or "dist" in path.parts:
+            continue
+        text = path.read_text(encoding="utf-8")
+        for match in LINK_PATTERN.finditer(text):
+            raw_target = match.group(1).strip()
+            if raw_target.startswith("<") and raw_target.endswith(">"):
+                raw_target = raw_target[1:-1]
+            target = raw_target.split(maxsplit=1)[0]
+            if not target or target.startswith(("#", "http://", "https://", "mailto:")):
+                continue
+            relative = target.split("#", 1)[0].split("?", 1)[0]
+            resolved = (path.parent / relative).resolve()
+            try:
+                resolved.relative_to(ROOT)
+            except ValueError:
+                errors.append(f"{path.relative_to(ROOT)} links outside repository: {target}")
+                continue
+            if not resolved.exists():
+                errors.append(f"{path.relative_to(ROOT)} has broken local link: {target}")
+    return errors
+
+
+def validate_public_contracts() -> list[str]:
+    errors: list[str] = []
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    headings = set(re.findall(r"^## (.+)$", readme, re.MULTILINE))
+    missing = sorted(REQUIRED_README_HEADINGS - headings)
+    if missing:
+        errors.append("README lacks public headings: " + ", ".join(missing))
+
+    security = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
+    if "/security/advisories/new" not in security:
+        errors.append("SECURITY.md lacks the private advisory route")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    if "## Unreleased" not in changelog:
+        errors.append("CHANGELOG.md lacks an Unreleased section")
+    project = PROJECT.read_text(encoding="utf-8")
+    if "enforcement: strict" not in project:
+        errors.append("project manifest is not strict")
+
+    pyproject = PYPROJECT.read_text(encoding="utf-8")
+    pin = PROTOCOL_PIN.search(pyproject)
+    if pin is None:
+        errors.append("pyproject.toml does not pin ordivon-protocol to an exact commit")
+    if 'requires-python = ">=3.12,<3.13"' not in pyproject:
+        errors.append("pyproject.toml Python support boundary changed without review")
+
+    client = RUNTIME_CLIENT.read_text(encoding="utf-8")
+    required_markers = (
+        'MODERN_PROTOCOL_VERSION = "2026-07-28"',
+        'LEGACY_PROTOCOL_VERSION = "2025-06-18"',
+        "profile: McpTransportProfile = ORDIVON_MODERN_MCP_PROFILE",
+        'self.request("server/discover", {})',
+        'headers["Mcp-Method"] = method',
+        'headers["Mcp-Name"] = name',
+    )
+    for marker in required_markers:
+        if marker not in client:
+            errors.append(f"Runtime client lacks modern transport marker: {marker}")
+
+    architecture = (ROOT / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    if "Host has not migrated to that transport profile" in architecture:
+        errors.append("ARCHITECTURE.md still claims modern Runtime migration is incomplete")
+    return errors
+
+
+def main() -> int:
+    errors: list[str] = []
+    for validator in (validate_frontmatter, validate_links, validate_public_contracts):
+        try:
+            errors.extend(validator())
+        except (DocumentError, OSError, UnicodeError) as error:
+            errors.append(str(error))
+    if errors:
+        for error in sorted(set(errors)):
+            print(f"docs: {error}", file=sys.stderr)
+        return 1
+    print("documentation contract: valid")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,9 @@
+self-hosted-runner:
+  labels:
+    - ordivon-host-runtime
+
+config-variables: null
+
+paths:
+  .github/workflows/**/*.yml:
+    ignore: []

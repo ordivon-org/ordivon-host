@@ -9,6 +9,13 @@ description = "Persistent Agent coordination and commitment plane for Ordivon."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = { file = "LICENSE" }
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+]
 dependencies = [
   "ordivon-protocol @ git+https://github.com/zycxfyh/ordivon-computing.git@420dc356cb664d75db0f34f356156baebe5843db#subdirectory=packages/ordivon-protocol",
 ]
@@ -19,9 +26,14 @@ ordivon-host = "ordivon_host.cli:entrypoint"
 [project.urls]
 Repository = "https://github.com/zycxfyh/ordivon-host"
 Issues = "https://github.com/zycxfyh/ordivon-host/issues"
+Documentation = "https://github.com/zycxfyh/ordivon-host#readme"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100

@@ -9,11 +9,18 @@ default_profiles:
 documentation_roots:
   - README.md
   - ARCHITECTURE.md
+  - CONTRIBUTING.md
+  - SECURITY.md
+  - CHANGELOG.md
   - docs
 managed_paths:
   - README.md
   - ARCHITECTURE.md
+  - docs/QUICKSTART.md
+  - docs/STATUS.md
   - docs/OPERATIONS.md
+  - docs/DATA_AND_PRIVACY.md
+  - docs/RELEASES.md
   - docs/authority.md
 enforcement: strict
 maintainers:

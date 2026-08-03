@@ -8,3 +8,4 @@ build/
 dist/
 *.whl
 .DS_Store
+target/

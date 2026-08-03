@@ -22,8 +22,12 @@ applies_to:
   - ordivon-host
 related:
   - host.start
+  - host.quickstart
+  - host.status
   - host.architecture
   - host.operations
+  - host.data-privacy
+  - host.releases
 ---
 # Host Content Authority
 
@@ -33,13 +37,21 @@ Host contains current architecture, operational guidance, extraction records, cl
 
 ## Decision
 
-[`../README.md`](../README.md) is the canonical repository entry. [`../ARCHITECTURE.md`](../ARCHITECTURE.md) owns the current Host architecture and responsibility boundary. [`OPERATIONS.md`](OPERATIONS.md) owns the operational state, configuration, migration, backup, restore, Doctor, and conservative reconciliation contract.
+| Responsibility | Canonical source |
+| --- | --- |
+| public repository identity, boundary summary, and navigation | [`../README.md`](../README.md) |
+| installation, deterministic checks, state initialization, and first live journey | [`QUICKSTART.md`](QUICKSTART.md) |
+| stable maturity, support environment, proven slices, and known limits | [`STATUS.md`](STATUS.md) |
+| current Host architecture and component ownership | [`../ARCHITECTURE.md`](../ARCHITECTURE.md) |
+| state root, configuration, migration, Doctor, backup, restore, and bounded reconciliation | [`OPERATIONS.md`](OPERATIONS.md) |
+| stored data, sensitivity, retention, export, migration, and deletion | [`DATA_AND_PRIVACY.md`](DATA_AND_PRIVACY.md) |
+| versions, release gates, dependency policy, compatibility, and deprecation | [`RELEASES.md`](RELEASES.md) |
 
-Source code, schema migrations, deterministic tests, exact dependency pins, live service inspection, and immutable receipts remain stronger owners for fields, transitions, compatibility, performance measurements, and deployed state. The former root closeout, extraction records, P/H/Round reports, remediation notes, and evidence files explain how the current boundary was reached; they do not silently redefine it.
+Source code, schema migrations, deterministic tests, exact dependency pins, live service inspection, and immutable receipts remain stronger owners for fields, transitions, compatibility, performance measurements, and deployed state. `CHANGELOG.md` records user-visible change but does not override current contracts. The former root closeout, extraction records, P/H/Round reports, remediation notes, and evidence files explain how the current boundary was reached; they do not silently redefine it.
 
 ## Consequences
 
-Only the repository entry, architecture, operations contract, and this decision enter strict content management in this adoption step. Historical and phase-oriented texts remain available with explicit non-authoritative markers. A later human-centered rewrite may reorganize and simplify them, but it must preserve evidence references and use explicit supersession rather than creating another current Host truth.
+The repository entry, Quick Start, status, architecture, operations, data/privacy, release policy, and this decision enter strict content management. Historical and phase-oriented texts remain available with explicit non-authoritative markers. A later human-centered rewrite may reorganize and simplify them, but it must preserve evidence references and use explicit supersession rather than creating another current Host truth.
 
 ## Status
 

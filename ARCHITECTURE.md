@@ -21,7 +21,11 @@ applies_to:
   - ordivon-host
 related:
   - host.start
+  - host.quickstart
+  - host.status
   - host.operations
+  - host.data-privacy
+  - host.releases
   - host.authority
 ---
 # Ordivon Host architecture boundary
@@ -234,7 +238,7 @@ The profile proves:
 - a child Task committed before the parent resolution is reused after recovery;
 - repeated admission after response loss returns the retained receipt;
 - parent completion follows the verified child TaskOutcome;
-- MCP Session identity remains disposable transport state.
+- transport identity remains disposable; the modern path creates no MCP Session.
 
 The profile is Host-local and experimental. No universal planning language or promoted Protocol object is implied.
 
@@ -337,23 +341,24 @@ Host does not expose a generic executor-neutral Effect lifecycle. The former can
 
 ## MCP transport lifecycle
 
-The current Host `McpRuntimeClient` uses Runtime's retained MCP `2025-06-18` Session compatibility profile:
+The default Host `McpRuntimeClient` uses Runtime's canonical stateless MCP `2026-07-28` lifecycle:
 
 ```text
-initialize
-→ retain Mcp-Session-Id as in-memory transport state
-→ notifications/initialized
-→ bounded request/response operations
+server/discover
+→ verify supportedVersions and server identity
+→ send protocol, clientInfo, and clientCapabilities metadata on every request
+→ bind method identity with Mcp-Method and Tool identity with Mcp-Name
+→ bounded request/response operations without a transport Session
 ```
 
-Runtime's canonical modern lifecycle is the stateless `2026-07-28` `server/discover` path; Host has not migrated to that transport profile. This is bounded compatibility debt, not a second Runtime architecture. Empty SSE heartbeat data frames are ignored, and multiple non-empty JSON-RPC messages remain outside the supported Host profile. MCP Session identity is never persisted in Goal, Task, Context, Effect, or recovery state. A new Host process establishes a new compatibility transport session and continues from durable Host and Runtime identities.
+Modern responses that attempt to create an MCP Session fail closed. Empty SSE heartbeat data frames are ignored, while multiple non-empty JSON-RPC messages remain outside the bounded Host profile. The retained `2025-06-18` `initialize` / `Mcp-Session-Id` path is available only through an explicit legacy compatibility profile for retained deployments and evidence. Neither modern request metadata nor legacy Session identity is persisted in Goal, Task, Context, Effect, Dispatch, verification, or recovery state. A fresh Host process rediscovers Runtime and continues from durable Host and Runtime identities.
 
 ## Empirical recovery boundary
 
 Repeated live work exposed mechanisms not visible from unit tests alone:
 
 1. Runtime Job reconstruction should use an exact durable `clientRequestId` filter when published by the Tool contract rather than scanning all history.
-2. `systemctl is-active` is not a readiness proof; recovery waits for both service activity and a successful MCP initialization.
+2. `systemctl is-active` is not a readiness proof; recovery waits for both service activity and successful modern MCP discovery.
 3. Millisecond timestamps are ordering hints, not unique identities; live workload identities include an independent nonce.
 4. Production MCP may emit an empty SSE heartbeat before the JSON-RPC response; ignoring the empty frame preserves strict single-response semantics.
 

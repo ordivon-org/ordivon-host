@@ -1,0 +1,2 @@
+# Ordivon Host has no third-party runtime dependencies.
+# The first-party ordivon-protocol Git dependency is verified by scripts/check_dependencies.py.

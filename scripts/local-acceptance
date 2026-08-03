@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+usage: scripts/local-acceptance check|run
+
+check  validate that the Host portable and live acceptance contract is present
+run    execute portable checks and one read-only Host→Runtime journey
+
+Environment:
+  ORDIVON_PROTOCOL_SOURCE         optional local ordivon-protocol source directory
+  ORDIVON_MCP_ENDPOINT            Runtime endpoint; default http://127.0.0.1:8897/mcp
+  ORDIVON_BEARER_TOKEN_FILE       private Runtime token file
+  ORDIVON_BEARER_TOKEN            direct token for ephemeral acceptance only
+  ORDIVON_HOST_ACCEPTANCE_OUTPUT  optional JSON receipt output path
+EOF
+}
+
+repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+mode=${1:-}
+python_bin=${PYTHON_BIN:-$(command -v python3.12 || true)}
+
+case "$mode" in
+  check)
+    test -n "$python_bin"
+    test -f "$repo/pyproject.toml"
+    test -f "$repo/scripts/check_docs.py"
+    test -f "$repo/scripts/check_dependencies.py"
+    test -f "$repo/requirements-audit.txt"
+    test -f "$repo/scripts/live_runtime_read.py"
+    test -f "$repo/src/ordivon_host/runtime/mcp.py"
+    grep -q 'MODERN_PROTOCOL_VERSION = "2026-07-28"' \
+      "$repo/src/ordivon_host/runtime/mcp.py"
+    "$python_bin" "$repo/scripts/check_docs.py"
+    printf '%s\n' \
+      'local acceptance contract: present' \
+      'run with: scripts/local-acceptance run'
+    ;;
+  run)
+    if [[ -z "$python_bin" ]]; then
+      echo 'Python 3.12 is required' >&2
+      exit 1
+    fi
+    protocol_source=${ORDIVON_PROTOCOL_SOURCE:-/root/projects/ordivon-computing/packages/ordivon-protocol/src}
+    python_path="$repo/src"
+    if [[ -d "$protocol_source" ]]; then
+      python_path="$python_path:$protocol_source"
+    fi
+    export PYTHONPATH="${python_path}${PYTHONPATH:+:$PYTHONPATH}"
+    endpoint=${ORDIVON_MCP_ENDPOINT:-http://127.0.0.1:8897/mcp}
+    revision=$(git -C "$repo" rev-parse HEAD)
+    receipt=$(mktemp)
+    trap 'rm -f "$receipt"' EXIT
+
+    cd "$repo"
+    "$python_bin" scripts/check_docs.py
+    "$python_bin" scripts/check_dependencies.py
+    "$python_bin" -m compileall -q src tests scripts
+    "$python_bin" -m ruff check src tests scripts
+    "$python_bin" -W error::ResourceWarning -m unittest discover -s tests -v
+    "$python_bin" scripts/live_runtime_read.py \
+      --endpoint "$endpoint" \
+      --source-repo "$repo" \
+      --source-revision "$revision" \
+      --relative-path README.md >"$receipt"
+    "$python_bin" - "$receipt" "$revision" <<'PY'
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+expected_revision = sys.argv[2]
+receipt = json.loads(path.read_text(encoding="utf-8"))
+assert receipt.get("kind") == "ordivon.host-live-read-receipt"
+assert receipt.get("sourceRevision") == expected_revision
+assert receipt.get("finalState") == "completed"
+assert receipt.get("runtimeWorkspaceClosed") is True
+assert receipt.get("freshStorageOpenPerStep") is True
+assert receipt.get("providerSessionPersisted") is False
+integrity = receipt.get("integrity")
+assert isinstance(integrity, dict)
+assert isinstance(integrity.get("payloadDigest"), str)
+print(
+    json.dumps(
+        {
+            "status": "passed",
+            "hostRevision": expected_revision,
+            "taskId": receipt.get("taskId"),
+            "finalRevision": receipt.get("finalRevision"),
+            "runtimeWorkspaceClosed": True,
+            "payloadDigest": integrity["payloadDigest"],
+        },
+        sort_keys=True,
+    )
+)
+PY
+    if [[ -n ${ORDIVON_HOST_ACCEPTANCE_OUTPUT:-} ]]; then
+      mkdir -p "$(dirname "$ORDIVON_HOST_ACCEPTANCE_OUTPUT")"
+      install -m 0600 "$receipt" "$ORDIVON_HOST_ACCEPTANCE_OUTPUT"
+    fi
+    cat "$receipt"
+    ;;
+  --help|-h)
+    usage
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac

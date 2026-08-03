@@ -1,0 +1,105 @@
+---
+schema_version: 1
+id: host.status
+title: Host Status
+type: status
+profile: organization
+lifecycle: active
+source_role: canonical
+visibility: public
+owners:
+  - ordivon-host
+audience:
+  - builder
+  - operator
+  - user
+  - agent
+updated: 2026-08-04
+summary: Stable maturity claim, support boundary, proven slices, known limits, and live-state verification path for Ordivon Host.
+evidence_status: verified
+readiness: READY
+applies_to:
+  - ordivon-host
+related:
+  - host.start
+  - host.quickstart
+  - host.architecture
+  - host.operations
+  - host.releases
+---
+# Host Status
+
+## Maturity
+
+Ordivon Host is an **operational engineering prototype for owner-trusted local work** and **pre-1.0 as a public product interface**.
+
+Operational means the repository has a durable Journal/CAS, versioned schema migration, private state modes, exact Task revision and lease fencing, backup/restore, Doctor, conservative reconciliation, modern Runtime transport, deterministic tests, and live evidence for read, mutation, source-change, cognition, and restart scenarios.
+
+Pre-1.0 means public Python imports, object schemas, operational packaging, workload APIs, and deployment conventions may still change. Changes must preserve explicit decoder, migration, recovery, rollback, or major-cutover evidence. Pre-1.0 does not permit silent reinterpretation of durable Task history.
+
+## Supported environment
+
+The canonical path currently supports:
+
+- Python 3.12;
+- Linux trusted-local operation;
+- local SQLite and filesystem-backed immutable CAS;
+- a loopback or operator-tunneled Ordivon Runtime;
+- Runtime MCP `2026-07-28` as the default transport lifecycle;
+- explicit `2025-06-18` Session compatibility when selected;
+- owner-trusted repositories, Providers, and participants.
+
+Python 3.13+, hostile multi-tenancy, remote distributed consensus, a general scheduler, a hosted privacy boundary, and automatic recovery of unkeyed effects are not supported.
+
+## Proven capabilities
+
+| Area | Status |
+| --- | --- |
+| immutable TaskDescriptor and revisioned Task projection | operational |
+| exact lease-fenced event admission and causal edges | operational |
+| Journal/CAS integrity, schema migration, backup/restore, Doctor | operational |
+| deterministic Runtime repository read and independent verification | operational |
+| guarded mutation with UNKNOWN reconciliation and no redispatch | operational proof slice |
+| version-bound two-file source change and compare-and-close | operational proof slice |
+| closed-choice cognition | retained deterministic profile |
+| open ActionProposal with Host-owned lowering and DecisionRequest | experimental but verified |
+| Goal-scoped Task revision coordination | operational narrow slice |
+| generic extension event and CAS admission for Harness | operational boundary |
+| general workflow engine or multi-Agent scheduler | not provided |
+| domain-world truth and semantic verification | domain-owned |
+| physical execution and process recovery | Runtime-owned |
+| Agent Run and Provider-loop recovery | Harness-owned |
+
+## Current transport contract
+
+The default `McpRuntimeClient` uses stateless `server/discover`, verifies that Runtime supports `2026-07-28`, sends required per-request metadata, and binds method and Tool identity through headers. It rejects unexpected Session creation.
+
+The legacy Session decoder remains because retained deployments and historical evidence may still require it. It is not used by default and must not become durable Task state.
+
+## Known limits
+
+- Host has no durable Goal event stream or Goal commitment object; Goal coordination is a snapshot over Task revisions.
+- Workload-specific hosts remain explicit state machines rather than a generic Effect lifecycle.
+- A successful Runtime Job is not Task completion.
+- Recovery never authorizes blind redispatch after uncertain delivery.
+- Provider calls are replaceable and occur outside Task leases; Host cannot resume an in-memory Provider process.
+- Domain systems must supply authoritative world-state and verification semantics.
+- Full-history Doctor is intentionally slower and explicit.
+- Live evidence covers the tested local Runtime and filesystem path, not host reboot, kernel failure, network partition across machines, or distributed scheduling.
+- Several workload modules are large, but forced splitting is deferred while each still owns one coherent vertical lifecycle and tests provide stronger safety than cosmetic decomposition.
+
+## Live state is machine-owned
+
+This document does not copy current Task counts, schema files, active leases, object bytes, deployment revisions, or Runtime health. Query them:
+
+```bash
+ordivon-host --state-root /var/lib/ordivon/host inspect
+ordivon-host --state-root /var/lib/ordivon/host doctor
+ordivon-host --state-root /var/lib/ordivon/host doctor --history
+ordivon-host --config /etc/ordivon/host.toml \
+  --state-root /var/lib/ordivon/host doctor --runtime
+```
+
+## Reopen conditions
+
+Revisit this status when Host gains a durable Goal stream, remote/distributed state ownership, a new public workload abstraction, a hostile-code boundary, Python support changes, the legacy Runtime decoder is deleted, or the public interface reaches a declared 1.0 contract.

@@ -20,7 +20,11 @@ readiness: READY
 applies_to:
   - ordivon-host
 related:
+  - host.quickstart
+  - host.status
   - host.architecture
+  - host.data-privacy
+  - host.releases
   - host.authority
 ---
 # Host operational contract
@@ -103,6 +107,8 @@ timeout_seconds = 180
 "repository:ordivon-computing" = "/root/projects/ordivon-computing"
 ```
 
+The `[runtime]` table configures the canonical modern MCP client. Host uses `2026-07-28` `server/discover`, verifies Runtime support, sends per-request client metadata, and binds method or Tool identity through `Mcp-Method` and `Mcp-Name`. The retained `2025-06-18` Session profile is available only when explicitly selected in code; configuration does not silently downgrade the lifecycle.
+
 The `[providers]` table configures Host-local cognition gateways used by retained Host proposal workloads. It does not configure `ordivon-harness` adapters or transfer Harness Run ownership back into Host.
 
 `ORDIVON_HOST_STATE_ROOT`, `ORDIVON_HOST_RECEIPT_ROOT`, `ORDIVON_MCP_ENDPOINT`, and `ORDIVON_BEARER_TOKEN_FILE` may override non-secret configuration. The bearer token itself is read from a regular non-symlink `token_file` with no group/other permission bits; the CLI exposes no token argument.
@@ -126,6 +132,18 @@ ordivon-host gc plan
 
 Only `init` creates a missing state root. Read and backup commands reject an absent `host.sqlite3`. `gc plan` is read-only and never deletes objects.
 
+## Read-only live acceptance
+
+Portable tests use deterministic fake Runtime clients. The explicit live gate proves the current Host client, modern Runtime transport, catalog binding, durable read Task, independent verification, and Workspace closure against a reachable Runtime:
+
+```bash
+ORDIVON_BEARER_TOKEN_FILE=/etc/ordivon/runtime-mcp.token \
+ORDIVON_MCP_ENDPOINT=http://127.0.0.1:8897/mcp \
+  scripts/local-acceptance run
+```
+
+The journey reads a tracked file from an exact source revision through a disposable Runtime Workspace and emits a digest-bound JSON receipt. It invokes no Provider and performs no source mutation. A transport, catalog, Runtime-read, verification, or recovery change is not release-ready until this gate passes on the supported local environment.
+
 ## Backup and restore
 
 A backup is a directory containing:
@@ -138,7 +156,7 @@ Backup verification is full and read-only: it disables validation-cache writes s
 
 ## Doctor
 
-The local doctor checks SQLite integrity, schema compatibility, exact private state modes, Journal invariants including causal-link integrity, full CAS content integrity, orphan objects, and lease state. `--runtime` additionally loads the token from its file and performs MCP initialization.
+The local doctor checks SQLite integrity, schema compatibility, exact private state modes, Journal invariants including causal-link integrity, full CAS content integrity, orphan objects, and lease state. `--runtime` additionally loads the token from its file and performs modern MCP discovery and validates Runtime identity and protocol support.
 
 `--history` decodes every historical Event payload and verifies its row identity, projection revision, known CAS references, and retained Effect/Binding/Authority links. It is intentionally explicit: at 100,000 Events it increased measured Doctor latency from 10.3 seconds to 18.5 seconds, while normal startup and normal Doctor remain unchanged.
 

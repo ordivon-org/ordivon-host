@@ -15,7 +15,12 @@ from .errors import (
     RuntimeTransportError,
 )
 
-PROTOCOL_VERSION = "2025-06-18"
+MODERN_PROTOCOL_VERSION = "2026-07-28"
+LEGACY_PROTOCOL_VERSION = "2025-06-18"
+# Public compatibility constant retained for callers that explicitly selected
+# the original Host transport. New code should use DEFAULT_PROTOCOL_VERSION.
+PROTOCOL_VERSION = LEGACY_PROTOCOL_VERSION
+DEFAULT_PROTOCOL_VERSION = MODERN_PROTOCOL_VERSION
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,24 +33,37 @@ class McpTransportProfile:
     resumable_sse: bool
 
 
-ORDIVON_STATELESS_MCP_PROFILE = McpTransportProfile(
-    profile_id="ordivon.mcp-stateless-http.v1",
-    protocol_version=PROTOCOL_VERSION,
+ORDIVON_MODERN_MCP_PROFILE = McpTransportProfile(
+    profile_id="ordivon.mcp-modern-http.v1",
+    protocol_version=MODERN_PROTOCOL_VERSION,
     stateful_sessions=False,
     server_initiated_requests=False,
     multi_message_sse=False,
     resumable_sse=False,
 )
 
+ORDIVON_LEGACY_STATELESS_MCP_PROFILE = McpTransportProfile(
+    profile_id="ordivon.mcp-legacy-stateless-http.v1",
+    protocol_version=LEGACY_PROTOCOL_VERSION,
+    stateful_sessions=False,
+    server_initiated_requests=False,
+    multi_message_sse=False,
+    resumable_sse=False,
+)
 
-ORDIVON_SESSION_MCP_PROFILE = McpTransportProfile(
-    profile_id="ordivon.mcp-session-http.v1",
-    protocol_version=PROTOCOL_VERSION,
+ORDIVON_LEGACY_SESSION_MCP_PROFILE = McpTransportProfile(
+    profile_id="ordivon.mcp-legacy-session-http.v1",
+    protocol_version=LEGACY_PROTOCOL_VERSION,
     stateful_sessions=True,
     server_initiated_requests=False,
     multi_message_sse=False,
     resumable_sse=False,
 )
+
+# Compatibility exports retain their original 2025-06-18 semantics. The client
+# default is modern through ORDIVON_MODERN_MCP_PROFILE, not through alias mutation.
+ORDIVON_STATELESS_MCP_PROFILE = ORDIVON_LEGACY_STATELESS_MCP_PROFILE
+ORDIVON_SESSION_MCP_PROFILE = ORDIVON_LEGACY_SESSION_MCP_PROFILE
 
 
 def parse_http_response(content_type: str, body: bytes) -> dict[str, Any]:
@@ -73,7 +91,7 @@ def parse_http_response(content_type: str, body: bytes) -> dict[str, Any]:
             raise RuntimeProtocolError("SSE response contained no non-empty data event")
         if len(events) != 1:
             raise RuntimeProtocolError(
-                "Ordivon stateless MCP profile requires exactly one SSE data event"
+                "Ordivon bounded MCP profile requires exactly one SSE data event"
             )
         text = events[0]
     try:
@@ -94,8 +112,8 @@ class McpRuntimeClient:
         timeout_seconds: float = 45.0,
         max_response_bytes: int = 2_097_152,
         client_name: str = "ordivon-host",
-        client_version: str = "0.0.1",
-        profile: McpTransportProfile = ORDIVON_SESSION_MCP_PROFILE,
+        client_version: str = "0.1.2",
+        profile: McpTransportProfile = ORDIVON_MODERN_MCP_PROFILE,
     ) -> None:
         parsed = urllib.parse.urlparse(endpoint)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -106,12 +124,14 @@ class McpRuntimeClient:
             raise ValueError("Runtime timeout and response limit must be positive")
         if not client_name or not client_version:
             raise ValueError("MCP client identity is required")
+        if profile.server_initiated_requests or profile.multi_message_sse or profile.resumable_sse:
+            raise ValueError("McpRuntimeClient supports bounded request/response MCP only")
+        if profile.protocol_version == MODERN_PROTOCOL_VERSION and profile.stateful_sessions:
+            raise ValueError("modern MCP profile cannot require transport Sessions")
         self.endpoint = endpoint
         self._token = token
         self.timeout_seconds = timeout_seconds
         self.max_response_bytes = max_response_bytes
-        if profile.server_initiated_requests or profile.multi_message_sse or profile.resumable_sse:
-            raise ValueError("McpRuntimeClient supports bounded request/response MCP only")
         self.client_name = client_name
         self.client_version = client_version
         self.profile = profile
@@ -120,9 +140,38 @@ class McpRuntimeClient:
         self._request_id = 0
         self._request_id_lock = threading.Lock()
 
+    @property
+    def modern(self) -> bool:
+        return self.profile.protocol_version == MODERN_PROTOCOL_VERSION
+
     def initialize(self) -> dict[str, Any]:
         if self._initialized is not None:
             return dict(self._initialized)
+        if self.modern:
+            discovered = self.request("server/discover", {})
+            supported = discovered.get("supportedVersions")
+            if not isinstance(supported, list) or not all(
+                isinstance(version, str) for version in supported
+            ):
+                raise RuntimeProtocolError("server/discover omitted supportedVersions")
+            if self.profile.protocol_version not in supported:
+                raise RuntimeProtocolError(
+                    "Runtime discovery does not support the requested MCP protocol version"
+                )
+            metadata = discovered.get("_meta")
+            if not isinstance(metadata, dict):
+                raise RuntimeProtocolError("server/discover omitted response metadata")
+            server_info = metadata.get("io.modelcontextprotocol/serverInfo")
+            if not isinstance(server_info, dict):
+                raise RuntimeProtocolError("server/discover omitted serverInfo metadata")
+            if self._session_id is not None:
+                raise RuntimeProtocolError("modern Runtime discovery created a Session")
+            normalized = dict(discovered)
+            normalized["protocolVersion"] = self.profile.protocol_version
+            normalized["serverInfo"] = dict(server_info)
+            self._initialized = normalized
+            return dict(normalized)
+
         result = self.request(
             "initialize",
             {
@@ -138,9 +187,7 @@ class McpRuntimeClient:
         if not isinstance(server_info, dict):
             raise RuntimeProtocolError("initialize omitted serverInfo")
         if result.get("protocolVersion") != self.profile.protocol_version:
-            raise RuntimeProtocolError(
-                "Runtime negotiated another MCP protocol version"
-            )
+            raise RuntimeProtocolError("Runtime negotiated another MCP protocol version")
         if self.profile.stateful_sessions and self._session_id is None:
             raise RuntimeProtocolError("Runtime initialize omitted MCP Session identity")
         self._notify_initialized()
@@ -162,22 +209,15 @@ class McpRuntimeClient:
     def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         if not name or not isinstance(arguments, dict):
             raise ValueError("Tool name and argument object are required")
-        result = self.request(
-            "tools/call",
-            {"name": name, "arguments": arguments},
-        )
+        result = self.request("tools/call", {"name": name, "arguments": arguments})
         structured = result.get("structuredContent")
         if result.get("isError") is True:
             raw_error = structured.get("error") if isinstance(structured, dict) else None
             if not isinstance(raw_error, dict):
-                raise RuntimeProtocolError(
-                    f"Tool {name} returned an unstructured error"
-                )
+                raise RuntimeProtocolError(f"Tool {name} returned an unstructured error")
             raise RuntimeToolRejected(name, _error_detail(raw_error))
         if not isinstance(structured, dict):
-            raise RuntimeProtocolError(
-                f"Tool {name} returned no structuredContent object"
-            )
+            raise RuntimeProtocolError(f"Tool {name} returned no structuredContent object")
         return structured
 
     def request(
@@ -191,8 +231,11 @@ class McpRuntimeClient:
             "id": request_id,
             "method": method,
         }
-        if params is not None:
-            envelope["params"] = params
+        request_params = dict(params or {})
+        if self.modern:
+            request_params["_meta"] = self._metadata()
+        if request_params:
+            envelope["params"] = request_params
         encoded = json.dumps(
             envelope,
             ensure_ascii=False,
@@ -202,13 +245,10 @@ class McpRuntimeClient:
             self.endpoint,
             data=encoded,
             method="POST",
-            headers=self._headers(),
+            headers=self._headers(method, request_params),
         )
         try:
-            with urllib.request.urlopen(
-                request,
-                timeout=self.timeout_seconds,
-            ) as response:
+            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
                 body = response.read(self.max_response_bytes + 1)
                 content_type = response.headers.get("Content-Type", "")
                 session_id = response.headers.get("Mcp-Session-Id")
@@ -219,7 +259,9 @@ class McpRuntimeClient:
             raise RuntimeTransportError(str(error)) from error
         if len(body) > self.max_response_bytes:
             raise RuntimeProtocolError("MCP response exceeds the configured byte limit")
-        if method == "initialize" and session_id is not None:
+        if self.modern and session_id is not None:
+            raise RuntimeProtocolError("modern Runtime response unexpectedly created a Session")
+        if not self.modern and method == "initialize" and session_id is not None:
             if not session_id or session_id != session_id.strip():
                 raise RuntimeProtocolError("Runtime returned an invalid MCP Session identity")
             self._session_id = session_id
@@ -237,22 +279,35 @@ class McpRuntimeClient:
             raise RuntimeProtocolError(f"MCP {method} returned no object result")
         return result
 
-    def _headers(self) -> dict[str, str]:
+    def _metadata(self) -> dict[str, Any]:
+        return {
+            "io.modelcontextprotocol/protocolVersion": self.profile.protocol_version,
+            "io.modelcontextprotocol/clientInfo": {
+                "name": self.client_name,
+                "version": self.client_version,
+            },
+            "io.modelcontextprotocol/clientCapabilities": {},
+        }
+
+    def _headers(self, method: str, params: dict[str, Any]) -> dict[str, str]:
         headers = {
             "Authorization": f"Bearer {self._token}",
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
             "MCP-Protocol-Version": self.profile.protocol_version,
         }
-        if self._session_id is not None:
+        if self.modern:
+            headers["Mcp-Method"] = method
+            if method == "tools/call":
+                name = params.get("name")
+                if isinstance(name, str):
+                    headers["Mcp-Name"] = name
+        elif self._session_id is not None:
             headers["Mcp-Session-Id"] = self._session_id
         return headers
 
     def _notify_initialized(self) -> None:
-        envelope = {
-            "jsonrpc": "2.0",
-            "method": "notifications/initialized",
-        }
+        envelope = {"jsonrpc": "2.0", "method": "notifications/initialized"}
         encoded = json.dumps(
             envelope,
             ensure_ascii=False,
@@ -262,13 +317,10 @@ class McpRuntimeClient:
             self.endpoint,
             data=encoded,
             method="POST",
-            headers=self._headers(),
+            headers=self._headers("notifications/initialized", {}),
         )
         try:
-            with urllib.request.urlopen(
-                request,
-                timeout=self.timeout_seconds,
-            ) as response:
+            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
                 body = response.read(self.max_response_bytes + 1)
                 status = response.status
         except urllib.error.HTTPError as error:

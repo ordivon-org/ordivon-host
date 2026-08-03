@@ -10,7 +10,13 @@ from typing import Any
 import unittest
 
 from ordivon_host.runtime import (
+    DEFAULT_PROTOCOL_VERSION,
+    LEGACY_PROTOCOL_VERSION,
+    MODERN_PROTOCOL_VERSION,
+    PROTOCOL_VERSION,
     McpRuntimeClient,
+    ORDIVON_SESSION_MCP_PROFILE,
+    ORDIVON_STATELESS_MCP_PROFILE,
     RuntimeProtocolError,
     RuntimeToolRejected,
     RuntimeTransportError,
@@ -34,6 +40,27 @@ def json_response(request: dict[str, Any], result: dict[str, Any]) -> Response:
             separators=(",", ":"),
         ).encode(),
     )
+
+
+def modern_discovery() -> dict[str, Any]:
+    return {
+        "supportedVersions": [
+            MODERN_PROTOCOL_VERSION,
+            "2025-11-25",
+            LEGACY_PROTOCOL_VERSION,
+        ],
+        "capabilities": {"tools": {}},
+        "cacheScope": "private",
+        "ttlMs": 0,
+        "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+                "name": "ordivon-runtime-mcp",
+                "title": "Ordivon Runtime",
+                "version": "0.1.0",
+            },
+            "com.ordivon/runtime/toolCatalogDigest": "sha256:" + "a" * 64,
+        },
+    }
 
 
 @contextmanager
@@ -85,12 +112,27 @@ def scripted_server(
 
 
 class McpRuntimeClientTests(unittest.TestCase):
-    def test_initialize_list_and_call_tool(self) -> None:
+    def test_compatibility_constants_and_profiles_retain_legacy_semantics(self) -> None:
+        self.assertEqual(PROTOCOL_VERSION, LEGACY_PROTOCOL_VERSION)
+        self.assertEqual(DEFAULT_PROTOCOL_VERSION, MODERN_PROTOCOL_VERSION)
+        self.assertEqual(
+            ORDIVON_STATELESS_MCP_PROFILE.protocol_version,
+            LEGACY_PROTOCOL_VERSION,
+        )
+        self.assertFalse(ORDIVON_STATELESS_MCP_PROFILE.stateful_sessions)
+        self.assertEqual(
+            ORDIVON_SESSION_MCP_PROFILE.protocol_version,
+            LEGACY_PROTOCOL_VERSION,
+        )
+        self.assertTrue(ORDIVON_SESSION_MCP_PROFILE.stateful_sessions)
+        self.assertEqual(
+            McpRuntimeClient("http://127.0.0.1:1/mcp", "secret").profile.protocol_version,
+            MODERN_PROTOCOL_VERSION,
+        )
+
+    def test_modern_discover_list_and_call_tool(self) -> None:
         scripts = [
-            lambda request: json_response(
-                request,
-                {"protocolVersion": "2025-06-18", "serverInfo": {"name": "ordivon-runtime-mcp", "version": "1"}},
-            ),
+            lambda request: json_response(request, modern_discovery()),
             lambda request: json_response(
                 request,
                 {"tools": [{"name": "workspace.read", "inputSchema": {}}]},
@@ -106,20 +148,60 @@ class McpRuntimeClientTests(unittest.TestCase):
             tools = client.list_tools()
             result = client.call_tool("workspace.read", {"schemaVersion": 1})
         self.assertEqual(initialized["serverInfo"]["name"], "ordivon-runtime-mcp")
+        self.assertEqual(initialized["protocolVersion"], MODERN_PROTOCOL_VERSION)
         self.assertEqual(tools[0]["name"], "workspace.read")
         self.assertEqual(result, {"content": "hello"})
-        self.assertEqual(
-            [request["id"] for request in requests if "id" in request],
-            [1, 2, 3],
-        )
+        self.assertEqual([request["id"] for request in requests], [1, 2, 3])
         self.assertEqual(
             [request["method"] for request in requests],
-            ["initialize", "notifications/initialized", "tools/list", "tools/call"],
+            ["server/discover", "tools/list", "tools/call"],
         )
         self.assertEqual(headers[0]["authorization"], "Bearer secret")
-        self.assertEqual(headers[0]["mcp-protocol-version"], "2025-06-18")
+        self.assertEqual(headers[0]["mcp-protocol-version"], MODERN_PROTOCOL_VERSION)
+        self.assertEqual(headers[0]["mcp-method"], "server/discover")
+        self.assertEqual(headers[2]["mcp-name"], "workspace.read")
+        self.assertNotIn("mcp-session-id", headers[0])
+        metadata = requests[0]["params"]["_meta"]
+        self.assertEqual(
+            metadata["io.modelcontextprotocol/protocolVersion"],
+            MODERN_PROTOCOL_VERSION,
+        )
+        self.assertEqual(
+            metadata["io.modelcontextprotocol/clientInfo"]["name"],
+            "ordivon-host",
+        )
+
+    def test_legacy_session_profile_remains_supported(self) -> None:
+        scripts = [
+            lambda request: json_response(
+                request,
+                {
+                    "protocolVersion": LEGACY_PROTOCOL_VERSION,
+                    "serverInfo": {"name": "ordivon-runtime-mcp", "version": "1"},
+                },
+            ),
+            lambda request: json_response(
+                request,
+                {"tools": [{"name": "workspace.read", "inputSchema": {}}]},
+            ),
+        ]
+        with scripted_server(scripts) as (endpoint, requests, headers):
+            client = McpRuntimeClient(
+                endpoint,
+                "secret",
+                profile=ORDIVON_SESSION_MCP_PROFILE,
+            )
+            initialized = client.initialize()
+            client.list_tools()
+        self.assertEqual(initialized["protocolVersion"], LEGACY_PROTOCOL_VERSION)
+        self.assertEqual(
+            [request["method"] for request in requests],
+            ["initialize", "notifications/initialized", "tools/list"],
+        )
+        self.assertEqual(headers[0]["mcp-protocol-version"], LEGACY_PROTOCOL_VERSION)
         self.assertEqual(headers[1]["mcp-session-id"], "session:test")
         self.assertEqual(headers[2]["mcp-session-id"], "session:test")
+        self.assertNotIn("mcp-method", headers[0])
 
     def test_sse_response_is_decoded(self) -> None:
         def respond(request: dict[str, Any]) -> Response:
@@ -127,16 +209,20 @@ class McpRuntimeClientTests(unittest.TestCase):
                 {
                     "jsonrpc": "2.0",
                     "id": request["id"],
-                    "result": {"protocolVersion": "2025-06-18", "serverInfo": {"name": "runtime"}},
+                    "result": modern_discovery(),
                 }
             )
-            return Response(200, "text/event-stream", f"event: message\ndata: {message}\n\n".encode())
+            return Response(
+                200,
+                "text/event-stream",
+                f"event: message\ndata: {message}\n\n".encode(),
+            )
 
         with scripted_server([respond]) as (endpoint, _, _):
             result = McpRuntimeClient(endpoint, "secret").initialize()
-        self.assertEqual(result["serverInfo"]["name"], "runtime")
+        self.assertEqual(result["serverInfo"]["name"], "ordivon-runtime-mcp")
 
-    def test_session_profile_requires_session_identity(self) -> None:
+    def test_legacy_session_profile_requires_session_identity(self) -> None:
         def respond(request: dict[str, Any]) -> Response:
             return Response(
                 200,
@@ -146,7 +232,7 @@ class McpRuntimeClientTests(unittest.TestCase):
                         "jsonrpc": "2.0",
                         "id": request["id"],
                         "result": {
-                            "protocolVersion": "2025-06-18",
+                            "protocolVersion": LEGACY_PROTOCOL_VERSION,
                             "serverInfo": {"name": "runtime"},
                         },
                     }
@@ -156,6 +242,24 @@ class McpRuntimeClientTests(unittest.TestCase):
 
         with scripted_server([respond]) as (endpoint, _, _):
             with self.assertRaisesRegex(RuntimeProtocolError, "Session identity"):
+                McpRuntimeClient(
+                    endpoint,
+                    "secret",
+                    profile=ORDIVON_SESSION_MCP_PROFILE,
+                ).initialize()
+
+    def test_modern_profile_rejects_session_creation(self) -> None:
+        with scripted_server([
+            lambda request: Response(
+                200,
+                "application/json",
+                json.dumps(
+                    {"jsonrpc": "2.0", "id": request["id"], "result": modern_discovery()}
+                ).encode(),
+                headers={"Mcp-Session-Id": "unexpected"},
+            )
+        ]) as (endpoint, _, _):
+            with self.assertRaisesRegex(RuntimeProtocolError, "unexpectedly created"):
                 McpRuntimeClient(endpoint, "secret").initialize()
 
     def test_response_id_mismatch_fails_closed(self) -> None:
@@ -163,7 +267,7 @@ class McpRuntimeClientTests(unittest.TestCase):
             return Response(
                 200,
                 "application/json",
-                b'{"jsonrpc":"2.0","id":999,"result":{"protocolVersion":"2025-06-18","serverInfo":{}}}',
+                b'{"jsonrpc":"2.0","id":999,"result":{}}',
             )
 
         with scripted_server([respond]) as (endpoint, _, _):
@@ -191,7 +295,7 @@ class McpRuntimeClientTests(unittest.TestCase):
                 },
             )
 
-        with scripted_server([respond]) as (endpoint, _, _):
+        with scripted_server([respond]) as (endpoint, _, headers):
             with self.assertRaises(RuntimeToolRejected) as captured:
                 McpRuntimeClient(endpoint, "secret").call_tool(
                     "workspace.get", {"workspaceId": "missing"}
@@ -201,15 +305,15 @@ class McpRuntimeClientTests(unittest.TestCase):
         self.assertEqual(detail.commit_state, "not_committed")
         self.assertEqual(detail.field, "workspaceId")
         self.assertFalse(detail.retryable)
+        self.assertEqual(headers[0]["mcp-name"], "workspace.get")
 
-    def test_protocol_version_mismatch_fails_closed(self) -> None:
+    def test_modern_discovery_requires_requested_version(self) -> None:
+        unsupported = modern_discovery()
+        unsupported["supportedVersions"] = [LEGACY_PROTOCOL_VERSION]
         with scripted_server([
-            lambda request: json_response(
-                request,
-                {"protocolVersion": "2024-11-05", "serverInfo": {"name": "runtime"}},
-            )
+            lambda request: json_response(request, unsupported)
         ]) as (endpoint, _, _):
-            with self.assertRaisesRegex(RuntimeProtocolError, "another MCP"):
+            with self.assertRaisesRegex(RuntimeProtocolError, "does not support"):
                 McpRuntimeClient(endpoint, "secret").initialize()
 
     def test_empty_sse_heartbeat_is_ignored(self) -> None:
@@ -218,10 +322,7 @@ class McpRuntimeClientTests(unittest.TestCase):
                 {
                     "jsonrpc": "2.0",
                     "id": request["id"],
-                    "result": {
-                        "protocolVersion": "2025-06-18",
-                        "serverInfo": {"name": "runtime"},
-                    },
+                    "result": modern_discovery(),
                 }
             )
             return Response(
@@ -232,12 +333,16 @@ class McpRuntimeClientTests(unittest.TestCase):
 
         with scripted_server([respond]) as (endpoint, _, _):
             result = McpRuntimeClient(endpoint, "secret").initialize()
-        self.assertEqual(result["serverInfo"]["name"], "runtime")
+        self.assertEqual(result["serverInfo"]["name"], "ordivon-runtime-mcp")
 
-    def test_multiple_sse_messages_are_outside_stateless_profile(self) -> None:
+    def test_multiple_sse_messages_are_outside_bounded_profile(self) -> None:
         def respond(request: dict[str, Any]) -> Response:
-            one = json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": {}})
-            two = json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": {}})
+            one = json.dumps(
+                {"jsonrpc": "2.0", "id": request["id"], "result": {}}
+            )
+            two = json.dumps(
+                {"jsonrpc": "2.0", "id": request["id"], "result": {}}
+            )
             return Response(
                 200,
                 "text/event-stream",
@@ -257,13 +362,9 @@ class McpRuntimeClientTests(unittest.TestCase):
                 McpRuntimeClient(endpoint, "secret").initialize()
 
     def test_response_byte_limit_is_enforced(self) -> None:
-        def respond(request: dict[str, Any]) -> Response:
-            return json_response(
-                request,
-                {"protocolVersion": "2025-06-18", "serverInfo": {"name": "x" * 100}},
-            )
-
-        with scripted_server([respond]) as (endpoint, _, _):
+        with scripted_server([
+            lambda request: json_response(request, modern_discovery())
+        ]) as (endpoint, _, _):
             with self.assertRaisesRegex(RuntimeProtocolError, "byte limit"):
                 McpRuntimeClient(
                     endpoint,

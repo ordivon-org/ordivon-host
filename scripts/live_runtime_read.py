@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import argparse
 import os
+from pathlib import Path
 
 from ordivon_host import (
     DeterministicReadHost,
     HostStorage,
     ReadTaskPlan,
 )
+from ordivon_host.domain import RepositoryRef, StaticRepositoryResolver
 from ordivon_host.runtime import RuntimeToolRejected
 from ordivon_host.testing import (
     RuntimeClientFactory,
@@ -19,6 +21,8 @@ from ordivon_host.testing import (
     scenario_clock_ms,
     scenario_state_root,
 )
+
+_DEFAULT_REPOSITORY_ID = "repository:ordivon-host-live-read"
 
 
 def parse_args() -> argparse.Namespace:
@@ -31,10 +35,31 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--source-repo", required=True)
     parser.add_argument("--source-revision", required=True)
+    parser.add_argument("--repository-id", default=_DEFAULT_REPOSITORY_ID)
     parser.add_argument("--relative-path", default="README.md")
     parser.add_argument("--state-root")
     parser.add_argument("--keep-state", action="store_true")
     return parser.parse_args()
+
+
+def build_plan(
+    *,
+    task_token: str,
+    source_repo: str | Path,
+    source_revision: str,
+    repository_id: str,
+    relative_path: str,
+) -> tuple[ReadTaskPlan, StaticRepositoryResolver, Path]:
+    source_path = Path(source_repo).resolve(strict=True)
+    plan = ReadTaskPlan(
+        task_id=f"task:{task_token}",
+        goal_id=f"goal:{task_token}",
+        workspace_id=f"host-{task_token}",
+        repository=RepositoryRef(repository_id, source_revision),
+        relative_path=relative_path,
+    )
+    resolver = StaticRepositoryResolver({repository_id: source_path})
+    return plan, resolver, source_path
 
 
 def main() -> None:
@@ -44,13 +69,11 @@ def main() -> None:
     state_root = scenario_state_root(
         args.state_root, prefix="read", identity=identity
     )
-    task_token = identity.token
-    plan = ReadTaskPlan(
-        task_id=f"task:{task_token}",
-        goal_id=f"goal:{task_token}",
-        workspace_id=f"host-{task_token}",
+    plan, repository_resolver, source_path = build_plan(
+        task_token=identity.token,
         source_repo=args.source_repo,
         source_revision=args.source_revision,
+        repository_id=args.repository_id,
         relative_path=args.relative_path,
     )
     client = RuntimeClientFactory(
@@ -58,16 +81,23 @@ def main() -> None:
     ).client("run")
     clock = scenario_clock_ms
     completed = False
+
+    def host(storage: HostStorage) -> DeterministicReadHost:
+        return DeterministicReadHost(
+            storage,
+            client,
+            clock_ms=clock,
+            repository_resolver=repository_resolver,
+        )
+
     try:
         with HostStorage(state_root) as storage:
-            DeterministicReadHost(storage, client, clock_ms=clock).create(plan)
+            host(storage).create(plan)
 
         step_receipts: list[dict[str, object]] = []
         for _ in range(3):
             with HostStorage(state_root) as storage:
-                step = DeterministicReadHost(storage, client, clock_ms=clock).step(
-                    plan.task_id
-                )
+                step = host(storage).step(plan.task_id)
                 step_receipts.append(
                     {
                         "revision": step.revision,
@@ -113,7 +143,8 @@ def main() -> None:
                 "taskId": plan.task_id,
                 "goalId": plan.goal_id,
                 "workspaceId": plan.workspace_id,
-                "sourceRepo": plan.source_repo,
+                "repositoryId": plan.repository.repository_id,
+                "sourceRepo": str(source_path),
                 "sourceRevision": plan.source_revision,
                 "relativePath": plan.relative_path,
                 "finalState": projection.state.value,

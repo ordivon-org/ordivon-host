@@ -10,6 +10,7 @@ visibility: public
 owners:
   - ordivon-host
 audience:
+  - user
   - builder
   - operator
   - agent
@@ -20,113 +21,162 @@ readiness: READY
 applies_to:
   - ordivon-host
 related:
+  - host.quickstart
+  - host.status
   - host.architecture
   - host.operations
+  - host.data-privacy
+  - host.releases
   - host.authority
 ---
 # Ordivon Host
 
+Ordivon Host is the persistent coordination and commitment plane of Ordivon. It preserves durable work while model sessions and Runtime processes remain replaceable.
+
+```text
+participant or application intent
+→ durable Task and bounded Context
+→ proposal, decision, or exact candidate admission
+→ durable Effect and Dispatch commitment
+→ Runtime physical execution or domain action
+→ Observation and independent Verification
+→ terminal TaskOutcome or explicit UNKNOWN fence
+```
+
 ## Purpose
 
-Persistent coordination and commitment plane for Ordivon.
+Host owns durable Tasks, Goal-scoped Task coordination, Journal/CAS state, Contexts, proposal compilation or admission, Effect commitments, Runtime Dispatch identities, participant-routed DecisionRequests, verification receipts, conservative recovery, and Task outcomes.
 
-Ordivon Host owns durable Tasks, Goal-scoped Task coordination, Host events and projections, bounded cognition Contexts, proposal compilation or admission, Effect commitments, Runtime Dispatch identities, verification receipts, participant-routed decisions, and Task outcomes. It treats model sessions and Runtime processes as replaceable dependencies rather than owners of work continuity.
+Host does **not** own model intelligence, Provider process continuity, physical process supervision, Workspace or Job truth, domain-world truth, or a permanent hierarchy among participants.
 
-The Host controls durable work and external commitment lifecycles. It does not own model intelligence, domain-world truth, physical execution, or a permanent hierarchy among participants.
+## Responsibility boundary
 
-## Current boundary
-
-Host owns durable work coordination and commitment records. Runtime owns physical execution, domain systems own world truth and domain verification, Harness owns replaceable Agent execution lifecycles, Computing owns promoted shared contracts, and Providers remain replaceable cognition dependencies.
-
-## Repository selection
-
-| Change concerns | Use | Do not put here |
+| Concern | Canonical owner | Not owned here |
 | --- | --- | --- |
-| Workspace, Job, Attempt, process tree, Artifact, physical cancellation, or execution recovery | `ordivon-runtime` | Task meaning, Agent Run policy, or domain completion |
-| durable Task continuity, Journal/CAS, commitment admission, verification records, or Task outcomes | `ordivon-host` | Provider loops, Harness Run semantics, or physical process truth |
-| Assignment, Agent Run, Provider adapter, model–Tool loop, Tool-step checkpoint, or Run recovery | `ordivon-harness` | a second Task database, Runtime supervision, or domain-world authority |
+| durable Task continuity, Journal/CAS, commitments, uncertainty, referenced evidence, verification admission, Task outcomes | `ordivon-host` | physical execution, Agent Run loops, domain truth |
+| Workspace, Job, Attempt, process tree, Artifact, physical cancellation and recovery | `ordivon-runtime` | Task meaning or semantic completion |
+| Assignment, Agent Run, Provider adapter, model–Tool loop, Tool-step checkpoint and Run recovery | `ordivon-harness` | another Task database or Runtime supervisor |
+| authoritative world state and domain verification | Game, Security, World, or another domain owner | generic Host inference |
+| promoted cross-repository contracts | `ordivon-computing` | Host-local experiments before repeated proof |
 
 ## Status
 
-This repository was extracted with Git history from `ordivon-computing/incubation/host-v0` after six architectural proof stages passed. It is an independently versioned engineering prototype, not yet a general production workflow engine, policy platform, or multi-Agent scheduler.
+Host is operational for owner-trusted local engineering work and pre-1.0 as a public interface. The independently versioned repository was extracted with history from the Computing incubator after the core architecture, persistence, recovery, and Runtime slices were proven.
 
-Current proven vertical slices:
+See [`docs/STATUS.md`](docs/STATUS.md) for the exact support claim and known limits.
 
-- logical RepositoryRef-based Runtime read with Authority and independent digest verification;
-- closed-choice deterministic cognition with two to eight exact CandidateActions;
-- open ActionProposal cognition with no prebuilt action menu, durable Model Invocation, Host-owned lowering, and structured rejection;
-- explicit `owner_trusted` and `public_bounded` capability profiles, with consequence admission remaining separate from physical reach;
-- participant-aware DecisionRequest generation for shared, foreign-owned, or non-reversible proposals;
-- a live Codex proposal lowered into one verified Runtime repository read across fresh Host state opens;
-- guarded mutation with durable Dispatch identity, conservative UNKNOWN reconciliation, and persisted terminal failure;
-- logical RepositoryRef → Computing SourceChange Effect → CapabilityDecision → EffectBinding → Runtime Dispatch;
-- durable two-file source change through structured Runtime checks and exact structured diff verification;
-- conservative one-shot recovery assessment that never redispatches an uncertain Effect;
-- MCP Session lifecycle support without persisting transport sessions as Task truth;
-- immutable TaskDescriptor identity and Goal-scoped Task revision snapshots;
-- idempotent per-Task application of one joint VerificationReceipt with multiple result items;
+Current proven slices include:
+
+- immutable TaskDescriptor identity, revisioned Task projections, exact lease fencing, and irreversible terminal state;
+- schema-v4 SQLite Journal/CAS state, migrations with backups, private modes, backup/restore, Doctor, and optional full-history verification;
+- deterministic Runtime repository read with independent digest verification;
+- guarded mutation with durable Dispatch identity, explicit UNKNOWN, original-Job reconciliation, and no blind redispatch;
+- version-bound two-file source change with structured Runtime checks, exact diff evidence, and compare-and-close;
+- closed-choice deterministic cognition and open ActionProposal cognition with Host-owned lowering or structured rejection;
+- participant-aware DecisionRequest lifecycle for shared, foreign-owned, irreversible, or uncertain consequences;
+- Goal-scoped Task revision snapshots and idempotent joint VerificationReceipt application;
+- generic extension event and CAS admission used by the independently versioned Harness repository;
 - recovery across fresh Host processes and local Runtime control-plane restarts;
-- extension-safe immutable Task events with reserved Host namespaces, thread-stable extension identity, and no dynamic Enum mutation;
-- generic Host history and operator-handoff surfaces that preserve extension bytes, references, Task revision, UNKNOWN fences and ready frontiers without interpreting extension semantics;
-- a public `HostExtensionPort` for CAS-backed extension objects and revision/state/frontier-fenced preserving Journal appends, without adding Harness-specific tables or state machines;
-- a one-way integration boundary for the independently versioned [`ordivon-harness`](https://github.com/zycxfyh/ordivon-harness) repository, which now owns Agent Assignment, Run, Recovery, Completion, Provider adapters and bare-model execution;
-- schema-v3 operational state with private 0700/0600 modes, backup/restore, optional full-history Doctor, and measured 100,000-event behavior;
-- exact lease-fenced event admission, irreversible terminal Tasks, causal-link validation, and version-bound code-change completion through Runtime compare-and-close.
+- modern stateless Runtime MCP transport with explicit retained legacy decoding.
 
-The closed-choice path remains a useful deterministic and closed-domain profile. It is no longer treated as the only possible cognition interface. Agent Harness implementation and its historical evidence now live in the independent `ordivon-harness` repository.
+These are bounded vertical slices, not a general workflow engine, policy platform, or multi-Agent scheduler.
 
-## Start here
+## Runtime transport
 
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) defines the current Host architecture and responsibility boundary.
-- [`docs/OPERATIONS.md`](docs/OPERATIONS.md) defines the operational state, configuration, backup, restore, Doctor, and conservative reconciliation contract.
-- [`docs/authority.md`](docs/authority.md) identifies which records may define current Host behavior.
-- [`docs/MIGRATION.md`](docs/MIGRATION.md), phase reports, extraction records, and `evidence/` preserve decisions and receipts but do not replace the current architecture.
+The default `McpRuntimeClient` uses Runtime's canonical MCP `2026-07-28` lifecycle:
 
-## Development
+```text
+server/discover
+→ verify supportedVersions and server identity
+→ send per-request client metadata
+→ bind method and Tool identity through Mcp-Method / Mcp-Name
+→ no transport Session is persisted or created
+```
 
-Python 3.12 is required. The authoritative `ordivon-protocol` 0.5.0 package remains in `ordivon-computing` and is pinned to the exact unified Protocol revision by `pyproject.toml`.
+The `2025-06-18` Session lifecycle remains available only through the explicit `ORDIVON_SESSION_MCP_PROFILE` compatibility decoder. Transport state never becomes Goal, Task, Context, Effect, Dispatch, verification, or recovery truth.
+
+## Requirements
+
+- Python 3.12;
+- Git;
+- SQLite through Python;
+- the exact `ordivon-protocol` revision pinned in `pyproject.toml`;
+- Linux for the canonical trusted-local operational path;
+- a reachable Ordivon Runtime for live workloads.
+
+## Quick start
+
+Online editable installation:
 
 ```bash
 python3.12 -m venv .venv
 . .venv/bin/activate
 python -m pip install -e .
-python -m unittest discover -s tests
+python -m unittest discover -s tests -v
 ```
 
-Live scripts require a reachable Ordivon Runtime and are not part of default CI.
+Local sibling development path:
+
+```bash
+export PYTHONPATH="$PWD/src:/root/projects/ordivon-computing/packages/ordivon-protocol/src"
+python3.12 -W error::ResourceWarning -m unittest discover -s tests -v
+```
+
+Full setup, state initialization, Runtime health, and live read-only acceptance are in [`docs/QUICKSTART.md`](docs/QUICKSTART.md).
 
 ## Operations
 
-After installation, the `ordivon-host` command provides state initialization, inspection, Task queries, Doctor checks, backup verification and restore, and read-only CAS garbage-collection planning:
-
 ```bash
 ordivon-host --state-root /var/lib/ordivon/host init
+ordivon-host --state-root /var/lib/ordivon/host inspect
 ordivon-host --state-root /var/lib/ordivon/host doctor
 ordivon-host --state-root /var/lib/ordivon/host doctor --history
 ordivon-host --state-root /var/lib/ordivon/host task handoff TASK_ID --expected-revision REVISION
 ordivon-host --state-root /var/lib/ordivon/host task assess TASK_ID
 ordivon-host --state-root /var/lib/ordivon/host task reconcile TASK_ID
-ordivon-host --state-root /var/lib/ordivon/host inspect
 ```
 
-See `docs/OPERATIONS.md` for the schema migration, configuration, secret-loading, backup, and restore contracts.
+`task reconcile` performs at most one conservative step. It never invents a new Effect, blindly redispatches uncertain work, or invokes a Provider.
+
+## Documentation map
+
+| Need | Start here |
+| --- | --- |
+| install, test, initialize and verify | [`docs/QUICKSTART.md`](docs/QUICKSTART.md) |
+| current maturity and limits | [`docs/STATUS.md`](docs/STATUS.md) |
+| architecture and owner boundaries | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
+| state, configuration, Doctor, backup and recovery | [`docs/OPERATIONS.md`](docs/OPERATIONS.md) |
+| stored data, retention, export and deletion | [`docs/DATA_AND_PRIVACY.md`](docs/DATA_AND_PRIVACY.md) |
+| versions, release gates and deprecation | [`docs/RELEASES.md`](docs/RELEASES.md) |
+| canonical document ownership | [`docs/authority.md`](docs/authority.md) |
+| migration and extraction provenance | [`docs/MIGRATION.md`](docs/MIGRATION.md) |
+| repository changes | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
+| vulnerability reporting | [`SECURITY.md`](SECURITY.md) |
+
+Phase reports, remediation notes, extraction records, and `evidence/` preserve decisions and receipts. They do not override current canonical documents or machine-owned state.
 
 ## Repository layout
 
 ```text
 src/ordivon_host/   Host implementation
 tests/              deterministic contract tests
-scripts/            explicit live and fault-injection scenarios
-evidence/           immutable historical receipts
-docs/               migration and structure decisions
+scripts/            explicit live, scale, and fault scenarios
+evidence/           immutable historical engineering receipts
+docs/               canonical and historical decisions
 ```
+
+## Security and data
+
+Host state may contain Task text, Contexts, proposals, decisions, participant and repository references, source-derived content, Effects, observations, verification, and outcomes. It does not automatically redact sensitive content. Read [`SECURITY.md`](SECURITY.md) and [`docs/DATA_AND_PRIVACY.md`](docs/DATA_AND_PRIVACY.md) before operating or sharing state.
 
 ## Project family
 
-- [Public project directory](https://ordivon.com/projects) — reader-facing role, maturity, and next steps.
-- [Cross-project map](https://github.com/zycxfyh/ordivon-computing/blob/main/projects/README.md) — stable roles, repository links, and authority entry points for all nine repositories.
-- Related owners: [Ordivon Harness](https://github.com/zycxfyh/ordivon-harness) owns Assignment-scoped Agent Runs; [Ordivon Runtime](https://github.com/zycxfyh/ordivon-runtime) owns physical execution; [Ordivon Computing](https://github.com/zycxfyh/ordivon-computing) owns promoted shared contracts.
+- [Public project directory](https://ordivon.com/projects)
+- [Cross-project map](https://github.com/zycxfyh/ordivon-computing/blob/main/projects/README.md)
+- [Ordivon Runtime](https://github.com/zycxfyh/ordivon-runtime)
+- [Ordivon Harness](https://github.com/zycxfyh/ordivon-harness)
+- [Ordivon Computing](https://github.com/zycxfyh/ordivon-computing)
 
 ## License
 
-Apache License 2.0. See `LICENSE`.
+Apache License 2.0. See [`LICENSE`](LICENSE).

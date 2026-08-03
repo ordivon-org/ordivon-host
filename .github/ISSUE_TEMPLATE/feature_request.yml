@@ -1,0 +1,40 @@
+name: Bounded Host capability proposal
+description: Propose a durable Host operation justified by a repeated workload failure
+title: "proposal: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: failure
+    attributes:
+      label: Repeated missing operation or failure
+      description: Describe the real Task trajectory that cannot be represented or recovered safely.
+    validations:
+      required: true
+  - type: textarea
+    id: owner
+    attributes:
+      label: Why Host owns this boundary
+      description: Explain why Runtime, Harness, Computing, a Provider, or a domain system is not the correct owner.
+    validations:
+      required: true
+  - type: textarea
+    id: contract
+    attributes:
+      label: Smallest durable contract
+      description: State identities, revision fences, uncertainty, evidence, verification, and recovery behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: existing
+    attributes:
+      label: Existing path replaced or extended
+    validations:
+      required: true
+  - type: textarea
+    id: falsification
+    attributes:
+      label: Acceptance and falsification evidence
+      description: Name deterministic and live scenarios that would disprove the proposal.
+    validations:
+      required: true
