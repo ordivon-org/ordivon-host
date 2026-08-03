@@ -59,6 +59,7 @@ After installation, the `ordivon-host` command provides state initialization, in
 ordivon-host --state-root /var/lib/ordivon/host init
 ordivon-host --state-root /var/lib/ordivon/host doctor
 ordivon-host --state-root /var/lib/ordivon/host doctor --history
+ordivon-host --state-root /var/lib/ordivon/host task handoff TASK_ID --expected-revision REVISION
 ordivon-host --state-root /var/lib/ordivon/host task assess TASK_ID
 ordivon-host --state-root /var/lib/ordivon/host task reconcile TASK_ID
 ordivon-host --state-root /var/lib/ordivon/host inspect

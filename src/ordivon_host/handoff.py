@@ -59,8 +59,25 @@ def _optional_string(data: dict[str, JsonValue], field: str) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def operator_handoff(storage: HostStorage, task_id: str) -> OperatorHandoffCapsule:
+def operator_handoff(
+    storage: HostStorage,
+    task_id: str,
+    *,
+    expected_revision: int | None = None,
+) -> OperatorHandoffCapsule:
+    if expected_revision is not None and (
+        type(expected_revision) is not int or expected_revision < 1
+    ):
+        raise ValueError("expected Operator Handoff revision must be a positive integer")
     snapshot = storage.read_task_event(task_id)
+    if (
+        expected_revision is not None
+        and snapshot.projection.revision != expected_revision
+    ):
+        raise ValueError(
+            "stale Operator Handoff revision: "
+            f"expected {expected_revision}, current {snapshot.projection.revision}"
+        )
     data = snapshot.data if isinstance(snapshot.data, dict) else {}
     descriptor_digest = _optional_string(data, "descriptorDigest")
     proposal_digest = _optional_string(data, "proposalDigest")
