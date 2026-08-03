@@ -1,5 +1,7 @@
 # Protocol P0/P1 formal closeout
 
+> **Historical Protocol closeout record:** This document preserves stage-specific decisions, measurements, or provenance. It is not a current Host architecture or operations source. Use [`../README.md`](../README.md), [`../ARCHITECTURE.md`](../ARCHITECTURE.md), [`OPERATIONS.md`](OPERATIONS.md), and [`authority.md`](authority.md) for the active boundary.
+
 Date: 2026-07-28
 
 H7 remains frozen. This closeout does not add scheduling, daemon wakeups, multi-Agent orchestration, a network Model Gateway, Runtime SecretRef, or a standalone `ordivon-protocol` repository.

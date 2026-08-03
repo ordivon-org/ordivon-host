@@ -13,7 +13,7 @@ audience:
   - operator
   - builder
   - agent
-updated: 2026-08-03
+updated: 2026-08-04
 summary: Canonical operational contract for Host state ownership, configuration, migration, validation, backup, restore, Doctor, and conservative reconciliation.
 evidence_status: verified
 readiness: READY
@@ -28,6 +28,8 @@ related:
 ## Scope
 
 This document owns the trusted-local Host state root, schema migration, configuration, CLI, CAS validation, backup, restore, Doctor, and bounded Task assessment or reconciliation behavior.
+
+Host operations stop at generic Task and storage continuity. They do not interpret Harness Assignment/Run objects, resume a model–Tool loop, cancel an in-memory Provider call, supervise Runtime processes, or decide domain-world truth. Use `ordivon-harness` for Harness semantic Doctor and Run recovery, and `ordivon-runtime` for physical Job, process, Artifact, and Workspace recovery.
 
 ## Normal operation
 
@@ -100,6 +102,8 @@ timeout_seconds = 180
 "repository:ordivon-host" = "/root/projects/ordivon-host"
 "repository:ordivon-computing" = "/root/projects/ordivon-computing"
 ```
+
+The `[providers]` table configures Host-local cognition gateways used by retained Host proposal workloads. It does not configure `ordivon-harness` adapters or transfer Harness Run ownership back into Host.
 
 `ORDIVON_HOST_STATE_ROOT`, `ORDIVON_HOST_RECEIPT_ROOT`, `ORDIVON_MCP_ENDPOINT`, and `ORDIVON_BEARER_TOKEN_FILE` may override non-secret configuration. The bearer token itself is read from a regular non-symlink `token_file` with no group/other permission bits; the CLI exposes no token argument.
 

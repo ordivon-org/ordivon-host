@@ -1,5 +1,7 @@
 # P2 recovery closure and P3 cost-benefit exploration
 
+> **Historical P2/P3 exploration record:** This document preserves stage-specific decisions, measurements, or provenance. It is not a current Host architecture or operations source. Use [`../README.md`](../README.md), [`../ARCHITECTURE.md`](../ARCHITECTURE.md), [`OPERATIONS.md`](OPERATIONS.md), and [`authority.md`](authority.md) for the active boundary.
+
 This phase begins at Host revision `29b409f73cfc5e601fe3fc1204a888431cba71ff`. The retained P2 implementation is revision `34c8ca72144248be6b2c5dc957e84b67d61b88b8`.
 
 The phase does not start H7. It completes the remaining repository-read alignment, adds a conservative one-shot recovery surface, and adds an optional historical semantic Doctor. P3 candidates were explored only far enough to measure whether their expected benefit justified another durable subsystem.

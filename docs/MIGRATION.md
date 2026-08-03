@@ -1,5 +1,7 @@
 # Repository migration
 
+> **Historical repository migration record:** This document preserves stage-specific decisions, measurements, or provenance. It is not a current Host architecture or operations source. Use [`../README.md`](../README.md), [`../ARCHITECTURE.md`](../ARCHITECTURE.md), [`OPERATIONS.md`](OPERATIONS.md), and [`authority.md`](authority.md) for the active boundary.
+
 ## Provenance
 
 The initial `ordivon-host/main` revision is the history-preserving subtree extraction of:
@@ -20,6 +22,12 @@ The subtree extraction rewrites commit hashes because the path prefix becomes th
 - `ordivon-runtime` remains authoritative for physical Workspace, Job, Attempt, process, Artifact, and Runtime recovery state.
 
 The Host dependency is pinned to the exact Computing revision above. Protocol source is not copied into this repository.
+
+## Incubator closure provenance
+
+The pre-extraction H6 closure established guarded mutation, UNKNOWN reconciliation without automatic redispatch, fresh-process Runtime recovery, exact Runtime Job lookup, and the measured subsecond local guarded-mutation path. The retained machine evidence is `evidence/h6-production-closure-20260727.json`. Bound historical revisions include HostKernel `c371da48cea950a75a4f72b4492770979dfcf55f`, Host recovery `e4e8e6b90b39677ec7582e0f66fdcc3789904918`, H6 evidence `e0b91341627b0d7072d6ec6aec009d3f2353a418`, and Runtime production `2d4141b30ebabd9119ed4e9547c36759cb5b7b77`.
+
+The former root `CLOSURE.md` repeated this provenance while describing extraction as future work. Its unique evidence references are preserved here; the obsolete closeout was removed after extraction completed.
 
 ## License
 

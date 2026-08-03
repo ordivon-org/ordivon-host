@@ -1,5 +1,7 @@
 # Pre-H7 foundation closure
 
+> **Historical pre-H7 closure record:** This document preserves stage-specific decisions, measurements, or provenance. It is not a current Host architecture or operations source. Use [`../README.md`](../README.md), [`../ARCHITECTURE.md`](../ARCHITECTURE.md), [`OPERATIONS.md`](OPERATIONS.md), and [`authority.md`](authority.md) for the active boundary.
+
 This document freezes the independently extracted `ordivon-host` foundation before any H7 design or implementation. It is a closure record and audit starting point, not a claim that the Host is a production-ready general Agent platform.
 
 ## Closure decision

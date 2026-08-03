@@ -9,7 +9,6 @@ default_profiles:
 documentation_roots:
   - README.md
   - ARCHITECTURE.md
-  - CLOSURE.md
   - docs
 managed_paths:
   - README.md

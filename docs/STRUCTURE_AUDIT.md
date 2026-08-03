@@ -1,5 +1,7 @@
 # Post-extraction structure audit
 
+> **Historical post-extraction structure audit record:** This document preserves stage-specific decisions, measurements, or provenance. It is not a current Host architecture or operations source. Use [`../README.md`](../README.md), [`../ARCHITECTURE.md`](../ARCHITECTURE.md), [`OPERATIONS.md`](OPERATIONS.md), and [`authority.md`](authority.md) for the active boundary.
+
 ## Scope
 
 This audit was performed after the history-preserving extraction of `ordivon-computing/incubation/host-v0` into the independent `ordivon-host` repository. The objective was to identify structure that had become duplicated or overloaded during H2-H6 without introducing a scheduler, workflow DSL, generic Effect framework, or other speculative abstraction.

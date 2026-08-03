@@ -1,5 +1,7 @@
 # P0/P1 Host stack alignment
 
+> **Historical P0/P1 alignment record:** This document preserves stage-specific decisions, measurements, or provenance. It is not a current Host architecture or operations source. Use [`../README.md`](../README.md), [`../ARCHITECTURE.md`](../ARCHITECTURE.md), [`OPERATIONS.md`](OPERATIONS.md), and [`authority.md`](authority.md) for the active boundary.
+
 This document records the first implementation pass after the pre-H7 first-principles audit. It supersedes conflicting architectural descriptions in historical closure documents while preserving those documents as evidence of the earlier boundary.
 
 H7 remains frozen. This change hardens the existing Host and aligns its real source-change and cognition paths with Ordivon Computing, Runtime, Git, Provider, and Authority ownership.
@@ -149,7 +151,7 @@ resumable SSE: false
 
 The client validates the negotiated protocol version, caches initialization, and rejects multiple SSE data messages. This removes the prior ambiguity between a deliberately stateless Ordivon Runtime profile and complete stateful MCP support.
 
-> **H-series successor note:** production Runtime later adopted the standard MCP Session lifecycle. `docs/H_SERIES_OPEN_PROPOSAL.md` and the current `ARCHITECTURE.md` are authoritative for Session identity, `notifications/initialized`, and empty SSE heartbeat handling. This paragraph remains the historical P1 boundary.
+> **Successor note:** Runtime later introduced a standard Session compatibility lifecycle and subsequently made the stateless `2026-07-28` discovery path canonical. Current Host transport behavior and its remaining compatibility debt are defined in [`../ARCHITECTURE.md`](../ARCHITECTURE.md); this paragraph remains the historical P1 boundary.
 
 ## Compatibility boundary
 

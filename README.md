@@ -13,7 +13,7 @@ audience:
   - builder
   - operator
   - agent
-updated: 2026-08-03
+updated: 2026-08-04
 summary: Canonical entry to Host Task continuity, commitment, uncertainty, evidence admission, verification, recovery, and extension boundaries.
 evidence_status: verified
 readiness: READY
@@ -38,9 +38,17 @@ The Host controls durable work and external commitment lifecycles. It does not o
 
 Host owns durable work coordination and commitment records. Runtime owns physical execution, domain systems own world truth and domain verification, Harness owns replaceable Agent execution lifecycles, Computing owns promoted shared contracts, and Providers remain replaceable cognition dependencies.
 
+## Repository selection
+
+| Change concerns | Use | Do not put here |
+| --- | --- | --- |
+| Workspace, Job, Attempt, process tree, Artifact, physical cancellation, or execution recovery | `ordivon-runtime` | Task meaning, Agent Run policy, or domain completion |
+| durable Task continuity, Journal/CAS, commitment admission, verification records, or Task outcomes | `ordivon-host` | Provider loops, Harness Run semantics, or physical process truth |
+| Assignment, Agent Run, Provider adapter, model–Tool loop, Tool-step checkpoint, or Run recovery | `ordivon-harness` | a second Task database, Runtime supervision, or domain-world authority |
+
 ## Status
 
-This repository was extracted with Git history from `ordivon-computing/incubation/host-v0` after the H2-H6 architectural gates passed. It is an independently versioned engineering prototype, not yet a general production workflow engine, policy platform, or multi-Agent scheduler.
+This repository was extracted with Git history from `ordivon-computing/incubation/host-v0` after six architectural proof stages passed. It is an independently versioned engineering prototype, not yet a general production workflow engine, policy platform, or multi-Agent scheduler.
 
 Current proven vertical slices:
 
@@ -55,7 +63,6 @@ Current proven vertical slices:
 - durable two-file source change through structured Runtime checks and exact structured diff verification;
 - conservative one-shot recovery assessment that never redispatches an uncertain Effect;
 - MCP Session lifecycle support without persisting transport sessions as Task truth;
-- an experimental package-scoped executor-neutral Dispatch / Observation / Verification lifecycle candidate;
 - immutable TaskDescriptor identity and Goal-scoped Task revision snapshots;
 - idempotent per-Task application of one joint VerificationReceipt with multiple result items;
 - recovery across fresh Host processes and local Runtime control-plane restarts;
@@ -73,7 +80,7 @@ The closed-choice path remains a useful deterministic and closed-domain profile.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) defines the current Host architecture and responsibility boundary.
 - [`docs/OPERATIONS.md`](docs/OPERATIONS.md) defines the operational state, configuration, backup, restore, Doctor, and conservative reconciliation contract.
 - [`docs/authority.md`](docs/authority.md) identifies which records may define current Host behavior.
-- `CLOSURE.md`, phase reports, extraction records, and `evidence/` preserve decisions and receipts but do not replace the current architecture.
+- [`docs/MIGRATION.md`](docs/MIGRATION.md), phase reports, extraction records, and `evidence/` preserve decisions and receipts but do not replace the current architecture.
 
 ## Development
 

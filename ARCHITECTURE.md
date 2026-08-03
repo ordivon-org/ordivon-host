@@ -13,7 +13,7 @@ audience:
   - builder
   - operator
   - agent
-updated: 2026-08-03
+updated: 2026-08-04
 summary: Canonical Host architecture for durable Task state, commitment, verification, uncertainty, extension admission, and recovery above Runtime.
 evidence_status: verified
 readiness: READY
@@ -33,6 +33,14 @@ Preserve durable work, commitments, uncertainty, evidence, and terminal outcomes
 ## Boundaries
 
 Host owns Task continuity and external commitment admission. Runtime owns physical execution, domain systems own authoritative world state and domain verification, Harness owns Agent Assignment and Run semantics, Computing owns promoted contracts, and Git owns source history. A universal scheduler remains deliberately frozen.
+
+### Component responsibility matrix
+
+| Component | Owns | Explicitly does not own |
+| --- | --- | --- |
+| Runtime | Workspace lifecycle, physical Jobs and Attempts, process trees, bounded Artifacts, cancellation, and physical reconciliation | Task semantics, Assignment/Run policy, Provider behavior, or domain completion |
+| Host | durable Task continuity, Journal/CAS, generic extension admission, commitment identities, verification records, and Task outcomes | Harness-specific schemas, model–Tool execution, physical process truth, or domain-world truth |
+| Harness | Task Attempt and Assignment semantics, Agent Runs, Provider adapters, Tool-step checkpoints, Run recovery, abandonment, and completion proposals/decisions | another Task database, generic Host persistence, Runtime supervision, promoted protocol, or final domain authority |
 
 ## Components
 
@@ -54,6 +62,7 @@ Exact behavior is verified by source, schema migrations, deterministic tests, li
 
 - **Host** owns Tasks, Goal-scoped Task coordination, generic Host events and projections, Context compilation, ModelInvocation identity, proposal compilation or closed-choice admission, Effect commitments, Tool bindings, verification receipts, participant-routed decisions, and Task outcomes. It does not yet own a durable Goal stream or Goal commitment object. It admits immutable references and extension event kinds outside reserved Host namespaces without importing extension-specific schemas.
 - **Runtime** owns Workspaces, committed physical Jobs, Runtime Attempts, process state, retained output, Artifacts, cancellation, and physical recovery.
+- **Harness** owns Task Attempt and Assignment semantics, Agent Runs, Provider adapters, model–Tool execution, Harness recovery and abandonment, semantic handoff, and completion proposal/decision logic. Its objects may be stored in Host CAS without transferring their schema ownership to Host.
 - **Domain systems** own authoritative world state, transition rules, domain coordination policy, and domain-specific verification sufficiency.
 - **Computing** owns promoted protocol definitions, reference behavior, conformance vectors, experiments, and evidence.
 - **Provider and MCP sessions** are replaceable transport state and never own Task continuity.
@@ -328,7 +337,7 @@ Host does not expose a generic executor-neutral Effect lifecycle. The former can
 
 ## MCP transport lifecycle
 
-The production Runtime uses the standard MCP Session lifecycle:
+The current Host `McpRuntimeClient` uses Runtime's retained MCP `2025-06-18` Session compatibility profile:
 
 ```text
 initialize
@@ -337,7 +346,7 @@ initialize
 → bounded request/response operations
 ```
 
-Empty SSE heartbeat data frames are ignored; multiple non-empty JSON-RPC messages remain outside the supported profile. MCP Session identity is never persisted in Goal, Task, Context, Effect, or recovery state. A new Host process establishes a new transport session and continues from durable Host and Runtime identities.
+Runtime's canonical modern lifecycle is the stateless `2026-07-28` `server/discover` path; Host has not migrated to that transport profile. This is bounded compatibility debt, not a second Runtime architecture. Empty SSE heartbeat data frames are ignored, and multiple non-empty JSON-RPC messages remain outside the supported Host profile. MCP Session identity is never persisted in Goal, Task, Context, Effect, or recovery state. A new Host process establishes a new compatibility transport session and continues from durable Host and Runtime identities.
 
 ## Empirical recovery boundary
 
