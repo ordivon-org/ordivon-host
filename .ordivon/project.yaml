@@ -11,8 +11,12 @@ documentation_roots:
   - ARCHITECTURE.md
   - CLOSURE.md
   - docs
-managed_paths: []
-enforcement: advisory
+managed_paths:
+  - README.md
+  - ARCHITECTURE.md
+  - docs/OPERATIONS.md
+  - docs/authority.md
+enforcement: strict
 maintainers:
   - zycxfyh
 public_projection: ordivon-web

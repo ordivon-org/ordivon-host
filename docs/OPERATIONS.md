@@ -1,4 +1,49 @@
+---
+schema_version: 1
+id: host.operations
+title: Host operational contract
+type: operations
+profile: engineering
+lifecycle: active
+source_role: canonical
+visibility: public
+owners:
+  - ordivon-host
+audience:
+  - operator
+  - builder
+  - agent
+updated: 2026-08-03
+summary: Canonical operational contract for Host state ownership, configuration, migration, validation, backup, restore, Doctor, and conservative reconciliation.
+evidence_status: verified
+readiness: READY
+applies_to:
+  - ordivon-host
+related:
+  - host.architecture
+  - host.authority
+---
 # Host operational contract
+
+## Scope
+
+This document owns the trusted-local Host state root, schema migration, configuration, CLI, CAS validation, backup, restore, Doctor, and bounded Task assessment or reconciliation behavior.
+
+## Normal operation
+
+Operate one private Host state root through the installed CLI, short Journal transactions, immutable CAS writes, exact permissions, cached startup validation, explicit configuration, and read-only inspection before any repair or restore action.
+
+## Failure detection
+
+Treat SQLite integrity failure, schema incompatibility, unsafe file modes or symlinks, missing or corrupt CAS objects, Journal or projection drift, causal gaps, orphan evidence, unresolved leases, and Runtime initialization failure as explicit operational findings.
+
+## Recovery
+
+Recover through verified backups, atomic restore, full-history Doctor when required, and conservative Task reconciliation. Reconciliation may replay deterministic read progress or observe an already-persisted keyed Dispatch; it never invents or redispatches an uncertain Effect.
+
+## Verification
+
+Use `ordivon-host doctor`, optional `--history` and `--runtime` checks, backup verification, schema migration tests, deterministic repository tests, and retained live receipts. [`../ARCHITECTURE.md`](../ARCHITECTURE.md) defines semantic ownership; this document defines operational handling.
 
 ## State ownership
 

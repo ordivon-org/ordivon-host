@@ -1,10 +1,42 @@
+---
+schema_version: 1
+id: host.start
+title: Ordivon Host
+type: start
+profile: organization
+lifecycle: active
+source_role: canonical
+visibility: public
+owners:
+  - ordivon-host
+audience:
+  - builder
+  - operator
+  - agent
+updated: 2026-08-03
+summary: Canonical entry to Host Task continuity, commitment, uncertainty, evidence admission, verification, recovery, and extension boundaries.
+evidence_status: verified
+readiness: READY
+applies_to:
+  - ordivon-host
+related:
+  - host.architecture
+  - host.operations
+  - host.authority
+---
 # Ordivon Host
+
+## Purpose
 
 Persistent coordination and commitment plane for Ordivon.
 
 Ordivon Host owns durable Tasks, Goal-scoped Task coordination, Host events and projections, bounded cognition Contexts, proposal compilation or admission, Effect commitments, Runtime Dispatch identities, verification receipts, participant-routed decisions, and Task outcomes. It treats model sessions and Runtime processes as replaceable dependencies rather than owners of work continuity.
 
 The Host controls durable work and external commitment lifecycles. It does not own model intelligence, domain-world truth, physical execution, or a permanent hierarchy among participants.
+
+## Current boundary
+
+Host owns durable work coordination and commitment records. Runtime owns physical execution, domain systems own world truth and domain verification, Harness owns replaceable Agent execution lifecycles, Computing owns promoted shared contracts, and Providers remain replaceable cognition dependencies.
 
 ## Status
 
@@ -36,7 +68,12 @@ Current proven vertical slices:
 
 The closed-choice path remains a useful deterministic and closed-domain profile. It is no longer treated as the only possible cognition interface. Agent Harness implementation and its historical evidence now live in the independent `ordivon-harness` repository.
 
-See `ARCHITECTURE.md`, `CLOSURE.md`, `docs/HARNESS_EXTRACTION.md`, `docs/PRE_H7_CLOSURE.md`, `docs/P0_P1_ALIGNMENT.md`, `docs/P2_P3_EXPLORATION.md`, and `evidence/` for the retained Host boundary and receipts.
+## Start here
+
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) defines the current Host architecture and responsibility boundary.
+- [`docs/OPERATIONS.md`](docs/OPERATIONS.md) defines the operational state, configuration, backup, restore, Doctor, and conservative reconciliation contract.
+- [`docs/authority.md`](docs/authority.md) identifies which records may define current Host behavior.
+- `CLOSURE.md`, phase reports, extraction records, and `evidence/` preserve decisions and receipts but do not replace the current architecture.
 
 ## Development
 
