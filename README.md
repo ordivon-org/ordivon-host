@@ -121,6 +121,12 @@ evidence/           immutable historical receipts
 docs/               migration and structure decisions
 ```
 
+## Project family
+
+- [Public project directory](https://ordivon.com/projects) — reader-facing role, maturity, and next steps.
+- [Cross-project map](https://github.com/zycxfyh/ordivon-computing/blob/main/projects/README.md) — stable roles, repository links, and authority entry points for all nine repositories.
+- Related owners: [Ordivon Harness](https://github.com/zycxfyh/ordivon-harness) owns Assignment-scoped Agent Runs; [Ordivon Runtime](https://github.com/zycxfyh/ordivon-runtime) owns physical execution; [Ordivon Computing](https://github.com/zycxfyh/ordivon-computing) owns promoted shared contracts.
+
 ## License
 
 Apache License 2.0. See `LICENSE`.
