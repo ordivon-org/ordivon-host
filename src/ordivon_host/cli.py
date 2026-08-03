@@ -8,6 +8,7 @@ from typing import Sequence
 
 from .config import HostConfig, load_config, read_token_file
 from .domain import StaticRepositoryResolver, TaskState
+from .handoff import operator_handoff
 from .ops import (
     create_backup,
     doctor_state,
@@ -38,6 +39,9 @@ def build_parser() -> argparse.ArgumentParser:
     task_list.add_argument("--limit", type=int, default=100)
     task_show = task_commands.add_parser("show")
     task_show.add_argument("task_id")
+    task_handoff = task_commands.add_parser("handoff")
+    task_handoff.add_argument("task_id")
+    task_handoff.add_argument("--expected-revision", type=int)
     task_assess = task_commands.add_parser("assess")
     task_assess.add_argument("task_id")
     task_reconcile = task_commands.add_parser("reconcile")
@@ -139,6 +143,16 @@ def _task(config: HostConfig, args: argparse.Namespace) -> dict[str, object]:
                     "payloadDigest": snapshot.payload_digest,
                     "data": snapshot.data,
                 },
+            }
+        if args.task_command == "handoff":
+            capsule = operator_handoff(
+                storage,
+                args.task_id,
+                expected_revision=args.expected_revision,
+            )
+            return {
+                "capsule": capsule.to_dict(),
+                "capsuleDigest": capsule.digest,
             }
         if args.task_command == "assess":
             return assess_recovery(storage, args.task_id).to_dict()

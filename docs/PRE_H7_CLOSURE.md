@@ -283,7 +283,6 @@ Until the audit is complete:
 
 This closure intentionally leaves a small, evidence-bound Host foundation rather than converting every discovered possibility into another subsystem.
 
-
 ## Post-audit P0/P1 alignment addendum
 
 The first-principles audit identified correctness and stack-boundary work that was completed after this original closure. `docs/P0_P1_ALIGNMENT.md` is authoritative for those changes.

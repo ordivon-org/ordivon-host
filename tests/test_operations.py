@@ -68,7 +68,7 @@ class HostOperationsTests(unittest.TestCase):
             root = Path(directory) / "state"
             populate(root)
             inspection = inspect_state(root)
-            self.assertEqual(inspection["schemaVersion"], 3)
+            self.assertEqual(inspection["schemaVersion"], 4)
             self.assertEqual(inspection["tasks"], 1)
             self.assertEqual(inspection["terminalTasks"], 0)
             report = doctor_state(root, now_ms=10)
@@ -87,7 +87,7 @@ class HostOperationsTests(unittest.TestCase):
             restored = base / "restored"
             populate(source)
             manifest = create_backup(source, backup, created_at_ms=1_000)
-            self.assertEqual(manifest["hostJournalSchemaVersion"], 3)
+            self.assertEqual(manifest["hostJournalSchemaVersion"], 4)
             verified = verify_backup(backup)
             self.assertEqual(verified["kind"], "ordivon.host-backup-manifest")
             result = restore_backup(backup, restored)
@@ -189,11 +189,14 @@ class HostHistoryDoctorTests(unittest.TestCase):
             connection.commit()
             connection.close()
             baseline = doctor_state(root)
-            self.assertTrue(baseline["healthy"])
+            self.assertFalse(baseline["healthy"])
+            opening = next(
+                item
+                for item in baseline["checks"]
+                if item["name"] == "host.open"
+            )
+            self.assertEqual(opening["status"], "error")
+            self.assertIn("payload object edge", opening["detail"])
+
             report = doctor_state(root, check_history=True)
             self.assertFalse(report["healthy"])
-            check = next(
-                item for item in report["checks"] if item["name"] == "journal.history"
-            )
-            self.assertEqual(check["status"], "error")
-            self.assertIn("historical Event", check["detail"])

@@ -1,0 +1,23 @@
+schema_version: 1
+id: ordivon-host
+name: Ordivon Host
+repository: https://github.com/zycxfyh/ordivon-host
+kind: engineering
+default_profiles:
+  - engineering
+  - organization
+documentation_roots:
+  - README.md
+  - ARCHITECTURE.md
+  - CLOSURE.md
+  - docs
+managed_paths:
+  - README.md
+  - ARCHITECTURE.md
+  - docs/OPERATIONS.md
+  - docs/authority.md
+enforcement: strict
+maintainers:
+  - zycxfyh
+public_projection: ordivon-web
+description: Persistent Task continuity, commitment, uncertainty, evidence admission, verification, and recovery.

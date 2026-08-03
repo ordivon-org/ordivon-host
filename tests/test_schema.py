@@ -45,6 +45,8 @@ class HostSchemaTests(unittest.TestCase):
                         "leases",
                         "object_refs",
                         "object_validation",
+                        "event_object_refs",
+                        "legacy_object_refs",
                         "schema_migrations",
                     }.issubset(names)
                 )
@@ -94,6 +96,19 @@ class HostSchemaTests(unittest.TestCase):
             connection.commit()
             connection.close()
             with self.assertRaisesRegex(JournalCorruption, "stream kind differs"):
+                HostStorage(directory)
+
+    def test_exact_event_payload_edge_tampering_is_detected_on_reopen(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            create_task(directory)
+            connection = sqlite3.connect(f"{directory}/host.sqlite3")
+            connection.execute(
+                "DELETE FROM event_object_refs WHERE event_id = 'event:create' "
+                "AND role = 'payload'"
+            )
+            connection.commit()
+            connection.close()
+            with self.assertRaisesRegex(JournalCorruption, "payload object edge"):
                 HostStorage(directory)
 
 

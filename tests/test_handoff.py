@@ -48,6 +48,25 @@ class HandoffTests(unittest.TestCase):
                 self.assertEqual(capsule.dispatch_object_digest, "sha256:" + ("c" * 64))
                 self.assertEqual(capsule.next_admissible, ("reconcile-existing-dispatch",))
                 self.assertEqual(capsule.must_not_repeat_object_digests, ())
+                pinned = operator_handoff(
+                    storage,
+                    "task:handoff",
+                    expected_revision=created.revision + 1,
+                )
+                self.assertEqual(pinned, capsule)
+                with self.assertRaisesRegex(
+                    ValueError,
+                    r"stale Operator Handoff revision: expected 1, current 2",
+                ):
+                    operator_handoff(
+                        storage,
+                        "task:handoff",
+                        expected_revision=created.revision,
+                    )
+                self.assertEqual(
+                    storage.read_task_event("task:handoff").payload_digest,
+                    capsule.event_payload_digest,
+                )
 
     def test_completed_effect_is_exposed_as_must_not_repeat(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

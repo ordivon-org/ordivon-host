@@ -1,4 +1,4 @@
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 LEGACY_UNUSED_TABLES = ("wakeups", "runtime_links", "task_edges", "task_nodes")
 
 SCHEMA = """
@@ -6,7 +6,8 @@ CREATE TABLE IF NOT EXISTS host_metadata(
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-INSERT OR IGNORE INTO host_metadata(key, value) VALUES ('schema_version', '3');
+INSERT OR IGNORE INTO host_metadata(key, value) VALUES ('schema_version', '4');
+INSERT OR IGNORE INTO host_metadata(key, value) VALUES ('event_object_refs_start_sequence', '1');
 
 CREATE TABLE IF NOT EXISTS schema_migrations(
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,6 +54,19 @@ CREATE TABLE IF NOT EXISTS events(
     recorded_at_ms INTEGER NOT NULL CHECK(recorded_at_ms >= 0),
     UNIQUE(stream_id, stream_revision)
 );
+
+CREATE TABLE IF NOT EXISTS legacy_object_refs(
+    digest TEXT PRIMARY KEY REFERENCES object_refs(digest)
+);
+
+CREATE TABLE IF NOT EXISTS event_object_refs(
+    event_id TEXT NOT NULL REFERENCES events(event_id) ON DELETE CASCADE,
+    digest TEXT NOT NULL REFERENCES object_refs(digest),
+    role TEXT NOT NULL CHECK(role IN ('payload', 'reference')),
+    PRIMARY KEY(event_id, digest)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS event_object_refs_one_payload
+    ON event_object_refs(event_id) WHERE role = 'payload';
 
 CREATE TABLE IF NOT EXISTS task_projection(
     task_id TEXT PRIMARY KEY REFERENCES streams(stream_id),

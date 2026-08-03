@@ -1,8 +1,54 @@
+---
+schema_version: 1
+id: host.architecture
+title: Ordivon Host architecture boundary
+type: architecture
+profile: engineering
+lifecycle: active
+source_role: canonical
+visibility: public
+owners:
+  - ordivon-host
+audience:
+  - builder
+  - operator
+  - agent
+updated: 2026-08-03
+summary: Canonical Host architecture for durable Task state, commitment, verification, uncertainty, extension admission, and recovery above Runtime.
+evidence_status: verified
+readiness: READY
+applies_to:
+  - ordivon-host
+related:
+  - host.start
+  - host.operations
+  - host.authority
+---
 # Ordivon Host architecture boundary
 
-This architecture was falsified and reduced in the Computing incubator before the independent repository was created. The extracted repository retains the proven v0 boundary while product and operational work proceed as separately reviewable changes.
+## Purpose
 
-`docs/P0_P1_ALIGNMENT.md` records the post-audit correctness and stack-alignment changes. `docs/HARNESS_EXTRACTION.md` records the later removal of Agent Harness implementation from this repository. A universal H7 scheduler remains frozen.
+Preserve durable work, commitments, uncertainty, evidence, and terminal outcomes while treating cognition sessions and physical Runtime processes as replaceable dependencies. The architecture was falsified and reduced in the Computing incubator before extraction into this repository.
+
+## Boundaries
+
+Host owns Task continuity and external commitment admission. Runtime owns physical execution, domain systems own authoritative world state and domain verification, Harness owns Agent Assignment and Run semantics, Computing owns promoted contracts, and Git owns source history. A universal scheduler remains deliberately frozen.
+
+## Components
+
+The current system consists of one Host Journal and materialized Task projection, immutable CAS objects, a minimal transition kernel, bounded cognition profiles, workload-specific Effect lifecycles, generic extension admission, Runtime clients, verification receipts, and operational recovery surfaces.
+
+## Data flow
+
+Participant or application intent becomes a durable Task and Context; replaceable cognition proposes or selects work; Host validates and commits Effect identity before delivery; Runtime executes; observations are independently verified; Host admits a terminal Task outcome or retains explicit uncertainty for reconciliation.
+
+## Failure modes
+
+Host fails closed on stale revisions, invalid leases, terminal reopening, missing or corrupt CAS objects, causal gaps, ambiguous external delivery, unsupported extension semantics, insufficient verification, and attempts to make transport or Provider state the owner of Task continuity.
+
+## Verification
+
+Exact behavior is verified by source, schema migrations, deterministic tests, live Runtime scenarios, fault injection, full-history Doctor, immutable evidence receipts, and version-bound source-change acceptance. The operational procedures are in [`docs/OPERATIONS.md`](docs/OPERATIONS.md), and the authority boundary is recorded in [`docs/authority.md`](docs/authority.md). Phase and closeout documents preserve the evidence behind this boundary but are not alternate current architectures.
 
 ## Ownership
 
@@ -258,7 +304,6 @@ The mutation boundary preserves these invariants:
 - the dirty test Workspace is force-closed only after evidence is retained.
 
 The workload deliberately allows only one root-level file created with `O_EXCL`. This is a falsifiable recovery slice, not a general mutation DSL or shell workflow engine.
-
 
 ## Version-bound source-change completion
 

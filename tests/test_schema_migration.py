@@ -5,7 +5,7 @@ import sqlite3
 import tempfile
 import unittest
 
-from ordivon_host import HostStorage
+from ordivon_host import EventKind, HostKernel, HostStorage
 from ordivon_host.journal import JournalCorruption
 
 
@@ -36,7 +36,7 @@ CREATE TABLE leases(task_id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, revision I
 
 
 class HostSchemaMigrationTests(unittest.TestCase):
-    def test_empty_v1_reserved_tables_migrate_through_v3_with_backups(self) -> None:
+    def test_empty_v1_reserved_tables_migrate_through_v4_with_backups(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "host.sqlite3"
             connection = sqlite3.connect(database)
@@ -46,7 +46,7 @@ class HostSchemaMigrationTests(unittest.TestCase):
                 version = storage.journal.connection.execute(
                     "SELECT value FROM host_metadata WHERE key='schema_version'"
                 ).fetchone()[0]
-                self.assertEqual(version, "3")
+                self.assertEqual(version, "4")
                 history = storage.journal.connection.execute(
                     "SELECT from_version, to_version, name FROM schema_migrations "
                     "ORDER BY sequence"
@@ -56,6 +56,7 @@ class HostSchemaMigrationTests(unittest.TestCase):
                     [
                         (1, 2, "remove-unowned-pre-h7-tables"),
                         (2, 3, "cache-verified-object-file-identity"),
+                        (3, 4, "bind-event-object-admission"),
                     ],
                 )
                 names = {
@@ -68,10 +69,17 @@ class HostSchemaMigrationTests(unittest.TestCase):
                     {"task_nodes", "task_edges", "runtime_links", "wakeups"}.isdisjoint(names)
                 )
                 self.assertIn("object_validation", names)
+                self.assertIn("event_object_refs", names)
+                self.assertIn("legacy_object_refs", names)
+                self.assertEqual(storage.journal.legacy_object_refs(), ())
+                self.assertEqual(
+                    storage.journal.event_object_refs_start_sequence(), 1
+                )
             self._assert_backup_version(database, 2, "1")
             self._assert_backup_version(database, 3, "2")
+            self._assert_backup_version(database, 4, "3")
 
-    def test_v2_migrates_to_v3_with_backup(self) -> None:
+    def test_v2_migrates_through_v4_with_backups(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "host.sqlite3"
             connection = sqlite3.connect(database)
@@ -82,16 +90,86 @@ class HostSchemaMigrationTests(unittest.TestCase):
                     storage.journal.connection.execute(
                         "SELECT value FROM host_metadata WHERE key='schema_version'"
                     ).fetchone()[0],
-                    "3",
+                    "4",
                 )
                 history = storage.journal.connection.execute(
-                    "SELECT from_version, to_version, name FROM schema_migrations"
-                ).fetchone()
+                    "SELECT from_version, to_version, name FROM schema_migrations "
+                    "ORDER BY sequence"
+                ).fetchall()
                 self.assertEqual(
-                    tuple(history),
-                    (2, 3, "cache-verified-object-file-identity"),
+                    [tuple(row) for row in history],
+                    [
+                        (2, 3, "cache-verified-object-file-identity"),
+                        (3, 4, "bind-event-object-admission"),
+                    ],
                 )
             self._assert_backup_version(database, 3, "2")
+            self._assert_backup_version(database, 4, "3")
+
+    def test_v3_history_is_legacy_and_new_events_use_exact_edges(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "host.sqlite3"
+            with HostStorage(directory) as storage:
+                HostKernel(
+                    storage, clock_ms=lambda: 1, owner_id="host:v3-fixture"
+                ).create_task(
+                    event_id="event:v3-fixture:legacy",
+                    kind=EventKind.TASK_CREATED,
+                    task_id="task:v3-fixture:legacy",
+                    goal_id="goal:v3-fixture",
+                    payload={"workloadId": "v3-fixture-legacy"},
+                    frontier=("node:v3-fixture:legacy",),
+                )
+
+            connection = sqlite3.connect(database)
+            connection.execute("PRAGMA foreign_keys = OFF")
+            connection.execute("DROP TABLE event_object_refs")
+            connection.execute("DROP TABLE legacy_object_refs")
+            connection.execute(
+                "DELETE FROM host_metadata "
+                "WHERE key = 'event_object_refs_start_sequence'"
+            )
+            connection.execute(
+                "UPDATE host_metadata SET value = '3' "
+                "WHERE key = 'schema_version'"
+            )
+            connection.commit()
+            connection.close()
+
+            with HostStorage(directory) as storage:
+                self.assertEqual(
+                    storage.journal.event_object_refs_start_sequence(), 2
+                )
+                self.assertEqual(
+                    storage.journal.event_object_references(
+                        "event:v3-fixture:legacy"
+                    ),
+                    (),
+                )
+                legacy_payload = storage.journal.connection.execute(
+                    "SELECT payload_digest FROM events WHERE event_id = ?",
+                    ("event:v3-fixture:legacy",),
+                ).fetchone()[0]
+                self.assertIn(
+                    legacy_payload,
+                    {item.digest for item in storage.journal.legacy_object_refs()},
+                )
+                HostKernel(
+                    storage, clock_ms=lambda: 2, owner_id="host:v4-fixture"
+                ).create_task(
+                    event_id="event:v4-fixture:exact",
+                    kind=EventKind.TASK_CREATED,
+                    task_id="task:v4-fixture:exact",
+                    goal_id="goal:v3-fixture",
+                    payload={"workloadId": "v4-fixture-exact"},
+                    frontier=("node:v4-fixture:exact",),
+                )
+                exact = storage.journal.event_object_references(
+                    "event:v4-fixture:exact"
+                )
+                self.assertEqual(len(exact), 1)
+                self.assertEqual(exact[0].role, "payload")
+            self._assert_backup_version(database, 4, "3")
 
     def test_populated_unowned_v1_table_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

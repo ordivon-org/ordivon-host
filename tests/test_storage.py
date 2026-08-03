@@ -57,6 +57,10 @@ class HostStorageTests(unittest.TestCase):
                 self.assertEqual(admitted, EventAdmission.CREATED)
                 self.assertEqual(storage.journal.event_count(), 1)
                 self.assertEqual(storage.journal.object_ref_count(), 1)
+                self.assertEqual(
+                    {(item.digest, item.role) for item in storage.journal.event_object_references("event:create")},
+                    {(storage.journal.get_task_head("task:journal-test").payload_digest, "payload")},
+                )
                 self.assertEqual(storage.journal.get_task("task:journal-test"), projection(1))
                 self.assertEqual(storage.rebuild_task("task:journal-test"), projection(1))
                 storage.journal.validate_invariants()
@@ -87,8 +91,55 @@ class HostStorageTests(unittest.TestCase):
                     )
                 self.assertEqual(storage.journal.event_count(), 0)
                 self.assertEqual(storage.journal.object_ref_count(), 0)
+                self.assertEqual(storage.journal.event_object_references("event:rollback"), ())
                 self.assertIsNone(storage.journal.get_task("task:journal-test"))
                 storage.journal.validate_invariants()
+
+    def test_event_records_exact_payload_and_reference_edges(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with HostStorage(directory) as storage:
+                reference = storage.put_object(
+                    {"evidence": "exact-event-edge"}, kind="test-evidence"
+                )
+                storage.record_task_event(
+                    event_id="event:exact-edges",
+                    kind=EventKind.TASK_CREATED,
+                    payload={"evidenceObjectDigest": reference.digest},
+                    projection=projection(1),
+                    expected_revision=0,
+                    referenced_objects=(reference,),
+                )
+                head = storage.journal.get_task_head("task:journal-test")
+                assert head is not None
+                self.assertEqual(
+                    {(item.digest, item.role) for item in storage.journal.event_object_references("event:exact-edges")},
+                    {
+                        (head.payload_digest, "payload"),
+                        (reference.digest, "reference"),
+                    },
+                )
+
+    def test_existing_event_rejects_different_object_edges(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with HostStorage(directory) as storage:
+                first = storage.put_object({"value": 1}, kind="test-reference")
+                second = storage.put_object({"value": 2}, kind="test-reference")
+                arguments = {
+                    "event_id": "event:edge-identity",
+                    "kind": EventKind.TASK_CREATED,
+                    "payload": {"revision": 1},
+                    "projection": projection(1),
+                    "expected_revision": 0,
+                }
+                storage.record_task_event(
+                    **arguments, referenced_objects=(first,)
+                )
+                with self.assertRaisesRegex(
+                    EventConflict, "different object references"
+                ):
+                    storage.record_task_event(
+                        **arguments, referenced_objects=(second,)
+                    )
 
     def test_revision_conflict_appends_nothing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

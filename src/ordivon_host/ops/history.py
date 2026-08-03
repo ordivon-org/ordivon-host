@@ -63,10 +63,14 @@ class HistoryValidation:
 
 def validate_history(storage: HostStorage) -> HistoryValidation:
     """Validate all Host rows, payloads, CAS references and core semantic links."""
-    admitted = {item.digest for item in storage.journal.object_refs()}
+    boundary = storage.journal.event_object_refs_start_sequence()
+    admitted: set[str] = set()
+    legacy_admitted = {
+        item.digest for item in storage.journal.legacy_object_refs()
+    }
     rows = storage.journal.connection.execute(
-        "SELECT event_id, stream_id, stream_kind, stream_revision, event_kind, "
-        "payload_digest, recorded_at_ms FROM events ORDER BY sequence"
+        "SELECT sequence, event_id, stream_id, stream_kind, stream_revision, "
+        "event_kind, payload_digest, recorded_at_ms FROM events ORDER BY sequence"
     )
     events = 0
     task_streams: set[str] = set()
@@ -117,12 +121,26 @@ def validate_history(storage: HostStorage) -> HistoryValidation:
             raise JournalCorruption(
                 f"historical Event projection differs from row: {event_id}"
             )
+        sequence = int(row["sequence"])
+        if sequence >= boundary:
+            event_references = storage.journal.event_object_references(event_id)
+            payload_edges = {
+                item.digest for item in event_references if item.role == "payload"
+            }
+            if payload_edges != {str(row["payload_digest"])}:
+                raise JournalCorruption(
+                    f"historical Event payload edge differs: {event_id}"
+                )
+            admitted.update(item.digest for item in event_references)
+            available = admitted
+        else:
+            available = legacy_admitted
         data = value["data"]
         validate_json_value(data)
         references = _known_references(data)
         semantic_references += len(references)
         for key, digest in references:
-            if digest not in admitted:
+            if digest not in available:
                 raise JournalCorruption(
                     f"historical {key} is not admitted in object_refs: {event_id}"
                 )

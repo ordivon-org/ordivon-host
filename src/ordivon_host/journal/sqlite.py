@@ -57,6 +57,13 @@ class LeaseRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class EventObjectReference:
+    event_id: str
+    digest: str
+    role: str
+
+
+@dataclass(frozen=True, slots=True)
 class TaskHead:
     task_id: str
     event_kind: EventKind
@@ -145,8 +152,8 @@ class HostJournal:
 
         with self._transaction():
             existing = self.connection.execute(
-                "SELECT stream_id, stream_kind, event_kind, payload_digest, recorded_at_ms, caused_by_event_id "
-                "FROM events WHERE event_id = ?",
+                "SELECT sequence, stream_id, stream_kind, event_kind, payload_digest, "
+                "recorded_at_ms, caused_by_event_id FROM events WHERE event_id = ?",
                 (event.event_id,),
             ).fetchone()
             if existing is not None:
@@ -158,9 +165,21 @@ class HostJournal:
                     event.recorded_at_ms,
                     event.caused_by_event_id,
                 )
-                actual = tuple(existing)
+                actual = tuple(existing)[1:]
                 if actual != expected:
                     raise EventConflict("event identity is already bound to different content")
+                if int(existing["sequence"]) >= self.event_object_refs_start_sequence():
+                    expected_edges = self._event_object_edges(
+                        payload_object, referenced_objects
+                    )
+                    actual_edges = {
+                        (item.digest, item.role)
+                        for item in self.event_object_references(event.event_id)
+                    }
+                    if actual_edges != expected_edges:
+                        raise EventConflict(
+                            "event identity is already bound to different object references"
+                        )
                 if expected_lease is not None:
                     self._validate_exact_lease(
                         expected_lease,
@@ -241,6 +260,15 @@ class HostJournal:
                     event.payload_digest,
                     event.caused_by_event_id,
                     event.recorded_at_ms,
+                ),
+            )
+            self.connection.executemany(
+                "INSERT INTO event_object_refs(event_id, digest, role) VALUES (?, ?, ?)",
+                (
+                    (event.event_id, digest, role)
+                    for digest, role in sorted(
+                        self._event_object_edges(payload_object, referenced_objects)
+                    )
                 ),
             )
             self.connection.execute(
@@ -337,6 +365,47 @@ class HostJournal:
         ).fetchall()
         return tuple(
             StoredObject(row["digest"], int(row["byte_length"]), row["kind"])
+            for row in rows
+        )
+
+    def legacy_object_refs(self) -> tuple[StoredObject, ...]:
+        rows = self.connection.execute(
+            "SELECT r.digest, r.byte_length, r.kind "
+            "FROM legacy_object_refs l JOIN object_refs r ON r.digest = l.digest "
+            "ORDER BY r.digest"
+        ).fetchall()
+        return tuple(
+            StoredObject(row["digest"], int(row["byte_length"]), row["kind"])
+            for row in rows
+        )
+
+    def event_object_refs_start_sequence(self) -> int:
+        row = self.connection.execute(
+            "SELECT value FROM host_metadata "
+            "WHERE key = 'event_object_refs_start_sequence'"
+        ).fetchone()
+        if row is None:
+            raise JournalCorruption("Event-object reference boundary is missing")
+        try:
+            value = int(row["value"])
+        except (TypeError, ValueError) as error:
+            raise JournalCorruption(
+                "Event-object reference boundary is invalid"
+            ) from error
+        if value < 1:
+            raise JournalCorruption("Event-object reference boundary is invalid")
+        return value
+
+    def event_object_references(
+        self, event_id: str
+    ) -> tuple[EventObjectReference, ...]:
+        rows = self.connection.execute(
+            "SELECT event_id, digest, role FROM event_object_refs "
+            "WHERE event_id = ? ORDER BY role, digest",
+            (event_id,),
+        ).fetchall()
+        return tuple(
+            EventObjectReference(row["event_id"], row["digest"], row["role"])
             for row in rows
         )
 
@@ -556,10 +625,48 @@ class HostJournal:
                 f"Task projection differs from stream head: {projection_mismatch['task_id']}"
             )
 
+        boundary = self.event_object_refs_start_sequence()
+        next_sequence = int(
+            self.connection.execute(
+                "SELECT COALESCE(MAX(sequence), 0) + 1 AS value FROM events"
+            ).fetchone()["value"]
+        )
+        if boundary > next_sequence:
+            raise JournalCorruption(
+                "Event-object reference boundary is beyond Journal history"
+            )
+        missing_payload_edge = self.connection.execute(
+            "SELECT e.event_id FROM events e LEFT JOIN event_object_refs r "
+            "ON r.event_id = e.event_id AND r.role = 'payload' "
+            "WHERE e.sequence >= ? AND "
+            "(r.digest IS NULL OR r.digest != e.payload_digest) LIMIT 1",
+            (boundary,),
+        ).fetchone()
+        if missing_payload_edge is not None:
+            raise JournalCorruption(
+                "Event is missing its exact payload object edge: "
+                f"{missing_payload_edge['event_id']}"
+            )
+
         for row in self.connection.execute(
             "SELECT task_id FROM task_projection ORDER BY task_id"
         ):
             self.get_task(row["task_id"])
+
+    @staticmethod
+    def _event_object_edges(
+        payload_object: StoredObject,
+        referenced_objects: tuple[StoredObject, ...],
+    ) -> set[tuple[str, str]]:
+        edges = {(payload_object.digest, "payload")}
+        for value in referenced_objects:
+            edge = (value.digest, "reference")
+            if value.digest == payload_object.digest:
+                raise ValueError(
+                    "Host event payload cannot also be an explicit reference"
+                )
+            edges.add(edge)
+        return edges
 
     def _admit_object(self, value: StoredObject, first_seen_at_ms: int) -> None:
         existing = self.connection.execute(
