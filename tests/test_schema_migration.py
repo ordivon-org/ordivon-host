@@ -70,6 +70,8 @@ class HostSchemaMigrationTests(unittest.TestCase):
                 )
                 self.assertIn("object_validation", names)
                 self.assertIn("event_object_refs", names)
+                self.assertIn("legacy_object_refs", names)
+                self.assertEqual(storage.journal.legacy_object_refs(), ())
                 self.assertEqual(
                     storage.journal.event_object_refs_start_sequence(), 1
                 )
@@ -122,6 +124,7 @@ class HostSchemaMigrationTests(unittest.TestCase):
             connection = sqlite3.connect(database)
             connection.execute("PRAGMA foreign_keys = OFF")
             connection.execute("DROP TABLE event_object_refs")
+            connection.execute("DROP TABLE legacy_object_refs")
             connection.execute(
                 "DELETE FROM host_metadata "
                 "WHERE key = 'event_object_refs_start_sequence'"
@@ -142,6 +145,14 @@ class HostSchemaMigrationTests(unittest.TestCase):
                         "event:v3-fixture:legacy"
                     ),
                     (),
+                )
+                legacy_payload = storage.journal.connection.execute(
+                    "SELECT payload_digest FROM events WHERE event_id = ?",
+                    ("event:v3-fixture:legacy",),
+                ).fetchone()[0]
+                self.assertIn(
+                    legacy_payload,
+                    {item.digest for item in storage.journal.legacy_object_refs()},
                 )
                 HostKernel(
                     storage, clock_ms=lambda: 2, owner_id="host:v4-fixture"

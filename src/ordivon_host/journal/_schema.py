@@ -55,6 +55,10 @@ CREATE TABLE IF NOT EXISTS events(
     UNIQUE(stream_id, stream_revision)
 );
 
+CREATE TABLE IF NOT EXISTS legacy_object_refs(
+    digest TEXT PRIMARY KEY REFERENCES object_refs(digest)
+);
+
 CREATE TABLE IF NOT EXISTS event_object_refs(
     event_id TEXT NOT NULL REFERENCES events(event_id) ON DELETE CASCADE,
     digest TEXT NOT NULL REFERENCES object_refs(digest),

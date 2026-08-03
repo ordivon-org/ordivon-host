@@ -150,6 +150,13 @@ def _migrate_v3_to_v4(connection: sqlite3.Connection, path: Path) -> None:
     connection.execute("BEGIN IMMEDIATE")
     try:
         connection.execute(
+            "CREATE TABLE legacy_object_refs("
+            "digest TEXT PRIMARY KEY REFERENCES object_refs(digest))"
+        )
+        connection.execute(
+            "INSERT INTO legacy_object_refs(digest) SELECT digest FROM object_refs"
+        )
+        connection.execute(
             "CREATE TABLE event_object_refs("
             "event_id TEXT NOT NULL REFERENCES events(event_id) ON DELETE CASCADE, "
             "digest TEXT NOT NULL REFERENCES object_refs(digest), "

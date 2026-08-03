@@ -46,6 +46,7 @@ class HostSchemaTests(unittest.TestCase):
                         "object_refs",
                         "object_validation",
                         "event_object_refs",
+                        "legacy_object_refs",
                         "schema_migrations",
                     }.issubset(names)
                 )

@@ -368,6 +368,17 @@ class HostJournal:
             for row in rows
         )
 
+    def legacy_object_refs(self) -> tuple[StoredObject, ...]:
+        rows = self.connection.execute(
+            "SELECT r.digest, r.byte_length, r.kind "
+            "FROM legacy_object_refs l JOIN object_refs r ON r.digest = l.digest "
+            "ORDER BY r.digest"
+        ).fetchall()
+        return tuple(
+            StoredObject(row["digest"], int(row["byte_length"]), row["kind"])
+            for row in rows
+        )
+
     def event_object_refs_start_sequence(self) -> int:
         row = self.connection.execute(
             "SELECT value FROM host_metadata "

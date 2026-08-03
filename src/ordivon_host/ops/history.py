@@ -65,7 +65,9 @@ def validate_history(storage: HostStorage) -> HistoryValidation:
     """Validate all Host rows, payloads, CAS references and core semantic links."""
     boundary = storage.journal.event_object_refs_start_sequence()
     admitted: set[str] = set()
-    legacy_admitted = {item.digest for item in storage.journal.object_refs()}
+    legacy_admitted = {
+        item.digest for item in storage.journal.legacy_object_refs()
+    }
     rows = storage.journal.connection.execute(
         "SELECT sequence, event_id, stream_id, stream_kind, stream_revision, "
         "event_kind, payload_digest, recorded_at_ms FROM events ORDER BY sequence"
