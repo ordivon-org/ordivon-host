@@ -39,6 +39,9 @@ def initialize_schema(connection: sqlite3.Connection, path: Path) -> None:
         if version == 2:
             _migrate_v2_to_v3(connection, path)
             continue
+        if version == 3:
+            _migrate_v3_to_v4(connection, path)
+            continue
         raise SchemaMigrationError(f"unsupported Host Journal schema version: {version}")
     connection.executescript(_schema.SCHEMA)
     if schema_version(connection) != _schema.SCHEMA_VERSION:
@@ -132,6 +135,45 @@ def _migrate_v2_to_v3(connection: sqlite3.Connection, path: Path) -> None:
         connection.execute(
             "INSERT INTO schema_migrations(from_version, to_version, name, backup_path) "
             "VALUES (2, 3, 'cache-verified-object-file-identity', ?)",
+            (str(backup_path),),
+        )
+    except BaseException:
+        connection.execute("ROLLBACK")
+        raise
+    else:
+        connection.execute("COMMIT")
+
+
+def _migrate_v3_to_v4(connection: sqlite3.Connection, path: Path) -> None:
+    backup_path = path.with_name(f"{path.name}.pre-schema-v4.sqlite3")
+    _ensure_backup(connection, backup_path, expected_version=3)
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        connection.execute(
+            "CREATE TABLE event_object_refs("
+            "event_id TEXT NOT NULL REFERENCES events(event_id) ON DELETE CASCADE, "
+            "digest TEXT NOT NULL REFERENCES object_refs(digest), "
+            "role TEXT NOT NULL CHECK(role IN ('payload', 'reference')), "
+            "PRIMARY KEY(event_id, digest))"
+        )
+        connection.execute(
+            "CREATE UNIQUE INDEX event_object_refs_one_payload "
+            "ON event_object_refs(event_id) WHERE role = 'payload'"
+        )
+        next_sequence = int(
+            connection.execute(
+                "SELECT COALESCE(MAX(sequence), 0) + 1 FROM events"
+            ).fetchone()[0]
+        )
+        connection.execute(
+            "INSERT INTO host_metadata(key, value) VALUES "
+            "('event_object_refs_start_sequence', ?)",
+            (str(next_sequence),),
+        )
+        _advance_version(connection, 3, 4)
+        connection.execute(
+            "INSERT INTO schema_migrations(from_version, to_version, name, backup_path) "
+            "VALUES (3, 4, 'bind-event-object-admission', ?)",
             (str(backup_path),),
         )
     except BaseException:

@@ -27,7 +27,7 @@ class HostCliTests(unittest.TestCase):
             restored = Path(directory) / "restored"
             code, result = self.invoke("--state-root", str(state), "init")
             self.assertEqual(code, 0)
-            self.assertEqual(result["schemaVersion"], 3)
+            self.assertEqual(result["schemaVersion"], 4)
             code, result = self.invoke("--state-root", str(state), "doctor")
             self.assertEqual(code, 0)
             self.assertTrue(result["healthy"])

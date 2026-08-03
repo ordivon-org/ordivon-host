@@ -1,5 +1,6 @@
 from .sqlite import (
     EventConflict,
+    EventObjectReference,
     HostJournal,
     JournalCorruption,
     LeaseConflict,
@@ -10,6 +11,7 @@ from .sqlite import (
 
 __all__ = [
     "EventConflict",
+    "EventObjectReference",
     "HostJournal",
     "JournalCorruption",
     "LeaseConflict",
