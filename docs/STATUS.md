@@ -14,7 +14,7 @@ audience:
   - operator
   - user
   - agent
-updated: 2026-08-04
+updated: 2026-08-05
 summary: Stable maturity claim, support boundary, proven slices, known limits, and live-state verification path for Ordivon Host.
 evidence_status: verified
 readiness: READY
@@ -64,7 +64,8 @@ Python 3.13+, hostile multi-tenancy, remote distributed consensus, a general sch
 | closed-choice cognition | retained deterministic profile |
 | open ActionProposal with Host-owned lowering and DecisionRequest | experimental but verified |
 | Goal-scoped Task revision coordination | operational narrow slice |
-| generic extension event and CAS admission for Harness | operational boundary |
+| generic extension event and CAS admission for independently versioned components | operational boundary |
+| external executor request, foreign Run binding, recovery and completion collection | operational P0 boundary; Task acceptance remains Host-owned |
 | general workflow engine or multi-Agent scheduler | not provided |
 | domain-world truth and semantic verification | domain-owned |
 | physical execution and process recovery | Runtime-owned |
@@ -80,7 +81,8 @@ The legacy Session decoder remains because retained deployments and historical e
 
 - Host has no durable Goal event stream or Goal commitment object; Goal coordination is a snapshot over Task revisions.
 - Workload-specific hosts remain explicit state machines rather than a generic Effect lifecycle.
-- A successful Runtime Job is not Task completion.
+- A successful Runtime Job or foreign executor Run is not Task completion.
+- External executor completion is retained only as a proposal until a Host-owned workload verifies and decides the Task outcome.
 - Recovery never authorizes blind redispatch after uncertain delivery.
 - Provider calls are replaceable and occur outside Task leases; Host cannot resume an in-memory Provider process.
 - Domain systems must supply authoritative world-state and verification semantics.

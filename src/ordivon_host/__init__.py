@@ -32,6 +32,21 @@ from .engine import (
     ReadTaskStep,
 )
 from .extensions import HostExtensionError, HostExtensionPort, HostExtensionSnapshot
+from .external_executor import (
+    ExternalCompletionConflict,
+    ExternalCompletionProposal,
+    ExternalExecutionMissing,
+    ExternalExecutionRequest,
+    ExternalExecutionSnapshot,
+    ExternalExecutorAdapter,
+    ExternalExecutorCoordinator,
+    ExternalExecutorError,
+    ExternalObservationConflict,
+    ExternalRequestConflict,
+    ExternalRunBinding,
+    ExternalRunObservation,
+    ExternalRunStatus,
+)
 from .handoff import OperatorHandoffCapsule, operator_handoff
 from .journal import HostJournal, LeaseHeld, RevisionConflict
 from .kernel import (
@@ -77,6 +92,19 @@ __all__ = [
     "EventKind",
     "ExecutionCheck",
     "ExecutionRuntimeCatalog",
+    "ExternalCompletionConflict",
+    "ExternalCompletionProposal",
+    "ExternalExecutionMissing",
+    "ExternalExecutionRequest",
+    "ExternalExecutionSnapshot",
+    "ExternalExecutorAdapter",
+    "ExternalExecutorCoordinator",
+    "ExternalExecutorError",
+    "ExternalObservationConflict",
+    "ExternalRequestConflict",
+    "ExternalRunBinding",
+    "ExternalRunObservation",
+    "ExternalRunStatus",
     "GoalCoordinatorHost",
     "GoalSnapshot",
     "GuardedMutationHost",

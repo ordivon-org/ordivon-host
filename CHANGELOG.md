@@ -6,6 +6,7 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 
 ### Added
 
+- caller-neutral `ExternalExecutorAdapter`, durable external request, foreign Run binding, exact response-loss recovery, cancellation/observation reconciliation, and CompletionProposal collection without Task acceptance;
 - public Quick Start, status, data/privacy, release, security, contribution, and change-history documents;
 - executable documentation ownership and local-link validation;
 - pinned CI actions, CodeQL, secret scanning, dependency audit, Dependabot, release acceptance, and read-only live Host→Runtime acceptance;
@@ -27,7 +28,8 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 
 - `PROTOCOL_VERSION`, `ORDIVON_STATELESS_MCP_PROFILE`, and `ORDIVON_SESSION_MCP_PROFILE` retain their original `2025-06-18` compatibility semantics;
 - new code can select `DEFAULT_PROTOCOL_VERSION` or `ORDIVON_MODERN_MCP_PROFILE` for the canonical modern lifecycle;
-- existing durable Task, Journal, CAS, schema, Effect, Dispatch, verification, and recovery objects are unchanged.
+- existing durable Task, Journal, CAS, schema, Effect, Dispatch, verification, and recovery objects are unchanged;
+- external executor state uses extension Events and immutable CAS objects, requiring no Host Journal schema migration and no Harness dependency.
 
 ## 0.1.2 — Extracted operational prototype
 

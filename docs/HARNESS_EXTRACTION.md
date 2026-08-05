@@ -34,7 +34,7 @@ Harness-specific tests, fixtures, evaluation workloads, scripts, documents and i
 
 ## Host compatibility boundary
 
-Host now accepts bounded lowercase dotted extension event kinds. An extension event is stored and reconstructed without requiring Host to enumerate its vocabulary.
+Host accepts bounded lowercase dotted extension event kinds. An extension event is stored and reconstructed without requiring Host to enumerate its vocabulary. The later P0 external-executor boundary builds on this generic port: Host persists an immutable request before delivery, binds only the foreign Run identity and observations, and retains a CompletionProposal without decoding Harness internals or accepting the Task.
 
 Generic Host validation retains these guarantees:
 
