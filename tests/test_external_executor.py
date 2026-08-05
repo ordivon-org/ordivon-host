@@ -131,6 +131,16 @@ class FakeExternalExecutor:
         return proposal
 
 
+class SameObservationCancelExecutor(FakeExternalExecutor):
+    def cancel(
+        self, foreign_run_ref: str, request_id: str
+    ) -> ExternalRunObservation:
+        self.cancel_calls += 1
+        if self.requests[request_id] != foreign_run_ref:
+            raise AssertionError("cancel request identity differs")
+        return self.observations[foreign_run_ref]
+
+
 class ExternalExecutorCoordinatorTests(unittest.TestCase):
     @staticmethod
     def create_task(storage: HostStorage, clock, suffix: str = "one"):
@@ -328,6 +338,30 @@ class ExternalExecutorCoordinatorTests(unittest.TestCase):
                 duplicate = coordinator.collect_completion(projection.task_id, adapter)
                 self.assertEqual(duplicate.completion_proposal, proposal)
                 self.assertEqual(duplicate.projection.revision, collected.projection.revision)
+
+    def test_cancel_intent_is_admitted_when_adapter_replays_same_observation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            clock = itertools.count(4_500).__next__
+            with HostStorage(directory) as storage:
+                kernel, projection = self.create_task(storage, clock, "cancel-replay")
+                coordinator = ExternalExecutorCoordinator(
+                    HostExtensionPort(storage, kernel)
+                )
+                adapter = SameObservationCancelExecutor()
+                started = coordinator.start(
+                    self.request(projection, "cancel-replay"), adapter
+                )
+                before_revision = started.projection.revision
+                assert started.binding is not None
+                cancelled = coordinator.cancel(projection.task_id, adapter)
+                assert cancelled.binding is not None
+                self.assertTrue(cancelled.binding.cancellation_requested)
+                self.assertEqual(cancelled.binding.observed_status, ExternalRunStatus.RUNNING)
+                self.assertEqual(cancelled.projection.revision, before_revision + 1)
+
+                duplicate = coordinator.cancel(projection.task_id, adapter)
+                self.assertEqual(duplicate.projection.revision, cancelled.projection.revision)
+                self.assertEqual(adapter.cancel_calls, 2)
 
     def test_models_round_trip_and_host_has_no_harness_dependency(self) -> None:
         request = ExternalExecutionRequest(

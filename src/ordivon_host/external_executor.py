@@ -703,10 +703,15 @@ class ExternalExecutorCoordinator:
             binding = self._new_binding(request, observation)
         else:
             self._validate_observation(current.binding, observation)
-            if (
+            exact_replay = (
                 observation.revision == current.binding.last_reconciled_revision
                 and observation.digest == current.binding.last_observation_digest
-            ):
+            )
+            needs_cancellation_admission = (
+                cancellation_requested is True
+                and not current.binding.cancellation_requested
+            )
+            if exact_replay and not needs_cancellation_admission:
                 return current
             binding = replace(
                 current.binding,
