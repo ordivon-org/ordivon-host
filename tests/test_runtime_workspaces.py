@@ -29,7 +29,7 @@ class RuntimeWorkspaceCompatibilityTests(unittest.TestCase):
         self.assertTrue(is_missing_workspace(rejected("INVALID_REQUEST")))
 
     def test_workspace_corruption_is_not_misclassified_as_missing(self) -> None:
-        self.assertFalse(is_missing_workspace(rejected("WORKSPACE_METADATA_CORRUPT")))
+        self.assertFalse(is_missing_workspace(rejected("METADATA_CORRUPT")))
         self.assertFalse(is_missing_workspace(rejected("WORKSPACE_NOT_FOUND", field="relativePath")))
         self.assertFalse(is_missing_workspace(rejected("WORKSPACE_NOT_FOUND", commit_state="unknown")))
 
