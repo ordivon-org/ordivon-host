@@ -13,7 +13,7 @@ audience:
   - builder
   - operator
   - agent
-updated: 2026-08-04
+updated: 2026-08-08
 summary: Canonical Host architecture for durable Task state, commitment, verification, uncertainty, extension admission, and recovery above Runtime.
 evidence_status: verified
 readiness: READY
@@ -49,6 +49,18 @@ Host owns Task continuity and external commitment admission. Runtime owns physic
 ## Components
 
 The current system consists of one Host Journal and materialized Task projection, immutable CAS objects, a minimal transition kernel, bounded cognition profiles, workload-specific Effect lifecycles, generic extension admission, Runtime clients, verification receipts, and operational recovery surfaces.
+
+## External continuity
+
+`ordivon.host.external-continuity.v1` is a narrow Host workload for work driven by an external Agent surface such as ChatGPT. It does not execute cognition, mirror conversation state, or proxy Runtime. The Task remains `READY` at one stable `continue` frontier while Host records bounded `WorkingCheckpoint` objects as semantic working claims.
+
+A `WorkingCheckpoint` records the current objective/frontier, established and unresolved claims, rejected routes, constraints, next actions, and optional Runtime navigation references. It explicitly has `truthRole = semantic-working-claim`: the checkpoint tells a future Agent where to revalidate truth; Runtime, Git, and domain authorities remain the source of current physical/domain facts.
+
+Checkpoint bytes live in immutable CAS. `task.context-checkpointed` admits the checkpoint digest and object reference into the Task Journal and advances only the Task revision; `TaskProjection` remains unchanged except for revision/time. Adoption creates an immutable `TaskDescriptor` with the fixed external-continuity workload and then records the initial checkpoint at revision 2. A crash or response loss between those two transitions is recoverable by repeating adoption with the same Task identity and initial checkpoint.
+
+Checkpoint mutation is revision-safe. If `expectedRevision = r` commits at `r+1` and the response is lost, retrying the same checkpoint returns `existing`; a different checkpoint or a Task that advanced beyond that exact transition fails with a revision conflict. Competing external sessions therefore coordinate through Task revision rather than conversation ownership or a distributed lock.
+
+`task resume` combines the current `TaskProjection`, `OperatorHandoffCapsule`, and latest `WorkingCheckpoint`. It never invokes Runtime or a Provider. The intended recovery loop is: Host semantic checkpoint → Runtime/Git/domain revalidation → continued work → new semantic checkpoint.
 
 ## Data flow
 

@@ -7,7 +7,13 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from ordivon_host import EventKind, HostStorage, TaskProjection, TaskState
+from ordivon_host import (
+    EventKind,
+    HostStorage,
+    TaskProjection,
+    TaskState,
+    WorkingCheckpoint,
+)
 from ordivon_host.cli import main
 
 
@@ -160,6 +166,67 @@ class HostCliTests(unittest.TestCase):
                 stale["message"],
                 "stale Operator Handoff revision: expected 2, current 1",
             )
+
+    def test_external_continuity_adopt_resume_and_checkpoint_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "state"
+            initial_file = Path(directory) / "initial.json"
+            update_file = Path(directory) / "update.json"
+            task_id = "task:cli:external-continuity"
+            initial = WorkingCheckpoint(
+                task_id=task_id,
+                objective="resume external work",
+                frontier="inspect Runtime truth",
+                established=("semantic boundary established",),
+                unresolved=("physical state requires revalidation",),
+                constraints=("Runtime truth overrides checkpoint",),
+                next_actions=("inspect workspace",),
+            )
+            update = WorkingCheckpoint(
+                task_id=task_id,
+                objective="resume external work",
+                frontier="continue after Runtime revalidation",
+                established=("Runtime state revalidated",),
+                unresolved=("next blocker unknown",),
+                constraints=("Runtime truth overrides checkpoint",),
+                next_actions=("continue work",),
+            )
+            initial_file.write_text(json.dumps(initial.to_dict()))
+            update_file.write_text(json.dumps(update.to_dict()))
+
+            code, adopted = self.invoke(
+                "--state-root", str(state), "task", "adopt", task_id,
+                "goal:cli:external-continuity", "--checkpoint-file", str(initial_file),
+            )
+            self.assertEqual(code, 0)
+            self.assertEqual(adopted["projection"]["revision"], 2)
+            self.assertEqual(
+                adopted["checkpoint"]["checkpoint"]["truthRole"],
+                "semantic-working-claim",
+            )
+
+            code, resumed = self.invoke(
+                "--state-root", str(state), "task", "resume", task_id,
+                "--expected-revision", "2",
+            )
+            self.assertEqual(code, 0)
+            self.assertEqual(resumed, adopted)
+
+            code, receipt = self.invoke(
+                "--state-root", str(state), "task", "checkpoint", task_id,
+                "--expected-revision", "2", "--checkpoint-file", str(update_file),
+            )
+            self.assertEqual(code, 0)
+            self.assertEqual(receipt["admission"], "created")
+            self.assertEqual(receipt["projection"]["revision"], 3)
+
+            code, retry = self.invoke(
+                "--state-root", str(state), "task", "checkpoint", task_id,
+                "--expected-revision", "2", "--checkpoint-file", str(update_file),
+            )
+            self.assertEqual(code, 0)
+            self.assertEqual(retry["admission"], "existing")
+            self.assertEqual(retry["projection"]["revision"], 3)
 
     def test_missing_state_fails_cleanly(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

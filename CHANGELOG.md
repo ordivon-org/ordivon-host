@@ -6,6 +6,7 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 
 ### Added
 
+- `ordivon.host.external-continuity.v1`, bounded `WorkingCheckpoint` CAS objects, `task.context-checkpointed`, revision-safe adoption/checkpoint/resume APIs, and local CLI commands for cross-session semantic continuity without Runtime or Provider execution;
 - caller-neutral `ExternalExecutorAdapter`, durable external request, foreign Run binding, exact response-loss recovery, cancellation/observation reconciliation, and CompletionProposal collection without Task acceptance;
 - public Quick Start, status, data/privacy, release, security, contribution, and change-history documents;
 - executable documentation ownership and local-link validation;
@@ -14,6 +15,7 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 
 ### Changed
 
+- external continuity keeps its Task permanently at a stable READY/continue frontier; checkpointing advances only revision/time, while Runtime/Git/domain references remain navigation hints rather than copied truth;
 - cognition durability is now provider-neutral: one `CognitionWorkRequest` moves the exact Task revision to WAITING and declares only Context plus requested semantic result kind; admission consumes `ActionSelection` or `ActionProposal` plus `CognitionExecutionEvidence`;
 - removed Host `ModelInvocation*`, `PreparedInvocation`, `gatewayId`/`adapterId` cognition fields, Provider packages, Codex/Hermes physical execution compatibility modules, and Provider-shaped cognition event kinds;
 - removed `[providers]` from Host configuration entirely; Provider/model configuration belongs to the external cognition executor;

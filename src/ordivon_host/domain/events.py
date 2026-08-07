@@ -32,6 +32,7 @@ _CORE_EVENT_VALUES = {
     "TASK_CREATED": "task.created",
     "TASK_STATE_CHANGED": "task.state-changed",
     "TASK_FRONTIER_CHANGED": "task.frontier-changed",
+    "TASK_CONTEXT_CHECKPOINTED": "task.context-checkpointed",
     "COGNITION_REQUESTED": "cognition.requested",
     "COGNITION_SELECTION_ADMITTED": "cognition.selection-admitted",
     "COGNITION_PROPOSAL_RESOLVED": "cognition.proposal-resolved",

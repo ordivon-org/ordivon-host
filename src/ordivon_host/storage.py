@@ -15,7 +15,7 @@ from .domain import (
     TaskDescriptor,
     TaskProjection,
 )
-from .journal import HostJournal, JournalCorruption, LeaseRecord
+from .journal import HostJournal, JournalCorruption, LeaseRecord, TaskEventPointer
 from .objects import (
     ContentAddressedStore,
     ObjectCorrupt,
@@ -189,8 +189,28 @@ class HostStorage:
         head = self.journal.get_task_head(task_id)
         if head is None:
             raise JournalCorruption(f"Task has no event head: {task_id}")
+        pointer = self.journal.task_event_at_revision(task_id, head.revision)
+        if pointer is None:
+            raise JournalCorruption(f"Task head Event is missing: {task_id}")
+        return self._read_task_event_pointer(pointer)
+
+    def read_task_event_at_revision(
+        self, task_id: str, revision: int
+    ) -> TaskEventSnapshot | None:
+        pointer = self.journal.task_event_at_revision(task_id, revision)
+        return None if pointer is None else self._read_task_event_pointer(pointer)
+
+    def read_latest_task_event_of_kind(
+        self, task_id: str, kind: EventKind
+    ) -> TaskEventSnapshot | None:
+        pointer = self.journal.latest_task_event_of_kind(task_id, kind)
+        return None if pointer is None else self._read_task_event_pointer(pointer)
+
+    def _read_task_event_pointer(
+        self, pointer: TaskEventPointer
+    ) -> TaskEventSnapshot:
         value = self.objects.get(
-            head.payload_digest,
+            pointer.payload_digest,
             expected_kind="host-event-payload",
         )
         if not isinstance(value, dict) or set(value) != {
@@ -203,8 +223,10 @@ class HostStorage:
             raise ObjectCorrupt("Host event payload fields differ")
         if value["schemaVersion"] != 1 or value["kind"] != _EVENT_PAYLOAD_KIND:
             raise ObjectCorrupt("Host event payload version or kind is invalid")
-        if value["eventKind"] != head.event_kind.value:
-            raise JournalCorruption(f"Task event kind differs from payload: {task_id}")
+        if value["eventKind"] != pointer.event_kind.value:
+            raise JournalCorruption(
+                f"Task event kind differs from payload: {pointer.task_id}"
+            )
         raw_projection = value["projection"]
         if not isinstance(raw_projection, dict):
             raise ObjectCorrupt("Host event projection must be an object")
@@ -212,15 +234,18 @@ class HostStorage:
             projection = TaskProjection.from_dict(raw_projection)
         except (TypeError, ValueError) as error:
             raise ObjectCorrupt("Host event projection is invalid") from error
-        if projection.task_id != task_id or projection.revision != head.revision:
+        if (
+            projection.task_id != pointer.task_id
+            or projection.revision != pointer.revision
+        ):
             raise JournalCorruption(
-                f"Task event head identity or revision differs: {task_id}"
+                f"Task event pointer identity or revision differs: {pointer.task_id}"
             )
         return TaskEventSnapshot(
-            event_kind=head.event_kind,
+            event_kind=pointer.event_kind,
             data=value["data"],
             projection=projection,
-            payload_digest=head.payload_digest,
+            payload_digest=pointer.payload_digest,
         )
 
     def rebuild_task(self, task_id: str) -> TaskProjection:

@@ -6,7 +6,12 @@ from anc_canonical import JsonValue, validate_json_value
 from anc_effect_binding import EffectBinding
 from anc_effect_ir import EffectEnvelope, effect_digest
 
-from ..domain import EventKind, TaskProjection
+from ..continuity_models import (
+    EXTERNAL_CONTINUITY_WORKLOAD_ID,
+    WORKING_CHECKPOINT_OBJECT_KIND,
+    WorkingCheckpoint,
+)
+from ..domain import EventKind, TaskDescriptor, TaskProjection
 from ..journal import JournalCorruption
 from ..objects import ObjectCorrupt
 from ..storage import HostStorage
@@ -144,7 +149,9 @@ def validate_history(storage: HostStorage) -> HistoryValidation:
                 raise JournalCorruption(
                     f"historical {key} is not admitted in object_refs: {event_id}"
                 )
-        semantic_link_checks += _validate_core_semantic_links(storage, data, event_id)
+        semantic_link_checks += _validate_core_semantic_links(
+            storage, data, event_id, event_kind, projection
+        )
     return HistoryValidation(
         events=events,
         task_streams=len(task_streams),
@@ -182,6 +189,8 @@ def _validate_core_semantic_links(
     storage: HostStorage,
     data: JsonValue,
     event_id: str,
+    event_kind: EventKind,
+    projection: TaskProjection,
 ) -> int:
     if not isinstance(data, dict):
         return 0
@@ -189,6 +198,77 @@ def _validate_core_semantic_links(
     binding_key = data.get("bindingDigest")
     authority_key = data.get("authorityDecisionDigest")
     checks = 0
+    if event_kind is EventKind.TASK_CONTEXT_CHECKPOINTED:
+        expected = {
+            "descriptorDigest",
+            "descriptorObjectDigest",
+            "checkpointDigest",
+            "checkpointObjectDigest",
+        }
+        if set(data) != expected:
+            raise JournalCorruption(
+                f"historical WorkingCheckpoint payload fields differ: {event_id}"
+            )
+        checkpoint_digest = data.get("checkpointDigest")
+        checkpoint_object_digest = data.get("checkpointObjectDigest")
+        descriptor_digest = data.get("descriptorDigest")
+        descriptor_object_digest = data.get("descriptorObjectDigest")
+        if not all(
+            isinstance(value, str)
+            for value in (
+                checkpoint_digest,
+                checkpoint_object_digest,
+                descriptor_digest,
+                descriptor_object_digest,
+            )
+        ):
+            raise JournalCorruption(
+                f"historical WorkingCheckpoint digests are invalid: {event_id}"
+            )
+        raw_checkpoint = storage.objects.get(
+            checkpoint_object_digest, expected_kind=WORKING_CHECKPOINT_OBJECT_KIND
+        )
+        if not isinstance(raw_checkpoint, dict):
+            raise ObjectCorrupt(
+                f"historical WorkingCheckpoint is not an object: {event_id}"
+            )
+        try:
+            checkpoint = WorkingCheckpoint.from_dict(raw_checkpoint)
+        except ValueError as error:
+            raise ObjectCorrupt(
+                f"historical WorkingCheckpoint is invalid: {event_id}"
+            ) from error
+        if (
+            checkpoint.task_id != projection.task_id
+            or checkpoint.digest != checkpoint_digest
+        ):
+            raise JournalCorruption(
+                f"historical WorkingCheckpoint identity differs: {event_id}"
+            )
+        raw_descriptor = storage.objects.get(
+            descriptor_object_digest, expected_kind="task-descriptor"
+        )
+        if not isinstance(raw_descriptor, dict):
+            raise ObjectCorrupt(
+                f"historical external-continuity descriptor is not an object: {event_id}"
+            )
+        try:
+            descriptor = TaskDescriptor.from_dict(raw_descriptor)
+        except ValueError as error:
+            raise ObjectCorrupt(
+                f"historical external-continuity descriptor is invalid: {event_id}"
+            ) from error
+        if (
+            descriptor.digest != descriptor_digest
+            or descriptor.task_id != projection.task_id
+            or descriptor.goal_id != projection.goal_id
+            or descriptor.workload_id != EXTERNAL_CONTINUITY_WORKLOAD_ID
+        ):
+            raise JournalCorruption(
+                f"historical external-continuity descriptor identity differs: {event_id}"
+            )
+        checks += 2
+
     effect: EffectEnvelope | None = None
     if isinstance(effect_key, str):
         raw_effect = storage.objects.get(effect_key, expected_kind="effect")

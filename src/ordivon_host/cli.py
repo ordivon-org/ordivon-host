@@ -7,6 +7,8 @@ import sys
 from typing import Sequence
 
 from .config import HostConfig, load_config, read_token_file
+from .continuity import ExternalContinuityHost
+from .continuity_models import WorkingCheckpoint
 from .domain import StaticRepositoryResolver, TaskState
 from .handoff import operator_handoff
 from .ops import (
@@ -42,6 +44,17 @@ def build_parser() -> argparse.ArgumentParser:
     task_handoff = task_commands.add_parser("handoff")
     task_handoff.add_argument("task_id")
     task_handoff.add_argument("--expected-revision", type=int)
+    task_adopt = task_commands.add_parser("adopt")
+    task_adopt.add_argument("task_id")
+    task_adopt.add_argument("goal_id")
+    task_adopt.add_argument("--checkpoint-file", type=Path, required=True)
+    task_resume = task_commands.add_parser("resume")
+    task_resume.add_argument("task_id")
+    task_resume.add_argument("--expected-revision", type=int)
+    task_checkpoint = task_commands.add_parser("checkpoint")
+    task_checkpoint.add_argument("task_id")
+    task_checkpoint.add_argument("--expected-revision", type=int, required=True)
+    task_checkpoint.add_argument("--checkpoint-file", type=Path, required=True)
     task_assess = task_commands.add_parser("assess")
     task_assess.add_argument("task_id")
     task_reconcile = task_commands.add_parser("reconcile")
@@ -153,6 +166,28 @@ def _task(config: HostConfig, args: argparse.Namespace) -> dict[str, object]:
                 "capsule": capsule.to_dict(),
                 "capsuleDigest": capsule.digest,
             }
+        if args.task_command == "adopt":
+            return ExternalContinuityHost(
+                storage, clock_ms=_wall_clock_ms
+            ).adopt(
+                task_id=args.task_id,
+                goal_id=args.goal_id,
+                initial_checkpoint=_working_checkpoint(args.checkpoint_file),
+            ).to_dict()
+        if args.task_command == "resume":
+            return ExternalContinuityHost(
+                storage, clock_ms=_wall_clock_ms
+            ).resume(
+                args.task_id, expected_revision=args.expected_revision
+            ).to_dict()
+        if args.task_command == "checkpoint":
+            return ExternalContinuityHost(
+                storage, clock_ms=_wall_clock_ms
+            ).checkpoint(
+                task_id=args.task_id,
+                expected_revision=args.expected_revision,
+                checkpoint=_working_checkpoint(args.checkpoint_file),
+            ).to_dict()
         if args.task_command == "assess":
             return assess_recovery(storage, args.task_id).to_dict()
         if args.task_command == "reconcile":
@@ -177,6 +212,13 @@ def _task(config: HostConfig, args: argparse.Namespace) -> dict[str, object]:
             ).reconcile(args.task_id, wait_ms=args.wait_ms)
             return result.to_dict()
     raise ValueError("unsupported Task command")
+
+
+def _working_checkpoint(path: Path) -> WorkingCheckpoint:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("WorkingCheckpoint file must contain one JSON object")
+    return WorkingCheckpoint.from_dict(value)
 
 
 def _wall_clock_ms() -> int:

@@ -13,8 +13,8 @@ audience:
   - operator
   - builder
   - agent
-updated: 2026-08-04
-summary: Canonical operational contract for Host state ownership, configuration, migration, validation, backup, restore, Doctor, and conservative reconciliation.
+updated: 2026-08-08
+summary: Canonical operational contract for Host state ownership, external semantic continuity, configuration, validation, backup, restore, Doctor, and conservative reconciliation.
 evidence_status: verified
 readiness: READY
 applies_to:
@@ -116,6 +116,10 @@ ordivon-host inspect
 ordivon-host config show
 ordivon-host task list [--state STATE] [--limit N]
 ordivon-host task show TASK_ID
+ordivon-host task handoff TASK_ID [--expected-revision N]
+ordivon-host task adopt TASK_ID GOAL_ID --checkpoint-file CHECKPOINT.json
+ordivon-host task resume TASK_ID [--expected-revision N]
+ordivon-host task checkpoint TASK_ID --expected-revision N --checkpoint-file CHECKPOINT.json
 ordivon-host task assess TASK_ID
 ordivon-host task reconcile TASK_ID [--wait-ms N]
 ordivon-host doctor [--runtime] [--history]
@@ -125,7 +129,30 @@ ordivon-host restore BACKUP [--replace]
 ordivon-host gc plan
 ```
 
-Only `init` creates a missing state root. Read and backup commands reject an absent `host.sqlite3`. `gc plan` is read-only and never deletes objects.
+Only `init` should bootstrap a missing authority root. Run it once before concurrent CLI or future MCP consumers; concurrent first-time SQLite schema creation is not an authority-coordination mechanism. Read and backup commands reject an absent `host.sqlite3`. `gc plan` is read-only and never deletes objects.
+
+### External continuity workflow
+
+`task adopt`, `task resume`, and `task checkpoint` are local semantic-continuity operations. They do not load Runtime credentials, invoke Runtime, invoke Harness, call a Provider, start a scheduler, or infer ChatGPT session state.
+
+The checkpoint file is one exact `ordivon.host-working-checkpoint` JSON object. It is intentionally bounded and self-identifies as `truthRole: semantic-working-claim`; do not put raw conversation transcripts, chain-of-thought, or copied Runtime truth into it. Store references such as `workspaceId`, relevant Job identities, and the last observed Git head only as navigation hints, then revalidate them against the owning authority after `task resume`.
+
+A typical local sequence is:
+
+```bash
+ordivon-host --state-root /var/lib/ordivon/host \
+  task adopt task:project:work goal:project \
+  --checkpoint-file checkpoint.json
+
+ordivon-host --state-root /var/lib/ordivon/host \
+  task resume task:project:work
+
+ordivon-host --state-root /var/lib/ordivon/host \
+  task checkpoint task:project:work --expected-revision 2 \
+  --checkpoint-file checkpoint-next.json
+```
+
+On a lost checkpoint response, retry the same checkpoint with the original expected revision. If that exact transition already became the current revision, Host returns `admission: existing`; a different claim fails closed.
 
 ## Read-only live acceptance
 

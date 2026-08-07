@@ -72,6 +72,15 @@ class TaskHead:
     revision: int
 
 
+@dataclass(frozen=True, slots=True)
+class TaskEventPointer:
+    event_id: str
+    task_id: str
+    event_kind: EventKind
+    payload_digest: str
+    revision: int
+
+
 class HostJournal:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
@@ -513,6 +522,44 @@ class HostJournal:
                 raise JournalCorruption("Goal query returned a missing Task")
             tasks.append(task)
         return tuple(tasks)
+
+    def task_event_at_revision(
+        self, task_id: str, revision: int
+    ) -> TaskEventPointer | None:
+        if type(revision) is not int or revision < 1:
+            raise ValueError("Task Event revision must be a positive integer")
+        row = self.connection.execute(
+            "SELECT event_id, stream_id, event_kind, payload_digest, stream_revision "
+            "FROM events WHERE stream_id = ? AND stream_revision = ?",
+            (task_id, revision),
+        ).fetchone()
+        return None if row is None else self._task_event_pointer(row)
+
+    def latest_task_event_of_kind(
+        self, task_id: str, kind: EventKind
+    ) -> TaskEventPointer | None:
+        if not isinstance(kind, EventKind):
+            raise ValueError("Task Event kind must be an EventKind")
+        row = self.connection.execute(
+            "SELECT event_id, stream_id, event_kind, payload_digest, stream_revision "
+            "FROM events WHERE stream_id = ? AND event_kind = ? "
+            "ORDER BY stream_revision DESC LIMIT 1",
+            (task_id, kind.value),
+        ).fetchone()
+        return None if row is None else self._task_event_pointer(row)
+
+    @staticmethod
+    def _task_event_pointer(row: sqlite3.Row) -> TaskEventPointer:
+        try:
+            return TaskEventPointer(
+                event_id=row["event_id"],
+                task_id=row["stream_id"],
+                event_kind=EventKind(row["event_kind"]),
+                payload_digest=row["payload_digest"],
+                revision=int(row["stream_revision"]),
+            )
+        except (TypeError, ValueError) as error:
+            raise JournalCorruption("Task Event pointer is invalid") from error
 
     def get_task_head(self, task_id: str) -> TaskHead | None:
         row = self.connection.execute(

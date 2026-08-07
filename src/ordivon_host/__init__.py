@@ -1,4 +1,13 @@
 from .config import HostConfig, RuntimeSettings, load_config
+from .continuity import ExternalContinuityHost
+from .continuity_models import (
+    EXTERNAL_CONTINUITY_WORKLOAD_ID,
+    CheckpointReceipt,
+    ExternalContinuityResume,
+    WorkingCheckpoint,
+    WorkingCheckpointRecord,
+    WorkingCheckpointRuntime,
+)
 from .coordination import (
     CoordinationError,
     CoordinationSuperseded,
@@ -64,6 +73,7 @@ from .storage import HostStorage, TaskEventSnapshot
 
 __all__ = [
     "ArtifactRef",
+    "CheckpointReceipt",
     "ContentAddressedStore",
     "CoordinationError",
     "CoordinationSuperseded",
@@ -71,7 +81,10 @@ __all__ = [
     "EventAdmission",
     "EventKind",
     "ExecutionRuntimeCatalog",
+    "EXTERNAL_CONTINUITY_WORKLOAD_ID",
     "ExternalCompletionConflict",
+    "ExternalContinuityHost",
+    "ExternalContinuityResume",
     "ExternalCompletionProposal",
     "ExternalExecutionMissing",
     "ExternalExecutionRequest",
@@ -121,6 +134,9 @@ __all__ = [
     "TransitionReceipt",
     "VerificationReceipt",
     "VerificationResultItem",
+    "WorkingCheckpoint",
+    "WorkingCheckpointRecord",
+    "WorkingCheckpointRuntime",
     "assess_recovery",
     "discover_execution_runtime_catalog",
     "discover_runtime_catalog",

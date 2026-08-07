@@ -14,7 +14,7 @@ audience:
   - operator
   - user
   - agent
-updated: 2026-08-05
+updated: 2026-08-08
 summary: Stable maturity claim, support boundary, proven slices, known limits, and live-state verification path for Ordivon Host.
 evidence_status: verified
 readiness: READY
@@ -66,6 +66,7 @@ Python 3.13+, hostile multi-tenancy, remote distributed consensus, a general sch
 | Goal-scoped Task revision coordination | operational narrow slice |
 | generic extension event and CAS admission for independently versioned components | operational boundary |
 | external executor request, foreign Run binding, recovery and completion collection | operational P0 boundary; Task acceptance remains Host-owned |
+| external-continuity Task adoption, bounded WorkingCheckpoint, revision-safe checkpoint/retry, and resume projection | operational local/CLI boundary |
 | general workflow engine or multi-Agent scheduler | not provided |
 | domain-world truth and semantic verification | domain-owned |
 | physical execution and process recovery | Runtime-owned |
@@ -80,6 +81,8 @@ The legacy Session decoder remains because retained deployments and historical e
 ## Known limits
 
 - Host has no durable Goal event stream or Goal commitment object; Goal coordination is a snapshot over Task revisions.
+- External continuity is currently a local Python/CLI boundary; the thin Host MCP transport is a separate next stage and is not part of H-C1.
+- Host authority creation is a single-operator bootstrap: initialize the state root once before concurrent CLI/MCP consumers. H-C1 concurrent adoption/checkpoint guarantees apply to an initialized authority, not simultaneous first-time SQLite schema creation.
 - Workload-specific hosts remain explicit state machines rather than a generic Effect lifecycle.
 - A successful Runtime Job or foreign executor Run is not Task completion.
 - External executor completion is retained only as a proposal until a Host-owned workload verifies and decides the Task outcome.
