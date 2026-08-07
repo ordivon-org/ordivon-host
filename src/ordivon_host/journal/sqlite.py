@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import stat
 from typing import Iterator
 
 from .migrations import SchemaMigrationError, initialize_schema
@@ -76,17 +77,27 @@ class HostJournal:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         os.chmod(self.path.parent, 0o700)
-        if self.path.is_symlink():
-            raise JournalCorruption("Host Journal cannot be a symlink")
+        flags = os.O_RDWR | os.O_CREAT | os.O_EXCL
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        try:
+            descriptor = os.open(self.path, flags, 0o600)
+        except FileExistsError:
+            pass
+        except OSError as error:
+            raise JournalCorruption("Host Journal cannot be safely created") from error
+        else:
+            os.close(descriptor)
+        # Harden before SQLite owns any WAL/SHM locks in this process. Closing a
+        # second fd for a locked SQLite inode can release process-scoped fcntl locks.
+        self._harden_database_files()
         self.connection = sqlite3.connect(self.path, isolation_level=None)
-        os.chmod(self.path, 0o600)
         try:
             self.connection.row_factory = sqlite3.Row
             self.connection.execute("PRAGMA foreign_keys = ON")
             self.connection.execute("PRAGMA busy_timeout = 5000")
             self.connection.execute("PRAGMA journal_mode = WAL")
             self.connection.execute("PRAGMA synchronous = FULL")
-            self._harden_database_files()
             try:
                 initialize_schema(self.connection, self.path)
             except SchemaMigrationError as error:
@@ -101,15 +112,35 @@ class HostJournal:
         self._harden_database_files()
 
     def _harden_database_files(self) -> None:
-        for path in (
-            self.path,
-            Path(str(self.path) + "-wal"),
-            Path(str(self.path) + "-shm"),
+        for path, required in (
+            (self.path, True),
+            (Path(str(self.path) + "-wal"), False),
+            (Path(str(self.path) + "-shm"), False),
         ):
-            if path.exists():
-                if path.is_symlink() or not path.is_file():
-                    raise JournalCorruption(f"Host Journal file is not regular: {path.name}")
-                os.chmod(path, 0o600)
+            flags = os.O_RDONLY | os.O_NONBLOCK
+            flags |= getattr(os, "O_CLOEXEC", 0)
+            flags |= getattr(os, "O_NOFOLLOW", 0)
+            try:
+                descriptor = os.open(path, flags)
+            except FileNotFoundError:
+                if required:
+                    raise JournalCorruption(
+                        f"Host Journal file disappeared: {path.name}"
+                    )
+                # SQLite may retire WAL/SHM sidecars when another connection closes.
+                continue
+            except OSError as error:
+                raise JournalCorruption(
+                    f"Host Journal file cannot be safely opened: {path.name}"
+                ) from error
+            try:
+                if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                    raise JournalCorruption(
+                        f"Host Journal file is not regular: {path.name}"
+                    )
+                os.fchmod(descriptor, 0o600)
+            finally:
+                os.close(descriptor)
 
     def __enter__(self) -> HostJournal:
         return self

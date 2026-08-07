@@ -314,6 +314,31 @@ class ASeriesRemediationTests(unittest.TestCase):
                     )
                 self.assertEqual(storage.journal.event_count(), 0)
 
+    def test_concurrent_journal_close_tolerates_sqlite_sidecar_retirement(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "state"
+            with HostStorage(root) as storage:
+                storage.put_object({"seed": True}, kind="concurrent-close-seed")
+
+            def reopen_and_close(worker: int) -> int:
+                for iteration in range(8):
+                    with HostStorage(root) as storage:
+                        self.assertGreaterEqual(storage.journal.event_count(), 0)
+                        storage.put_object(
+                            {"worker": worker, "iteration": iteration},
+                            kind="concurrent-close-object",
+                        )
+                return worker
+
+            with ThreadPoolExecutor(max_workers=32) as pool:
+                self.assertEqual(
+                    sorted(pool.map(reopen_and_close, range(32))),
+                    list(range(32)),
+                )
+
+            with HostStorage(root) as storage:
+                storage.journal.validate_invariants()
+
     def test_state_and_token_files_are_private(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "state"
