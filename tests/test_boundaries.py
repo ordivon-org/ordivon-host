@@ -15,10 +15,23 @@ class HostBoundaryTests(unittest.TestCase):
     def test_host_uses_promoted_protocol(self) -> None:
         self.assertEqual(canonical_digest({"state": EffectState.UNKNOWN.value})[:7], "sha256:")
 
-    def test_extracted_public_imports_remain_stable(self) -> None:
+    def test_workload_implementations_are_explicit_engine_imports(self) -> None:
         self.assertIs(MutationPackageHost, GuardedMutationHost)
         self.assertTrue(callable(DeterministicReadHost))
         self.assertTrue(hasattr(RuntimeClient, "call_tool"))
+
+        import ordivon_host
+
+        for name in (
+            "CodeChangeHost",
+            "CodeChangePlan",
+            "DeterministicReadHost",
+            "GuardedMutationHost",
+            "GuardedMutationPlan",
+            "ReadTaskPlan",
+        ):
+            with self.subTest(name=name):
+                self.assertFalse(hasattr(ordivon_host, name))
 
     def test_harness_implementation_is_not_bundled_in_host(self) -> None:
         source = Path(__file__).resolve().parents[1] / "src" / "ordivon_host"
@@ -54,6 +67,7 @@ class HostBoundaryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
 
 class DurableObjectCodecTests(unittest.TestCase):
     def test_workload_plan_rejects_unknown_schema_version_explicitly(self) -> None:

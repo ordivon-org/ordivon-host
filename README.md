@@ -81,6 +81,8 @@ Current proven slices include:
 
 These are bounded vertical slices, not a general workflow engine, policy platform, or multi-Agent scheduler.
 
+The package root intentionally exposes durable Host authority and cross-owner boundary types only. Concrete repository-read, mutation, and code-change workloads remain available under `ordivon_host.engine`; they are proven workloads, not permanent Host primitives. New Agent integrations should prefer the generic Task/extension/external-executor boundaries unless they specifically need one of those workload implementations.
+
 ## Runtime transport
 
 The default `McpRuntimeClient` uses Runtime's canonical MCP `2026-07-28` lifecycle:

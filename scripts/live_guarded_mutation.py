@@ -7,12 +7,8 @@ import hashlib
 import os
 
 from anc_canonical import JsonValue
-from ordivon_host import (
-    GuardedMutationHost,
-    GuardedMutationPlan,
-    HostStorage,
-    TaskState,
-)
+from ordivon_host import HostStorage, TaskState
+from ordivon_host.engine import GuardedMutationHost, GuardedMutationPlan
 from ordivon_host.runtime import RuntimeToolRejected
 from ordivon_host.testing import (
     DropFirstSuccessfulExecResponse,

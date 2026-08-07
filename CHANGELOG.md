@@ -14,6 +14,8 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 
 ### Changed
 
+- the package root now exposes durable Host authority and cross-owner boundary types only; deterministic read, guarded mutation, and code-change workloads remain available explicitly from `ordivon_host.engine`;
+- canonical live workload scripts now import their workload implementations from `ordivon_host.engine`, keeping the default Host surface responsibility-oriented without deleting the proven workloads;
 - the default Runtime transport now uses the stateless MCP `2026-07-28` `server/discover` lifecycle with per-request metadata, `Mcp-Method`, and `Mcp-Name`;
 - the retained MCP `2025-06-18` Session lifecycle is now an explicit compatibility profile rather than the default;
 - development documentation now distinguishes immutable online installation from a local sibling Protocol checkout;

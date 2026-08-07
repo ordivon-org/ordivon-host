@@ -9,14 +9,12 @@ import stat
 import subprocess
 
 from anc_canonical import JsonValue
-from ordivon_host import (
+from ordivon_host import EventKind, HostStorage, TaskState
+from ordivon_host.engine import (
     CodeChangeHost,
     CodeChangePlan,
     CodeFileReplacement,
-    EventKind,
     ExecutionCheck,
-    HostStorage,
-    TaskState,
 )
 from ordivon_host.domain import RepositoryRef, StaticRepositoryResolver
 from ordivon_host.engine._serde import digest_text

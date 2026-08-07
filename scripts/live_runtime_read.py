@@ -5,11 +5,8 @@ import argparse
 import os
 from pathlib import Path
 
-from ordivon_host import (
-    DeterministicReadHost,
-    HostStorage,
-    ReadTaskPlan,
-)
+from ordivon_host import HostStorage
+from ordivon_host.engine import DeterministicReadHost, ReadTaskPlan
 from ordivon_host.domain import RepositoryRef, StaticRepositoryResolver
 from ordivon_host.runtime import RuntimeToolRejected
 from ordivon_host.testing import (
