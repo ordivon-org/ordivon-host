@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Protocol
 
 from anc_canonical import JsonValue
 
@@ -18,7 +17,6 @@ from ..providers import (
 )
 from ..storage import HostStorage
 from ..runtime import RuntimeClient
-from .context import CompiledContext
 from .proposal import (
     ActionProposal,
     DecisionRequest,
@@ -31,26 +29,6 @@ from .proposal import (
 )
 from .turn import CognitionSuperseded, CognitionTurnHost, PreparedCognition, PreparedInvocation
 
-
-class ProposalGateway(Protocol):
-    gateway_id: str
-
-    def invoke(self, context: CompiledContext) -> ActionProposal: ...
-
-    def evidence_metadata(self) -> dict[str, JsonValue] | None: ...
-
-
-class ScriptedProposalGateway:
-    gateway_id = "scripted-open-proposal-v1"
-
-    def __init__(self, builder: Callable[[CompiledContext], ActionProposal]) -> None:
-        self.builder = builder
-
-    def invoke(self, context: CompiledContext) -> ActionProposal:
-        return self.builder(context)
-
-    def evidence_metadata(self) -> dict[str, JsonValue]:
-        return {"gateway": "scripted-open-proposal", "physicalProviderCall": False}
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,20 +130,14 @@ class OpenProposalHost:
             token_budget=token_budget,
         )
 
-    def propose(
+    def prepare_invocation(
         self,
         prepared: PreparedCognition,
-        gateway: ProposalGateway,
-    ) -> OpenProposalReceipt:
-        gateway_id = getattr(gateway, "gateway_id", None)
-        if not isinstance(gateway_id, str) or not gateway_id:
-            raise ValueError("proposal gateway identity is required")
-        invocation = self.cognition.prepare_invocation(prepared, gateway_id=gateway_id)
-        proposal = gateway.invoke(prepared.context)
-        evidence = gateway.evidence_metadata() or {}
-        if not isinstance(evidence, dict):
-            raise ValueError("proposal gateway evidence must be an object")
-        return self.admit_proposal(invocation, proposal, evidence=evidence)
+        *,
+        executor_id: str,
+    ) -> PreparedInvocation:
+        """Persist external cognition intent before caller-owned proposal execution."""
+        return self.cognition.prepare_invocation(prepared, gateway_id=executor_id)
 
     def admit_proposal(
         self,

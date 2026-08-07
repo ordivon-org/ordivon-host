@@ -183,8 +183,10 @@ The first cognition profile is split across two durable boundaries:
 
 ```text
 compile bounded Context with two to eight exact CandidateActions
-→ persist Context and release the Task lease
-→ invoke any replaceable Provider outside the lease
+→ persist Context
+→ persist `ModelInvocationIntent` and move the Task to WAITING
+→ external executor invokes any replaceable model without a Host Task lease
+→ caller returns exact ModelDecision plus non-secret execution evidence
 → reacquire the Task lease
 → reread current world, completed Effects, and unresolved Dispatches
 → deterministically admit or reject the exact ModelDecision
@@ -196,15 +198,15 @@ This profile remains appropriate when the legal action set is already closed, fo
 The profile preserves these invariants:
 
 - Provider sessions, transcripts, tools, and hidden reasoning are not Task state;
-- a Context can be recovered by a fresh Host process before Provider invocation;
-- the Task lease is not held while an external model call runs;
+- a Context and prepared invocation can be recovered by a fresh Host process before external cognition execution;
+- Host holds no Task lease while the caller-owned model execution runs;
 - a decision for another Context or an invented action is rejected;
 - action, Effect, Binding, Dispatch, and world identities must be copied exactly;
 - current world drift and newly completed Effects are rechecked at admission time;
 - an unresolved Dispatch blocks another Effect or premature completion;
-- if another entry point advances the Task during model execution, the old decision is superseded;
-- model invocation intent is durable before the external Gateway call;
-- Provider failure leaves the prepared Invocation as the durable WAITING Task head.
+- if another entry point advances the Task during external model execution, the old decision is superseded;
+- model invocation intent is durable before any external cognition call;
+- external executor failure leaves the prepared Invocation as the durable WAITING Task head; Host performs no Provider retry.
 
 ## Open proposal cognition profile
 
@@ -212,7 +214,8 @@ The first open profile removes `allowedActions` from Context:
 
 ```text
 Goal + Context + ResourceBindings + capability profile
-→ ActionProposal from a replaceable model
+→ persist `ModelInvocationIntent`
+→ ActionProposal from a caller-owned external cognition executor
 → Host checks identity, revision, ownership, reversibility, and consequence
 → lower, create DecisionRequest, or reject
 ```
@@ -232,15 +235,15 @@ Shared, foreign-owned, irreversible, and unknown-consequence proposals do not se
 The profile proves:
 
 - Context contains resources and constraints but no prebuilt action menu;
-- ModelInvocationIntent is durable before the model call;
-- the Provider runs outside the Task lease and retains no Task continuity;
+- `ModelInvocationIntent` is durable before the external model call;
+- the external cognition executor runs outside the Task lease and retains no Task continuity;
 - stale resource revisions and wrong profiles are rejected structurally;
 - a child Task committed before the parent resolution is reused after recovery;
 - repeated admission after response loss returns the retained receipt;
 - parent completion follows the verified child TaskOutcome;
 - transport identity remains disposable; the modern path creates no MCP Session.
 
-The profile is Host-local and experimental. No universal planning language or promoted Protocol object is implied.
+The admission/lowering profile is Host-local and experimental; model execution is not. Current `OpenProposalHost` exposes `prepare_invocation()` and `admit_proposal()` only, so a Provider cannot become a Host writer by being passed into the profile. No universal planning language or promoted Protocol object is implied.
 
 ## Independent Harness extension boundary
 
@@ -249,14 +252,13 @@ Agent Harness implementation no longer lives in this repository. It was extracte
 The dependency direction is deliberately one-way:
 
 ```text
-ordivon-harness
-  Assignment / Run / Recovery / Completion
-  Provider-faithful adapters and bare-model execution
-             ↓
+ordivon-harness / another external cognition executor
+  Agent Run / Provider execution / model–Tool lifecycle
+             ↓ semantic result + evidence
 ordivon-host
-  Task / Journal / CAS / Kernel / Runtime client
+  Task / Context / invocation intent / admission / commitment / verification
              ↓
-ordivon-protocol
+ordivon-runtime / ordivon-protocol as required by their own boundaries
 ```
 
 Host does not import `ordivon-harness`. The Host kernel accepts immutable lowercase dotted event kinds outside reserved Host namespaces, stores them exactly in the Journal and event payload, and reconstructs one thread-stable interned `EventKind` value after process restart. Misspellings under `task.*`, `cognition.*`, `effect.*`, `verification.*`, `runtime.*`, or `wakeup.*` fail closed. Generic Host Doctor validates event continuity, payload bytes, Task projections and every referenced CAS object. It deliberately does not decode Harness Assignment, Run or Recovery semantics.
@@ -270,9 +272,9 @@ The Harness extension owns:
 - Harness semantic history validation and its own Doctor command;
 - Harness-specific tests, fixtures, live scripts, documents and evidence.
 
-The objects are still stored in Host CAS and admitted by Host revision CAS because Host owns Task continuity. Code ownership and durable byte ownership are therefore distinct: an extension may define an object while the generic Host storage substrate preserves it.
+Retained legacy Harness extension objects may still exist in Host CAS and remain readable through generic extension admission. New independent Harness Runs own their own Journal/CAS and appear to Host only through external-executor request, binding, observation, and completion-proposal references. Host Task continuity therefore does not imply ownership of Harness Run bytes.
 
-This split does not add a second database, a second Task projection, RPC between Host and Harness, or a compatibility shim under `ordivon_host.harness`.
+This split does not add a second Host Task projection or require Host to import Harness.
 
 ## Capability and consequence separation
 

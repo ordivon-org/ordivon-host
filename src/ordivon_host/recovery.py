@@ -17,7 +17,7 @@ class RecoveryAction(StrEnum):
     NONE = "none"
     ADVANCE_READ = "advance-read"
     OBSERVE_RUNTIME_DISPATCH = "observe-runtime-dispatch"
-    INVOKE_PROVIDER = "invoke-provider"
+    EXTERNAL_COGNITION_REQUIRED = "external-cognition-required"
     MANUAL_STAGE = "manual-stage"
     UNSUPPORTED = "unsupported"
 
@@ -129,7 +129,10 @@ def assess_recovery(storage: HostStorage, task_id: str) -> RecoveryAssessment:
             "workload stage is deterministic but not an uncertain-delivery recovery point",
         )
     if workload == "cognition":
-        if projection.state is TaskState.WAITING:
+        if (
+            projection.state is TaskState.WAITING
+            and snapshot.event_kind.value == "cognition.invocation-prepared"
+        ):
             return RecoveryAssessment(
                 task_id,
                 projection.state,
@@ -137,11 +140,15 @@ def assess_recovery(storage: HostStorage, task_id: str) -> RecoveryAssessment:
                 workload,
                 snapshot.event_kind.value,
                 frontier,
-                RecoveryAction.INVOKE_PROVIDER,
+                RecoveryAction.EXTERNAL_COGNITION_REQUIRED,
                 False,
-                "a model Gateway and explicit admission state are required",
+                "an external cognition result and explicit Host admission state are required",
             )
-        return _manual(snapshot, workload, "cognition requires an explicit caller decision")
+        return _manual(
+            snapshot,
+            workload,
+            "current cognition head does not authorize another external cognition execution",
+        )
     return RecoveryAssessment(
         task_id,
         projection.state,

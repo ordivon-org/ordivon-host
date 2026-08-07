@@ -30,24 +30,10 @@ class RuntimeSettings:
 
 
 @dataclass(frozen=True, slots=True)
-class ProviderSettings:
-    codex_executable: str = "codex"
-    hermes_executable: str = "hermes"
-    timeout_seconds: int = 180
-
-    def __post_init__(self) -> None:
-        if not self.codex_executable or not self.hermes_executable:
-            raise ValueError("Provider executables are required")
-        if self.timeout_seconds < 1:
-            raise ValueError("Provider timeout must be positive")
-
-
-@dataclass(frozen=True, slots=True)
 class HostConfig:
     state_root: Path = DEFAULT_STATE_ROOT
     receipt_root: Path | None = None
     runtime: RuntimeSettings = RuntimeSettings()
-    providers: ProviderSettings = ProviderSettings()
     repositories: tuple[tuple[str, Path], ...] = ()
 
     def __post_init__(self) -> None:
@@ -74,11 +60,6 @@ class HostConfig:
                 "tokenFile": str(self.runtime.token_file),
                 "timeoutSeconds": self.runtime.timeout_seconds,
                 "maxResponseBytes": self.runtime.max_response_bytes,
-            },
-            "providers": {
-                "codexExecutable": self.providers.codex_executable,
-                "hermesExecutable": self.providers.hermes_executable,
-                "timeoutSeconds": self.providers.timeout_seconds,
             },
             "repositories": {
                 identity: str(path) for identity, path in self.repositories
@@ -117,6 +98,7 @@ def load_config(
         {"codex_executable", "hermes_executable", "timeout_seconds"},
         "providers",
     )
+    _validate_legacy_provider_table(providers)
     state_root = Path(
         env.get("ORDIVON_HOST_STATE_ROOT", str(state.get("root", DEFAULT_STATE_ROOT)))
     )
@@ -142,14 +124,6 @@ def load_config(
                 "runtime.max_response_bytes",
             ),
         ),
-        providers=ProviderSettings(
-            codex_executable=str(providers.get("codex_executable", "codex")),
-            hermes_executable=str(providers.get("hermes_executable", "hermes")),
-            timeout_seconds=_strict_int(
-                providers.get("timeout_seconds", 180),
-                "providers.timeout_seconds",
-            ),
-        ),
         repositories=tuple(
             sorted(
                 (
@@ -161,6 +135,19 @@ def load_config(
         ),
     )
 
+
+
+def _validate_legacy_provider_table(value: dict[str, object]) -> None:
+    """Accept pre-H2 Provider config without making it current Host authority."""
+    for field in ("codex_executable", "hermes_executable"):
+        executable = value.get(field)
+        if executable is not None and (
+            not isinstance(executable, str) or not executable.strip()
+        ):
+            raise ValueError(f"providers.{field} must be a non-empty string")
+    timeout = value.get("timeout_seconds")
+    if timeout is not None and (type(timeout) is not int or timeout < 1):
+        raise ValueError("providers.timeout_seconds must be a positive integer")
 
 def read_token_file(path: str | Path, *, max_bytes: int = 16_384) -> str:
     token_path = Path(path)

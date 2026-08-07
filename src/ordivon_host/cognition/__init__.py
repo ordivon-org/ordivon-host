@@ -1,10 +1,3 @@
-from .adapters import (
-    CodexCliModelAdapter,
-    HermesCliModelAdapter,
-    ModelAdapter,
-    ModelAdapterError,
-    ScriptedPreferenceAdapter,
-)
 from .context import (
     BlockKind,
     CandidateAction,
@@ -52,13 +45,8 @@ from .mutation_proposal import (
     MutationProposalResolution,
     RepositoryMutationProposalCompiler,
 )
-from .proposal_adapters import CodexCliProposalAdapter, ProposalAdapterError
-from .proposal_turn import (
-    OpenProposalHost,
-    OpenProposalReceipt,
-    ProposalGateway,
-    ScriptedProposalGateway,
-)
+from .proposal_turn import OpenProposalHost, OpenProposalReceipt
+from .scripted import ScriptedPreferenceAdapter
 from .provenance import (
     ClaimStatus,
     ContextInvalidationState,
@@ -76,6 +64,7 @@ from .turn import (
     CognitionTurnHost,
     CognitionTurnReceipt,
     PreparedCognition,
+    PreparedInvocation,
 )
 
 __all__ = [
@@ -100,8 +89,6 @@ __all__ = [
     "AdmittedDecision",
     "BlockKind",
     "CandidateAction",
-    "CodexCliModelAdapter",
-    "CodexCliProposalAdapter",
     "CognitionRequest",
     "CognitionSuperseded",
     "CognitionTurnError",
@@ -118,18 +105,14 @@ __all__ = [
     "DecisionKind",
     "DecisionRequest",
     "Freshness",
-    "HermesCliModelAdapter",
     "LoweredReadProposal",
-    "ModelAdapter",
-    "ModelAdapterError",
     "ModelDecision",
     "OpenCognitionRequest",
     "OpenContextCompiler",
     "OpenProposalHost",
     "OpenProposalReceipt",
     "PreparedCognition",
-    "ProposalAdapterError",
-    "ProposalGateway",
+    "PreparedInvocation",
     "ProposalIntent",
     "ProposalRejection",
     "ProposalResolutionKind",
@@ -138,7 +121,6 @@ __all__ = [
     "ResourceBinding",
     "Reversibility",
     "ScriptedPreferenceAdapter",
-    "ScriptedProposalGateway",
     "block_from_payload",
     "estimate_tokens",
 ]

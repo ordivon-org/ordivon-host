@@ -1,4 +1,4 @@
-from .config import HostConfig, ProviderSettings, RuntimeSettings, load_config
+from .config import HostConfig, RuntimeSettings, load_config
 from .coordination import (
     CoordinationError,
     CoordinationSuperseded,
@@ -99,7 +99,6 @@ __all__ = [
     "McpRuntimeClient",
     "ObservationEnvelope",
     "OperatorHandoffCapsule",
-    "ProviderSettings",
     "RecoveryAction",
     "RecoveryAssessment",
     "RecoveryResult",

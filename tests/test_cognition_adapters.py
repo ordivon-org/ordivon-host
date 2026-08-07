@@ -9,10 +9,12 @@ import unittest
 from anc_canonical import canonical_digest
 from ordivon_host.cognition import (
     CandidateAction,
-    CodexCliModelAdapter,
     CognitionRequest,
     ContextCompiler,
     DecisionKind,
+)
+from ordivon_host.legacy_provider_execution import (
+    CodexCliModelAdapter,
     HermesCliModelAdapter,
 )
 

@@ -1,28 +1,7 @@
-from .gateway import (
-    CodexCliModelAdapter,
-    CodexCliModelGateway,
-    HermesCliModelAdapter,
-    HermesCliModelGateway,
-    ModelAdapter,
-    ModelAdapterError,
-    ModelGateway,
-    ScriptedPreferenceAdapter,
-)
+"""Durable model-invocation records owned by Host cognition admission.
 
-__all__ = [
-    "CodexCliModelAdapter",
-    "CodexCliModelGateway",
-    "HermesCliModelAdapter",
-    "HermesCliModelGateway",
-    "ModelAdapter",
-    "ModelAdapterError",
-    "ModelGateway",
-    "ScriptedPreferenceAdapter",
-    "ModelInvocationIntent",
-    "ModelInvocationObservation",
-    "ModelInvocationOutputObservation",
-    "ModelInvocationReceipt",
-]
+Physical Provider execution is deliberately not part of the current Host surface.
+"""
 
 from .invocation import (
     ModelInvocationIntent,
@@ -30,3 +9,10 @@ from .invocation import (
     ModelInvocationOutputObservation,
     ModelInvocationReceipt,
 )
+
+__all__ = [
+    "ModelInvocationIntent",
+    "ModelInvocationObservation",
+    "ModelInvocationOutputObservation",
+    "ModelInvocationReceipt",
+]

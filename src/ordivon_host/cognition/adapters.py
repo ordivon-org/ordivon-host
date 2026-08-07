@@ -1,5 +1,6 @@
-# Compatibility surface. Physical provider execution lives behind providers.gateway.
-from ..providers.gateway import (
+"""Deprecated compatibility shim for pre-H2 Host-local model execution."""
+
+from ..legacy_provider_execution.model_gateway import (
     CodexCliModelAdapter,
     CodexCliModelGateway,
     HermesCliModelAdapter,
@@ -7,7 +8,6 @@ from ..providers.gateway import (
     ModelAdapter,
     ModelAdapterError,
     ModelGateway,
-    ScriptedPreferenceAdapter,
 )
 
 __all__ = [
@@ -18,5 +18,4 @@ __all__ = [
     "ModelAdapter",
     "ModelAdapterError",
     "ModelGateway",
-    "ScriptedPreferenceAdapter",
 ]

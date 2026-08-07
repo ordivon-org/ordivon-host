@@ -12,7 +12,6 @@ from ..kernel import HostKernel, worker_owner_id
 from ..objects import ObjectCorrupt, StoredObject
 from ..storage import HostStorage
 from ..providers import (
-    ModelGateway,
     ModelInvocationIntent,
     ModelInvocationObservation,
     ModelInvocationReceipt,
@@ -218,36 +217,6 @@ class CognitionTurnHost:
             raise CognitionTurnError("Task head is not a prepared Cognition Context")
         return self._load_prepared_snapshot(task_id, snapshot)
 
-    def decide(
-        self,
-        prepared: PreparedCognition,
-        gateway: ModelGateway,
-        *,
-        state_reader: Callable[[], AdmissionState],
-    ) -> CognitionTurnReceipt:
-        gateway_id = getattr(gateway, "gateway_id", None) or getattr(
-            gateway, "adapter_id", None
-        )
-        if not isinstance(gateway_id, str) or not gateway_id:
-            raise ValueError("model gateway identity is required")
-        invocation = self.prepare_invocation(prepared, gateway_id=gateway_id)
-        invoke = getattr(gateway, "invoke", None) or getattr(gateway, "decide", None)
-        if invoke is None:
-            raise TypeError("model gateway has no invoke method")
-        decision = invoke(prepared.context)
-        evidence_reader = getattr(gateway, "evidence_metadata", None)
-        evidence = evidence_reader() if evidence_reader is not None else None
-        if evidence is None:
-            evidence = {}
-        if not isinstance(evidence, dict):
-            raise CognitionTurnError("model gateway evidence must be an object")
-        return self._admit_invocation(
-            invocation,
-            decision,
-            evidence=evidence,
-            state_reader=state_reader,
-        )
-
     def prepare_invocation(
         self,
         prepared: PreparedCognition,
@@ -330,17 +299,22 @@ class CognitionTurnHost:
 
     def admit_decision(
         self,
-        prepared: PreparedCognition,
+        invocation: PreparedInvocation,
         decision: ModelDecision,
         *,
-        adapter_id: str,
+        evidence: dict[str, JsonValue] | None = None,
         state_reader: Callable[[], AdmissionState],
     ) -> CognitionTurnReceipt:
-        invocation = self.prepare_invocation(prepared, gateway_id=adapter_id)
+        """Admit externally executed cognition against a durable invocation intent.
+
+        Host deliberately does not invoke a Provider here. The caller must persist the
+        invocation with ``prepare_invocation`` before external execution, then return the
+        resulting semantic decision and non-secret evidence for Host admission.
+        """
         return self._admit_invocation(
             invocation,
             decision,
-            evidence={"externalDecision": True},
+            evidence={**(evidence or {}), "externalDecision": True},
             state_reader=state_reader,
         )
 

@@ -107,7 +107,7 @@ class RecoveryTests(unittest.TestCase):
                 )
                 turn.prepare_invocation(prepared, gateway_id="gateway:test")
                 assessment = assess_recovery(storage, COGNITION_TASK_ID)
-                self.assertEqual(assessment.action, RecoveryAction.INVOKE_PROVIDER)
+                self.assertEqual(assessment.action, RecoveryAction.EXTERNAL_COGNITION_REQUIRED)
                 self.assertFalse(assessment.automatic)
                 result = reconciler(storage, runtime).reconcile(COGNITION_TASK_ID)
                 self.assertFalse(result.changed)

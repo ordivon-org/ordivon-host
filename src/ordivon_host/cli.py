@@ -91,7 +91,6 @@ def _config(args: argparse.Namespace) -> HostConfig:
         state_root=args.state_root,
         receipt_root=args.state_root / "receipts",
         runtime=config.runtime,
-        providers=config.providers,
         repositories=config.repositories,
     )
 

@@ -19,14 +19,16 @@ from ordivon_host.cognition import (
     AdmissionState,
     BlockKind,
     CandidateAction,
-    CodexCliModelAdapter,
     CognitionRequest,
     CognitionTurnHost,
     DecisionAdmission,
     DecisionKind,
     Freshness,
-    HermesCliModelAdapter,
     block_from_payload,
+)
+from ordivon_host.legacy_provider_execution import (
+    CodexCliModelAdapter,
+    HermesCliModelAdapter,
 )
 
 _WORLD_DIGEST = "sha256:" + ("a" * 64)
@@ -115,6 +117,12 @@ def main() -> None:
             credential_env_path=args.hermes_credentials,
             timeout_seconds=240,
         )
+        # Legacy comparison only: persist the Host admission intent before the
+        # external Codex execution. Hermes remains an unadmitted comparison sample.
+        with HostStorage(state_root) as storage:
+            invocation = CognitionTurnHost(storage, clock_ms=clock).prepare_invocation(
+                prepared, gateway_id=codex.adapter_id
+            )
         codex_decision = codex.decide(prepared.context)
         hermes_decision = hermes.decide(prepared.context)
         admission = DecisionAdmission()
@@ -142,11 +150,10 @@ def main() -> None:
             )
 
         with HostStorage(state_root) as storage:
-            recovered = CognitionTurnHost(storage, clock_ms=clock).load_prepared(task_id)
             persisted = CognitionTurnHost(storage, clock_ms=clock).admit_decision(
-                recovered,
+                invocation,
                 codex_decision,
-                adapter_id=codex.adapter_id,
+                evidence=codex.evidence_metadata() or {},
                 state_reader=lambda: admission_state,
             )
             final_projection = storage.journal.get_task(task_id)
@@ -162,7 +169,7 @@ def main() -> None:
                     == persisted.context_digest
                 ),
                 "sameContextObjectAfterFreshOpen": (
-                    prepared_object_digest == recovered.context_object.digest
+                    prepared_object_digest == invocation.prepared.context_object.digest
                 ),
                 "codexAdmitted": codex_admitted.action.action_id == _ACTION_ID,
                 "hermesAdmitted": hermes_admitted.action.action_id == _ACTION_ID,

@@ -9,7 +9,7 @@ import unittest
 
 from anc_effect_ir import CapabilityRequirement
 
-from ordivon_host import HostStorage, TaskState
+from ordivon_host import HostStorage, RecoveryAction, TaskState, assess_recovery
 from ordivon_host.authority import (
     CapabilityDenied,
     CapabilityProfileAuthorizer,
@@ -311,8 +311,8 @@ class OpenProposalTests(unittest.TestCase):
                     request=request(),
                     token_budget=4_000,
                 )
-                invocation = host.cognition.prepare_invocation(
-                    prepared, gateway_id="fixture-open-proposal"
+                invocation = host.prepare_invocation(
+                    prepared, executor_id="executor:fixture-open-proposal"
                 )
                 action = proposal(prepared.context)
                 token = action.digest[7:23]
@@ -369,8 +369,8 @@ class OpenProposalTests(unittest.TestCase):
                     request=request(),
                     token_budget=4_000,
                 )
-                invocation = host.cognition.prepare_invocation(
-                    prepared, gateway_id="fixture-open-proposal"
+                invocation = host.prepare_invocation(
+                    prepared, executor_id="executor:fixture-open-proposal"
                 )
                 receipt = host.admit_proposal(
                     invocation,
@@ -408,9 +408,9 @@ class OpenProposalTests(unittest.TestCase):
                     request=request(),
                     token_budget=4_000,
                 )
-                invocation = host.cognition.prepare_invocation(
+                invocation = host.prepare_invocation(
                     prepared,
-                    gateway_id="fixture-open-proposal",
+                    executor_id="executor:fixture-open-proposal",
                 )
                 action = proposal(prepared.context)
                 receipt = host.admit_proposal(
@@ -430,6 +430,11 @@ class OpenProposalTests(unittest.TestCase):
                 self.assertIsNotNone(parent)
                 assert parent is not None
                 self.assertEqual(parent.state, TaskState.WAITING)
+                assessment = assess_recovery(storage, PARENT_TASK)
+                self.assertEqual(assessment.action, RecoveryAction.MANUAL_STAGE)
+                self.assertNotEqual(
+                    assessment.action, RecoveryAction.EXTERNAL_COGNITION_REQUIRED
+                )
                 child_task_id = receipt.child_task_id
                 assert child_task_id is not None
 

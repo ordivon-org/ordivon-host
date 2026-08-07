@@ -14,7 +14,6 @@ from ordivon_host.cognition import (
     CognitionTurnHost,
     DecisionKind,
     Freshness,
-    ModelAdapterError,
     ScriptedPreferenceAdapter,
     block_from_payload,
 )
@@ -110,65 +109,6 @@ def admission_state() -> AdmissionState:
     )
 
 
-class FailingAdapter:
-    adapter_id = "failing-adapter"
-
-    def decide(self, context):
-        raise ModelAdapterError("injected provider failure")
-
-
-class LeaseProbeAdapter:
-    adapter_id = "lease-probe-adapter"
-
-    def __init__(self, directory: str) -> None:
-        self.directory = directory
-
-    def decide(self, context):
-        with HostStorage(self.directory) as concurrent:
-            lease = concurrent.journal.acquire_lease(
-                TASK_ID,
-                owner_id="host:lease-probe",
-                now_ms=500,
-                ttl_ms=100,
-            )
-            concurrent.journal.release_lease(lease)
-        return ScriptedPreferenceAdapter((DecisionKind.OBSERVE_DISPATCH,)).decide(
-            context
-        )
-
-
-class AdvancingAdapter:
-    adapter_id = "advancing-adapter"
-
-    def __init__(self, directory: str) -> None:
-        self.directory = directory
-
-    def decide(self, context):
-        decision = ScriptedPreferenceAdapter(
-            (DecisionKind.OBSERVE_DISPATCH,)
-        ).decide(context)
-        with HostStorage(self.directory) as concurrent:
-            current = concurrent.journal.get_task(TASK_ID)
-            assert current is not None
-            kernel = HostKernel(
-                concurrent,
-                clock_ms=itertools.count(current.updated_at_ms + 1).__next__,
-                owner_id="host:concurrent-entrypoint",
-            )
-            with kernel.locked_task(
-                TASK_ID,
-                expected_revision=current.revision,
-                expected_state=current.state,
-                expected_frontier=current.ready_frontier,
-            ) as locked:
-                locked.commit(
-                    event_id="event:cognition-turn:concurrent",
-                    kind=EventKind.TASK_FRONTIER_CHANGED,
-                    payload={"source": "concurrent-entrypoint"},
-                )
-        return decision
-
-
 class CognitionTurnTests(unittest.TestCase):
     def test_prepare_is_persistent_and_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -197,7 +137,7 @@ class CognitionTurnTests(unittest.TestCase):
                 self.assertEqual(recovered.context_object, first.context_object)
                 self.assertEqual(recovered.task_revision, 2)
 
-    def test_provider_call_holds_no_task_lease_and_decision_is_persisted(self) -> None:
+    def test_external_cognition_holds_no_task_lease_and_decision_is_persisted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             with HostStorage(directory) as storage:
                 create_task(storage)
@@ -207,27 +147,40 @@ class CognitionTurnTests(unittest.TestCase):
                     request=cognition_request(),
                     token_budget=4_000,
                 )
+                invocation = host(storage).prepare_invocation(
+                    prepared, gateway_id="executor:external-test"
+                )
+
+            # External cognition occurs after durable intent and outside any Host lease.
+            with HostStorage(directory) as concurrent:
+                lease = concurrent.journal.acquire_lease(
+                    TASK_ID,
+                    owner_id="caller:external-cognition",
+                    now_ms=500,
+                    ttl_ms=100,
+                )
+                concurrent.journal.release_lease(lease)
+            decision = ScriptedPreferenceAdapter(
+                (DecisionKind.OBSERVE_DISPATCH,)
+            ).decide(invocation.prepared.context)
 
             with HostStorage(directory) as storage:
-                recovered = host(storage).load_prepared(TASK_ID)
-                receipt = host(storage).decide(
-                    recovered,
-                    LeaseProbeAdapter(directory),
+                receipt = host(storage).admit_decision(
+                    invocation,
+                    decision,
+                    evidence={
+                        "executor": "external-test",
+                        "physicalProviderCall": False,
+                        "externalDecision": False,
+                    },
                     state_reader=admission_state,
                 )
                 self.assertEqual(receipt.revision, 4)
-                self.assertEqual(
-                    receipt.selected_action_id,
-                    "action:observe-original",
-                )
+                self.assertEqual(receipt.selected_action_id, "action:observe-original")
                 projection = storage.journal.get_task(TASK_ID)
                 self.assertIsNotNone(projection)
                 assert projection is not None
-                self.assertEqual(
-                    projection.ready_frontier,
-                    (receipt.selected_node_id,),
-                )
-                self.assertNotEqual(projection.ready_frontier, (DECISION_NODE,))
+                self.assertEqual(projection.ready_frontier, (receipt.selected_node_id,))
                 kinds = {value.kind for value in storage.journal.object_refs()}
                 self.assertTrue(
                     {
@@ -240,9 +193,13 @@ class CognitionTurnTests(unittest.TestCase):
                     }.issubset(kinds)
                 )
                 self.assertEqual(storage.journal.event_count(TASK_ID), 4)
-                self.assertEqual(prepared.context.digest, receipt.context_digest)
+                observation = storage.objects.get(
+                    receipt.invocation_observation_digest,
+                    expected_kind="model-invocation-observation",
+                )
+                self.assertTrue(observation["evidence"]["externalDecision"])
 
-    def test_provider_failure_leaves_prepared_context_as_task_head(self) -> None:
+    def test_external_execution_failure_leaves_durable_invocation_head(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             with HostStorage(directory) as storage:
                 create_task(storage)
@@ -252,25 +209,24 @@ class CognitionTurnTests(unittest.TestCase):
                     request=cognition_request(),
                     token_budget=4_000,
                 )
-                with self.assertRaisesRegex(ModelAdapterError, "injected"):
-                    host(storage).decide(
-                        prepared,
-                        FailingAdapter(),
-                        state_reader=admission_state,
-                    )
+                invocation = host(storage).prepare_invocation(
+                    prepared, gateway_id="executor:failing-external"
+                )
+                self.assertEqual(invocation.task_revision, 3)
+            # A Provider/caller failure creates no Host event because Host did not execute it.
+            with HostStorage(directory) as storage:
                 current = storage.journal.get_task(TASK_ID)
                 self.assertIsNotNone(current)
                 assert current is not None
                 self.assertEqual(current.revision, 3)
                 self.assertEqual(current.state, TaskState.WAITING)
-                self.assertEqual(current.ready_frontier, (DECISION_NODE,))
                 self.assertEqual(storage.journal.event_count(TASK_ID), 3)
                 self.assertEqual(
                     storage.read_task_event(TASK_ID).event_kind,
                     EventKind.COGNITION_INVOCATION_PREPARED,
                 )
 
-    def test_context_is_superseded_if_task_advances_during_model_call(self) -> None:
+    def test_external_decision_is_superseded_if_task_advances_before_admission(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             with HostStorage(directory) as storage:
                 create_task(storage)
@@ -280,16 +236,36 @@ class CognitionTurnTests(unittest.TestCase):
                     request=cognition_request(),
                     token_budget=4_000,
                 )
-                with self.assertRaisesRegex(CognitionSuperseded, "revision is 4"):
-                    host(storage).decide(
-                        prepared,
-                        AdvancingAdapter(directory),
-                        state_reader=admission_state,
-                    )
-                current = storage.journal.get_task(TASK_ID)
-                self.assertIsNotNone(current)
+                invocation = host(storage).prepare_invocation(
+                    prepared, gateway_id="executor:external-test"
+                )
+            decision = ScriptedPreferenceAdapter(
+                (DecisionKind.OBSERVE_DISPATCH,)
+            ).decide(invocation.prepared.context)
+            with HostStorage(directory) as concurrent:
+                current = concurrent.journal.get_task(TASK_ID)
                 assert current is not None
-                self.assertEqual(current.revision, 4)
+                kernel = HostKernel(
+                    concurrent,
+                    clock_ms=itertools.count(current.updated_at_ms + 1).__next__,
+                    owner_id="host:concurrent-entrypoint",
+                )
+                with kernel.locked_task(
+                    TASK_ID,
+                    expected_revision=current.revision,
+                    expected_state=current.state,
+                    expected_frontier=current.ready_frontier,
+                ) as locked:
+                    locked.commit(
+                        event_id="event:cognition-turn:concurrent",
+                        kind=EventKind.TASK_FRONTIER_CHANGED,
+                        payload={"source": "concurrent-entrypoint"},
+                    )
+            with HostStorage(directory) as storage:
+                with self.assertRaisesRegex(CognitionSuperseded, "revision is 4"):
+                    host(storage).admit_decision(
+                        invocation, decision, state_reader=admission_state
+                    )
                 kinds = [value.kind for value in storage.journal.object_refs()]
                 self.assertNotIn("model-decision", kinds)
                 self.assertNotIn("admitted-decision", kinds)

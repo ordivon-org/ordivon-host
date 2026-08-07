@@ -14,7 +14,6 @@ from ordivon_host.authority import (
 )
 from ordivon_host.cognition import (
     BlockKind,
-    CodexCliProposalAdapter,
     Freshness,
     OpenCognitionRequest,
     OpenProposalHost,
@@ -22,6 +21,7 @@ from ordivon_host.cognition import (
     ResourceBinding,
     block_from_payload,
 )
+from ordivon_host.legacy_provider_execution import CodexCliProposalAdapter
 from ordivon_host.domain import StaticRepositoryResolver
 from ordivon_host.engine import DeterministicReadHost
 from ordivon_host.runtime import RuntimeToolRejected
@@ -137,8 +137,8 @@ def main() -> None:
                 repository_resolver=resolver,
             )
             prepared = host.cognition.load_prepared(identity.task_id)
-            invocation = host.cognition.prepare_invocation(
-                prepared, gateway_id=adapter.gateway_id
+            invocation = host.prepare_invocation(
+                prepared, executor_id=adapter.gateway_id
             )
             proposed = adapter.invoke(prepared.context)
             admission_started = time.monotonic()

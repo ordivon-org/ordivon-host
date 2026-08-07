@@ -47,7 +47,7 @@ The canonical path currently supports:
 - a loopback or operator-tunneled Ordivon Runtime;
 - Runtime MCP `2026-07-28` as the default transport lifecycle;
 - explicit `2025-06-18` Session compatibility when selected;
-- owner-trusted repositories, Providers, and participants.
+- owner-trusted repositories, external cognition executors, and participants.
 
 Python 3.13+, hostile multi-tenancy, remote distributed consensus, a general scheduler, a hosted privacy boundary, and automatic recovery of unkeyed effects are not supported.
 
@@ -84,7 +84,7 @@ The legacy Session decoder remains because retained deployments and historical e
 - A successful Runtime Job or foreign executor Run is not Task completion.
 - External executor completion is retained only as a proposal until a Host-owned workload verifies and decides the Task outcome.
 - Recovery never authorizes blind redispatch after uncertain delivery.
-- Provider calls are replaceable and occur outside Task leases; Host cannot resume an in-memory Provider process.
+- Provider calls are external to Host. Host persists `ModelInvocationIntent` before execution and can admit returned semantic evidence, but it neither starts nor resumes a Provider process.
 - Domain systems must supply authoritative world-state and verification semantics.
 - Full-history Doctor is intentionally slower and explicit.
 - Live evidence covers the tested local Runtime and filesystem path, not host reboot, kernel failure, network partition across machines, or distributed scheduling.
