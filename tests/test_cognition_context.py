@@ -6,10 +6,10 @@ from anc_canonical import canonical_digest
 from ordivon_host.cognition import (
     BlockKind,
     CandidateAction,
-    CognitionRequest,
+    ClosedChoiceContextRequest,
     CompiledContext,
     ContextCompileError,
-    ContextCompiler,
+    ClosedChoiceContextCompiler,
     DecisionKind,
     Freshness,
     block_from_payload,
@@ -58,8 +58,8 @@ def candidates() -> tuple[CandidateAction, ...]:
     )
 
 
-def request(blocks: tuple = ()) -> CognitionRequest:
-    return CognitionRequest(
+def request(blocks: tuple = ()) -> ClosedChoiceContextRequest:
+    return ClosedChoiceContextRequest(
         task_id="task:cognition-test",
         world_digest=WORLD,
         blocks=blocks,
@@ -113,7 +113,7 @@ class ContextCompilerTests(unittest.TestCase):
             priority=10,
             payload={"detail": "low-" + ("y" * 400)},
         )
-        compiler = ContextCompiler()
+        compiler = ClosedChoiceContextCompiler()
         required_context = compiler.compile(request(required), token_budget=100_000)
         high_context = compiler.compile(
             request((*required, high)), token_budget=100_000
@@ -161,7 +161,7 @@ class ContextCompilerTests(unittest.TestCase):
                 payload={"statement": "x" * 1_000},
             ),
         )
-        compiler = ContextCompiler()
+        compiler = ClosedChoiceContextCompiler()
         minimum = compiler.compile(request(required), token_budget=100_000)
         with self.assertRaisesRegex(ContextCompileError, "required Context"):
             compiler.compile(
@@ -171,7 +171,7 @@ class ContextCompilerTests(unittest.TestCase):
 
     def test_forbidden_effect_cannot_be_an_allowed_candidate(self) -> None:
         with self.assertRaisesRegex(ValueError, "forbidden Effect"):
-            CognitionRequest(
+            ClosedChoiceContextRequest(
                 task_id="task:bad",
                 world_digest=WORLD,
                 blocks=(),
@@ -195,7 +195,7 @@ class ContextCompilerTests(unittest.TestCase):
 
     def test_candidate_cannot_start_already_stale(self) -> None:
         with self.assertRaisesRegex(ValueError, "already stale"):
-            CognitionRequest(
+            ClosedChoiceContextRequest(
                 task_id="task:bad-world",
                 world_digest=WORLD,
                 blocks=(),
@@ -235,7 +235,7 @@ class ContextCompilerTests(unittest.TestCase):
             )
 
     def test_compiled_context_envelope_detects_tampering(self) -> None:
-        compiled = ContextCompiler().compile(request(), token_budget=4_000)
+        compiled = ClosedChoiceContextCompiler().compile(request(), token_budget=4_000)
         envelope = compiled.to_dict()
         envelope["digest"] = "sha256:" + ("0" * 64)
         with self.assertRaisesRegex(ValueError, "digest or byte length differs"):

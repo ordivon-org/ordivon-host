@@ -154,7 +154,7 @@ class CandidateAction:
 
 
 @dataclass(frozen=True, slots=True)
-class CognitionRequest:
+class ClosedChoiceContextRequest:
     task_id: str
     world_digest: str
     blocks: tuple[ContextBlock, ...]
@@ -325,8 +325,8 @@ class CompiledContext:
         return context
 
 
-class ContextCompiler:
-    def compile(self, request: CognitionRequest, *, token_budget: int) -> CompiledContext:
+class ClosedChoiceContextCompiler:
+    def compile(self, request: ClosedChoiceContextRequest, *, token_budget: int) -> CompiledContext:
         if token_budget < 1:
             raise ValueError("Context token budget must be positive")
         required = sorted(
@@ -360,7 +360,7 @@ class ContextCompiler:
 
     @staticmethod
     def _payload(
-        request: CognitionRequest,
+        request: ClosedChoiceContextRequest,
         selected: list[ContextBlock],
     ) -> dict[str, JsonValue]:
         return {

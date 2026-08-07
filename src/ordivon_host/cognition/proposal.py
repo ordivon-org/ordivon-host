@@ -85,7 +85,7 @@ class ResourceBinding:
 
 
 @dataclass(frozen=True, slots=True)
-class OpenCognitionRequest:
+class OpenContextRequest:
     task_id: str
     world_digest: str
     blocks: tuple[ContextBlock, ...]
@@ -123,7 +123,7 @@ class OpenContextCompiler:
 
     def compile(
         self,
-        request: OpenCognitionRequest,
+        request: OpenContextRequest,
         *,
         token_budget: int,
     ) -> CompiledContext:
@@ -158,7 +158,7 @@ class OpenContextCompiler:
 
     @staticmethod
     def _payload(
-        request: OpenCognitionRequest,
+        request: OpenContextRequest,
         selected: list[ContextBlock],
     ) -> dict[str, JsonValue]:
         return {

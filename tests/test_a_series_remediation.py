@@ -194,7 +194,7 @@ class ASeriesRemediationTests(unittest.TestCase):
             "task.creatd",
             "effect.dispatch-preparedd",
             "runtime.dispatch-observedd",
-            "cognition.context-compiledd",
+            "cognition.requestedd",
             "wakeup.scheduled",
         ):
             with self.subTest(value=value), self.assertRaises(ValueError):

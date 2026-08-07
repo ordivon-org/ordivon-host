@@ -64,9 +64,9 @@ Exact behavior is verified by source, schema migrations, deterministic tests, li
 
 ## Ownership
 
-- **Host** owns Tasks, Goal-scoped Task coordination, generic Host events and projections, Context compilation, ModelInvocation identity, proposal compilation or closed-choice admission, Effect commitments, Tool bindings, verification receipts, participant-routed decisions, and Task outcomes. It does not yet own a durable Goal stream or Goal commitment object. It admits immutable references and extension event kinds outside reserved Host namespaces without importing extension-specific schemas.
+- **Host** owns Tasks, Goal-scoped Task coordination, generic Host events and projections, Context compilation, semantic `CognitionWorkRequest` identity, proposal compilation or closed-choice admission, Effect commitments, Tool bindings, verification receipts, participant-routed decisions, and Task outcomes. It does not yet own a durable Goal stream or Goal commitment object. It admits immutable references and extension event kinds outside reserved Host namespaces without importing extension-specific schemas.
 - **Runtime** owns Workspaces, committed physical Jobs, Runtime Attempts, process state, retained output, Artifacts, cancellation, and physical recovery.
-- **Harness** owns Task Attempt and Assignment semantics, Agent Runs, Provider adapters, model–Tool execution, Harness recovery and abandonment, semantic handoff, and completion proposal/decision logic. Its objects may be stored in Host CAS without transferring their schema ownership to Host.
+- **Harness** owns caller-neutral Agent Runs, Provider adapters and calls, model–Tool execution, Run-local continuity and recovery, Trace/Receipt evidence, and completion proposals. Host is an optional caller, not Harness persistence authority.
 - **Domain systems** own authoritative world state, transition rules, domain coordination policy, and domain-specific verification sufficiency.
 - **Computing** owns promoted protocol definitions, reference behavior, conformance vectors, experiments, and evidence.
 - **Provider and MCP sessions** are replaceable transport state and never own Task continuity.
@@ -82,7 +82,7 @@ The Host controls durable work and external commitments. It does not own model i
 - every non-creation Task transition is fenced by one exact live lease generation and stream revision;
 - terminal Task identities are irreversible;
 - Task-local frontier state; `RUNNING` and `activeNodeId` remain legacy-readable but are not a current workload lifecycle;
-- deterministic progress before model invocation;
+- deterministic progress before external cognition execution;
 - no automatic redispatch after an uncertain external Effect;
 - TaskCapsule is an export/checkpoint, not the primary database;
 - no independent Semantic Journal;
@@ -177,50 +177,27 @@ The slice preserves these invariants:
 
 This slice deliberately does not admit a reusable Fact. A verified read completes with a `VerificationReceipt` and `TaskOutcome`; Fact promotion remains a separate cross-Task decision.
 
-## Closed-choice deterministic cognition profile
+## Semantic cognition request and admission
 
-The first cognition profile is split across two durable boundaries:
-
-```text
-compile bounded Context with two to eight exact CandidateActions
-→ persist Context
-→ persist `ModelInvocationIntent` and move the Task to WAITING
-→ external executor invokes any replaceable model without a Host Task lease
-→ caller returns exact ModelDecision plus non-secret execution evidence
-→ reacquire the Task lease
-→ reread current world, completed Effects, and unresolved Dispatches
-→ deterministically admit or reject the exact ModelDecision
-→ persist the decision, admission, and selected frontier together
-```
-
-This profile remains appropriate when the legal action set is already closed, for deterministic fixtures, and for recovery tests. It is no longer treated as the only general cognition interface.
-
-The profile preserves these invariants:
-
-- Provider sessions, transcripts, tools, and hidden reasoning are not Task state;
-- a Context and prepared invocation can be recovered by a fresh Host process before external cognition execution;
-- Host holds no Task lease while the caller-owned model execution runs;
-- a decision for another Context or an invented action is rejected;
-- action, Effect, Binding, Dispatch, and world identities must be copied exactly;
-- current world drift and newly completed Effects are rechecked at admission time;
-- an unresolved Dispatch blocks another Effect or premature completion;
-- if another entry point advances the Task during external model execution, the old decision is superseded;
-- model invocation intent is durable before any external cognition call;
-- external executor failure leaves the prepared Invocation as the durable WAITING Task head; Host performs no Provider retry.
-
-## Open proposal cognition profile
-
-The first open profile removes `allowedActions` from Context:
+Host has one durable pre-execution cognition boundary:
 
 ```text
-Goal + Context + ResourceBindings + capability profile
-→ persist `ModelInvocationIntent`
-→ ActionProposal from a caller-owned external cognition executor
-→ Host checks identity, revision, ownership, reversibility, and consequence
-→ lower, create DecisionRequest, or reject
+READY Task + exact frontier
+→ compile bounded semantic Context
+→ persist CognitionWorkRequest(resultKind, Context, exact resulting Task revision)
+→ move Task to WAITING
+→ execute cognition outside the Host lease
+→ return semantic result + CognitionExecutionEvidence
+→ reacquire the exact Task revision
+→ re-read current authority/world state
+→ admit, lower, route to DecisionRequest, or reject
 ```
 
-The model may state semantic intent, target, rationale, preconditions, affected participants, expected result, candidate method, and verification plan. It may not assign Effect, Binding, Dispatch, Runtime request, capability grant, or completion identities.
+`CognitionWorkRequest` deliberately contains no Provider, gateway, Adapter, session, model, process, retry, or transport identity. Those are execution facts owned by the executor, normally Harness. Host needs only enough durable state to answer **what semantic result is currently authorized for this Task revision?**
+
+For closed-choice work, `resultKind=action-selection`. Context contains two to eight exact `CandidateAction` values. The executor returns an `ActionSelection`; Host rechecks Context identity, current world digest, completed Effects, unresolved Dispatches, and the exact allowed action before advancing the frontier. Invented actions, stale world requirements, duplicate Effects, and stale Task revisions fail closed.
+
+For open work, `resultKind=action-proposal`. Context contains resources, constraints, capability profile, participant responsibility, and a proposal contract, but no prebuilt action menu. The executor returns an `ActionProposal`; Host checks identity, revision, ownership, reversibility, consequence, and authority before lowering it, creating a `DecisionRequest`, or rejecting it.
 
 Only one lowerer is currently proven:
 
@@ -230,20 +207,9 @@ private reversible repository-file observation
 → verified workspace.read
 ```
 
-Shared, foreign-owned, irreversible, and unknown-consequence proposals do not self-authorize. They create a `DecisionRequest` addressed to the responsible participant. A human is one possible participant, not a hard-coded universal recipient.
+Shared, foreign-owned, irreversible, and unknown-consequence proposals do not self-authorize. They create a `DecisionRequest` addressed to the responsible participant. A human is one possible participant, not a universal hard-coded recipient.
 
-The profile proves:
-
-- Context contains resources and constraints but no prebuilt action menu;
-- `ModelInvocationIntent` is durable before the external model call;
-- the external cognition executor runs outside the Task lease and retains no Task continuity;
-- stale resource revisions and wrong profiles are rejected structurally;
-- a child Task committed before the parent resolution is reused after recovery;
-- repeated admission after response loss returns the retained receipt;
-- parent completion follows the verified child TaskOutcome;
-- transport identity remains disposable; the modern path creates no MCP Session.
-
-The admission/lowering profile is Host-local and experimental; model execution is not. Current `OpenProposalHost` exposes `prepare_invocation()` and `admit_proposal()` only, so a Provider cannot become a Host writer by being passed into the profile. No universal planning language or promoted Protocol object is implied.
+The durability invariant is intentionally smaller than the H2 design: if execution fails, the Task remains on exactly one `cognition.requested` head. Host does not persist a second model-invocation intent, does not select a Provider, and does not perform Provider retry. Harness Run/Provider continuity supplies execution-side crash recovery without duplicating that authority in Host.
 
 ## Independent Harness extension boundary
 
@@ -256,7 +222,7 @@ ordivon-harness / another external cognition executor
   Agent Run / Provider execution / model–Tool lifecycle
              ↓ semantic result + evidence
 ordivon-host
-  Task / Context / invocation intent / admission / commitment / verification
+  Task / Context / CognitionWorkRequest / admission / commitment / verification
              ↓
 ordivon-runtime / ordivon-protocol as required by their own boundaries
 ```

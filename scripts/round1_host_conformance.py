@@ -23,7 +23,7 @@ from ordivon_host.cognition import (
     EvidenceRichDecisionRequest,
     Freshness,
     LoweredMutationProposal,
-    OpenCognitionRequest,
+    OpenContextRequest,
     OpenContextCompiler,
     ProposalIntent,
     ProposalTarget,
@@ -118,7 +118,7 @@ def build_receipt(source_revision: str) -> dict[str, object]:
     )
 
     context = OpenContextCompiler().compile(
-        OpenCognitionRequest(
+        OpenContextRequest(
             task_id="task:round1-maintenance",
             world_digest=WORLD_DIGEST,
             blocks=(

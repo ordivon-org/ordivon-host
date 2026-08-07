@@ -9,12 +9,13 @@ from ordivon_host.cognition import (
     AdmissionState,
     BlockKind,
     CandidateAction,
-    CognitionRequest,
-    CognitionSuperseded,
-    CognitionTurnHost,
+    ClosedChoiceContextRequest,
+    CognitionExecutionEvidence,
+    CognitionHost,
+    CognitionRequestSuperseded,
     DecisionKind,
     Freshness,
-    ScriptedPreferenceAdapter,
+    ScriptedActionSelector,
     block_from_payload,
 )
 
@@ -25,8 +26,8 @@ GOAL_ID = "goal:cognition-turn"
 DECISION_NODE = "node:cognition-turn:decide"
 
 
-def cognition_request() -> CognitionRequest:
-    return CognitionRequest(
+def cognition_request() -> ClosedChoiceContextRequest:
+    return ClosedChoiceContextRequest(
         task_id=TASK_ID,
         world_digest=WORLD,
         blocks=(
@@ -94,11 +95,8 @@ def create_task(storage: HostStorage) -> TaskProjection:
     return projection
 
 
-def host(storage: HostStorage) -> CognitionTurnHost:
-    return CognitionTurnHost(
-        storage,
-        clock_ms=itertools.count(100).__next__,
-    )
+def host(storage: HostStorage) -> CognitionHost:
+    return CognitionHost(storage, clock_ms=itertools.count(100).__next__)
 
 
 def admission_state() -> AdmissionState:
@@ -109,49 +107,60 @@ def admission_state() -> AdmissionState:
     )
 
 
+def evidence() -> CognitionExecutionEvidence:
+    return CognitionExecutionEvidence(
+        source_ref="policy:scripted-test",
+        evidence_refs=("trace:scripted-test",),
+        metadata={"sourceKind": "deterministic-policy"},
+    )
+
+
 class CognitionTurnTests(unittest.TestCase):
-    def test_prepare_is_persistent_and_idempotent(self) -> None:
+    def test_request_is_persistent_idempotent_and_waiting(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             with HostStorage(directory) as storage:
                 create_task(storage)
-                first = host(storage).prepare(
+                first = host(storage).request_selection(
                     task_id=TASK_ID,
-                    decision_node_id=DECISION_NODE,
-                    request=cognition_request(),
+                    node_id=DECISION_NODE,
+                    context_request=cognition_request(),
                     token_budget=4_000,
                 )
-                second = host(storage).prepare(
+                second = host(storage).request_selection(
                     task_id=TASK_ID,
-                    decision_node_id=DECISION_NODE,
-                    request=cognition_request(),
+                    node_id=DECISION_NODE,
+                    context_request=cognition_request(),
                     token_budget=4_000,
                 )
-                self.assertEqual(first.context.digest, second.context.digest)
-                self.assertEqual(first.task_revision, 2)
-                self.assertEqual(second.task_revision, 2)
+                self.assertEqual(first.request, second.request)
+                self.assertEqual(first.request.task_revision, 2)
                 self.assertEqual(storage.journal.event_count(TASK_ID), 2)
+                projection = storage.journal.get_task(TASK_ID)
+                assert projection is not None
+                self.assertEqual(projection.state, TaskState.WAITING)
+                self.assertEqual(
+                    storage.read_task_event(TASK_ID).event_kind,
+                    EventKind.COGNITION_REQUESTED,
+                )
 
             with HostStorage(directory) as reopened:
-                recovered = host(reopened).load_prepared(TASK_ID)
-                self.assertEqual(recovered.context.digest, first.context.digest)
+                recovered = host(reopened).load_request(TASK_ID)
+                self.assertEqual(recovered.request, first.request)
+                self.assertEqual(recovered.context, first.context)
                 self.assertEqual(recovered.context_object, first.context_object)
-                self.assertEqual(recovered.task_revision, 2)
 
-    def test_external_cognition_holds_no_task_lease_and_decision_is_persisted(self) -> None:
+    def test_external_cognition_holds_no_task_lease_and_selection_is_admitted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             with HostStorage(directory) as storage:
                 create_task(storage)
-                prepared = host(storage).prepare(
+                prepared = host(storage).request_selection(
                     task_id=TASK_ID,
-                    decision_node_id=DECISION_NODE,
-                    request=cognition_request(),
+                    node_id=DECISION_NODE,
+                    context_request=cognition_request(),
                     token_budget=4_000,
                 )
-                invocation = host(storage).prepare_invocation(
-                    prepared, gateway_id="executor:external-test"
-                )
 
-            # External cognition occurs after durable intent and outside any Host lease.
+            # Cognition executes after one durable semantic request and outside Host lease authority.
             with HostStorage(directory) as concurrent:
                 lease = concurrent.journal.acquire_lease(
                     TASK_ID,
@@ -160,88 +169,74 @@ class CognitionTurnTests(unittest.TestCase):
                     ttl_ms=100,
                 )
                 concurrent.journal.release_lease(lease)
-            decision = ScriptedPreferenceAdapter(
+            selection = ScriptedActionSelector(
                 (DecisionKind.OBSERVE_DISPATCH,)
-            ).decide(invocation.prepared.context)
+            ).select(prepared.context)
 
             with HostStorage(directory) as storage:
-                receipt = host(storage).admit_decision(
-                    invocation,
-                    decision,
-                    evidence={
-                        "executor": "external-test",
-                        "physicalProviderCall": False,
-                        "externalDecision": False,
-                    },
+                receipt = host(storage).admit_selection(
+                    prepared,
+                    selection,
+                    evidence=evidence(),
                     state_reader=admission_state,
                 )
-                self.assertEqual(receipt.revision, 4)
+                self.assertEqual(receipt.revision, 3)
                 self.assertEqual(receipt.selected_action_id, "action:observe-original")
                 projection = storage.journal.get_task(TASK_ID)
-                self.assertIsNotNone(projection)
                 assert projection is not None
                 self.assertEqual(projection.ready_frontier, (receipt.selected_node_id,))
                 kinds = {value.kind for value in storage.journal.object_refs()}
                 self.assertTrue(
                     {
                         "compiled-context",
-                        "model-invocation-intent",
-                        "model-invocation-observation",
-                        "model-invocation-receipt",
-                        "model-decision",
-                        "admitted-decision",
+                        "cognition-work-request",
+                        "action-selection",
+                        "cognition-execution-evidence",
+                        "admitted-action-selection",
                     }.issubset(kinds)
                 )
-                self.assertEqual(storage.journal.event_count(TASK_ID), 4)
-                observation = storage.objects.get(
-                    receipt.invocation_observation_digest,
-                    expected_kind="model-invocation-observation",
+                self.assertEqual(storage.journal.event_count(TASK_ID), 3)
+                retained_evidence = storage.objects.get(
+                    receipt.evidence_object_digest,
+                    expected_kind="cognition-execution-evidence",
                 )
-                self.assertTrue(observation["evidence"]["externalDecision"])
+                self.assertEqual(retained_evidence["sourceRef"], "policy:scripted-test")
 
-    def test_external_execution_failure_leaves_durable_invocation_head(self) -> None:
+    def test_external_failure_leaves_one_durable_semantic_request(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             with HostStorage(directory) as storage:
                 create_task(storage)
-                prepared = host(storage).prepare(
+                prepared = host(storage).request_selection(
                     task_id=TASK_ID,
-                    decision_node_id=DECISION_NODE,
-                    request=cognition_request(),
+                    node_id=DECISION_NODE,
+                    context_request=cognition_request(),
                     token_budget=4_000,
                 )
-                invocation = host(storage).prepare_invocation(
-                    prepared, gateway_id="executor:failing-external"
-                )
-                self.assertEqual(invocation.task_revision, 3)
-            # A Provider/caller failure creates no Host event because Host did not execute it.
+                self.assertEqual(prepared.request.task_revision, 2)
             with HostStorage(directory) as storage:
                 current = storage.journal.get_task(TASK_ID)
-                self.assertIsNotNone(current)
                 assert current is not None
-                self.assertEqual(current.revision, 3)
+                self.assertEqual(current.revision, 2)
                 self.assertEqual(current.state, TaskState.WAITING)
-                self.assertEqual(storage.journal.event_count(TASK_ID), 3)
+                self.assertEqual(storage.journal.event_count(TASK_ID), 2)
                 self.assertEqual(
                     storage.read_task_event(TASK_ID).event_kind,
-                    EventKind.COGNITION_INVOCATION_PREPARED,
+                    EventKind.COGNITION_REQUESTED,
                 )
 
-    def test_external_decision_is_superseded_if_task_advances_before_admission(self) -> None:
+    def test_result_is_superseded_if_task_advances_before_admission(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             with HostStorage(directory) as storage:
                 create_task(storage)
-                prepared = host(storage).prepare(
+                prepared = host(storage).request_selection(
                     task_id=TASK_ID,
-                    decision_node_id=DECISION_NODE,
-                    request=cognition_request(),
+                    node_id=DECISION_NODE,
+                    context_request=cognition_request(),
                     token_budget=4_000,
                 )
-                invocation = host(storage).prepare_invocation(
-                    prepared, gateway_id="executor:external-test"
-                )
-            decision = ScriptedPreferenceAdapter(
+            selection = ScriptedActionSelector(
                 (DecisionKind.OBSERVE_DISPATCH,)
-            ).decide(invocation.prepared.context)
+            ).select(prepared.context)
             with HostStorage(directory) as concurrent:
                 current = concurrent.journal.get_task(TASK_ID)
                 assert current is not None
@@ -262,13 +257,16 @@ class CognitionTurnTests(unittest.TestCase):
                         payload={"source": "concurrent-entrypoint"},
                     )
             with HostStorage(directory) as storage:
-                with self.assertRaisesRegex(CognitionSuperseded, "revision is 4"):
-                    host(storage).admit_decision(
-                        invocation, decision, state_reader=admission_state
+                with self.assertRaisesRegex(CognitionRequestSuperseded, "revision is 3"):
+                    host(storage).admit_selection(
+                        prepared,
+                        selection,
+                        evidence=evidence(),
+                        state_reader=admission_state,
                     )
                 kinds = [value.kind for value in storage.journal.object_refs()]
-                self.assertNotIn("model-decision", kinds)
-                self.assertNotIn("admitted-decision", kinds)
+                self.assertNotIn("action-selection", kinds)
+                self.assertNotIn("admitted-action-selection", kinds)
 
     def test_admission_state_rejects_untyped_execution_identities(self) -> None:
         with self.assertRaisesRegex(ValueError, "completed Effect identities"):

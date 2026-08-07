@@ -10,7 +10,7 @@ from ordivon_host.cognition import (
     DecisionRequest,
     Freshness,
     LoweredMutationProposal,
-    OpenCognitionRequest,
+    OpenContextRequest,
     OpenContextCompiler,
     ProposalIntent,
     ProposalRejection,
@@ -29,7 +29,7 @@ OWNER = "participant:local-owner"
 
 
 def context():
-    request = OpenCognitionRequest(
+    request = OpenContextRequest(
         task_id="task:round1-maintenance",
         world_digest=WORLD,
         blocks=(

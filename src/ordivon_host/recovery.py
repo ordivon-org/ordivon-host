@@ -17,7 +17,7 @@ class RecoveryAction(StrEnum):
     NONE = "none"
     ADVANCE_READ = "advance-read"
     OBSERVE_RUNTIME_DISPATCH = "observe-runtime-dispatch"
-    EXTERNAL_COGNITION_REQUIRED = "external-cognition-required"
+    COGNITION_RESULT_REQUIRED = "cognition-result-required"
     MANUAL_STAGE = "manual-stage"
     UNSUPPORTED = "unsupported"
 
@@ -131,7 +131,7 @@ def assess_recovery(storage: HostStorage, task_id: str) -> RecoveryAssessment:
     if workload == "cognition":
         if (
             projection.state is TaskState.WAITING
-            and snapshot.event_kind.value == "cognition.invocation-prepared"
+            and snapshot.event_kind.value == "cognition.requested"
         ):
             return RecoveryAssessment(
                 task_id,
@@ -140,9 +140,9 @@ def assess_recovery(storage: HostStorage, task_id: str) -> RecoveryAssessment:
                 workload,
                 snapshot.event_kind.value,
                 frontier,
-                RecoveryAction.EXTERNAL_COGNITION_REQUIRED,
+                RecoveryAction.COGNITION_RESULT_REQUIRED,
                 False,
-                "an external cognition result and explicit Host admission state are required",
+                "a semantic cognition result and explicit Host admission state are required",
             )
         return _manual(
             snapshot,

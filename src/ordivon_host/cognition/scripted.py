@@ -1,52 +1,46 @@
 from __future__ import annotations
 
 from .context import CompiledContext, DecisionKind
-from .decision import ModelDecision
+from .decision import ActionSelection
 
 
-class ScriptedPreferenceAdapter:
-    """Pure deterministic decision source for tests and bounded local policy.
+class ScriptedActionSelector:
+    """Pure deterministic action-selection source for tests and bounded local policy.
 
     It performs no Provider, subprocess, network, Tool, or session work. Callers may use
-    it outside the Host admission boundary to produce a ModelDecision fixture.
+    it outside the Host admission boundary to produce an ActionSelection fixture.
     """
-
-    adapter_id = "scripted-preference-v1"
-    gateway_id = adapter_id
 
     def __init__(self, preferred_kinds: tuple[DecisionKind, ...]) -> None:
         if not preferred_kinds:
-            raise ValueError("scripted adapter requires at least one preferred action kind")
+            raise ValueError("scripted selector requires at least one preferred action kind")
         self.preferred_kinds = preferred_kinds
 
     def evidence_metadata(self) -> dict[str, object]:
-        return {"decisionSource": "scripted-preference", "physicalProviderCall": False}
+        return {"sourceKind": "scripted-policy"}
 
-    def invoke(self, context: CompiledContext) -> ModelDecision:
+    def select(self, context: CompiledContext) -> ActionSelection:
         raw_actions = context.payload.get("allowedActions")
         if not isinstance(raw_actions, list) or len(raw_actions) < 2:
-            raise ValueError("scripted adapter requires multiple allowed actions")
+            raise ValueError("scripted selector requires multiple allowed actions")
         for preferred in self.preferred_kinds:
             for raw in raw_actions:
                 if isinstance(raw, dict) and raw.get("kind") == preferred.value:
-                    return _decision_from_action(
+                    return _selection_from_action(
                         context,
                         raw,
                         rationale=f"Selected preferred action kind {preferred.value}.",
                     )
         raise ValueError("no candidate matches the scripted preference order")
 
-    def decide(self, context: CompiledContext) -> ModelDecision:
-        return self.invoke(context)
 
-
-def _decision_from_action(
+def _selection_from_action(
     context: CompiledContext,
     raw: dict[str, object],
     *,
     rationale: str,
-) -> ModelDecision:
-    return ModelDecision(
+) -> ActionSelection:
+    return ActionSelection(
         context_digest=context.digest,
         action_id=str(raw.get("actionId")),
         kind=DecisionKind(str(raw.get("kind"))),
@@ -63,4 +57,4 @@ def _decision_from_action(
 
 
 
-__all__ = ["ScriptedPreferenceAdapter"]
+__all__ = ["ScriptedActionSelector"]

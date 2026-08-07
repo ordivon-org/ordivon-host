@@ -14,10 +14,10 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 
 ### Changed
 
-- current cognition writers no longer invoke Providers: `CognitionTurnHost` admits externally executed decisions only after a durable `PreparedInvocation`, and `OpenProposalHost` exposes explicit prepare/admit boundaries instead of `propose(gateway)`;
-- Codex/Hermes Host-local physical execution moved behind the explicit `ordivon_host.legacy_provider_execution` compatibility namespace; current `ordivon_host.cognition` and `ordivon_host.providers` no longer advertise it;
-- `ProviderSettings` was removed from current `HostConfig` and package-root discovery. Retained `[providers]` config is validated then ignored until compatibility cleanup;
-- cognition recovery now reports `external-cognition-required` rather than instructing Host to `invoke-provider`.
+- cognition durability is now provider-neutral: one `CognitionWorkRequest` moves the exact Task revision to WAITING and declares only Context plus requested semantic result kind; admission consumes `ActionSelection` or `ActionProposal` plus `CognitionExecutionEvidence`;
+- removed Host `ModelInvocation*`, `PreparedInvocation`, `gatewayId`/`adapterId` cognition fields, Provider packages, Codex/Hermes physical execution compatibility modules, and Provider-shaped cognition event kinds;
+- removed `[providers]` from Host configuration entirely; Provider/model configuration belongs to the external cognition executor;
+- cognition recovery now reports `cognition-result-required` for a `cognition.requested` head and never instructs Host to invoke a Provider.
 - the package root now exposes durable Host authority and cross-owner boundary types only; deterministic read, guarded mutation, and code-change workloads remain available explicitly from `ordivon_host.engine`;
 - canonical live workload scripts now import their workload implementations from `ordivon_host.engine`, keeping the default Host surface responsibility-oriented without deleting the proven workloads;
 - the default Runtime transport now uses the stateless MCP `2026-07-28` `server/discover` lifecycle with per-request metadata, `Mcp-Method`, and `Mcp-Name`;
@@ -32,8 +32,7 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 
 ### Compatibility
 
-- retained cognition event kinds, `ModelInvocationIntent`/Observation/Receipt codecs, compiled Context objects, decisions, proposals, and historical CAS edges are unchanged and remain reopenable;
-- deprecated module paths `ordivon_host.providers.gateway`, `ordivon_host.cognition.adapters`, and `ordivon_host.cognition.proposal_adapters` remain import shims to the explicit legacy Provider execution namespace for the pre-1.0 observation window.
+- **Breaking pre-1.0 cleanup:** old Provider-shaped cognition events/objects/import paths and `[providers]` config are intentionally not decoded or aliased. New deployments use only the H3 semantic cognition schema.
 - `PROTOCOL_VERSION`, `ORDIVON_STATELESS_MCP_PROFILE`, and `ORDIVON_SESSION_MCP_PROFILE` retain their original `2025-06-18` compatibility semantics;
 - new code can select `DEFAULT_PROTOCOL_VERSION` or `ORDIVON_MODERN_MCP_PROFILE` for the canonical modern lifecycle;
 - existing durable Task, Journal, CAS, schema, Effect, Dispatch, verification, and recovery objects are unchanged;

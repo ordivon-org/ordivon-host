@@ -84,7 +84,7 @@ The legacy Session decoder remains because retained deployments and historical e
 - A successful Runtime Job or foreign executor Run is not Task completion.
 - External executor completion is retained only as a proposal until a Host-owned workload verifies and decides the Task outcome.
 - Recovery never authorizes blind redispatch after uncertain delivery.
-- Provider calls are external to Host. Host persists `ModelInvocationIntent` before execution and can admit returned semantic evidence, but it neither starts nor resumes a Provider process.
+- Provider calls are external to Host. Host persists only a provider-neutral `CognitionWorkRequest` before execution and admits returned semantic results plus `CognitionExecutionEvidence`; it has no Provider-call schema or Provider execution package.
 - Domain systems must supply authoritative world-state and verification semantics.
 - Full-history Doctor is intentionally slower and explicit.
 - Live evidence covers the tested local Runtime and filesystem path, not host reboot, kernel failure, network partition across machines, or distributed scheduling.

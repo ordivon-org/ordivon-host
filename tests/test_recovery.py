@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 from ordivon_host import HostStorage, RecoveryAction, TaskReconciler, assess_recovery
-from ordivon_host.cognition import CognitionTurnHost
+from ordivon_host.cognition import CognitionHost
 from ordivon_host.domain import StaticRepositoryResolver, TaskState
 from tests.test_cognition_turn import (
     DECISION_NODE,
@@ -91,23 +91,22 @@ class RecoveryTests(unittest.TestCase):
                 self.assertEqual(result.after.state, TaskState.VERIFYING)
                 self.assertEqual(runtime.physical_deliveries, 1)
 
-    def test_cognition_invocation_is_never_automatic(self) -> None:
+    def test_cognition_result_wait_is_never_automatic(self) -> None:
         runtime = FakeReadRuntime()
         with tempfile.TemporaryDirectory() as directory:
             with HostStorage(directory) as storage:
                 create_cognition_task(storage)
-                turn = CognitionTurnHost(
+                turn = CognitionHost(
                     storage, clock_ms=itertools.count(100).__next__
                 )
-                prepared = turn.prepare(
+                turn.request_selection(
                     task_id=COGNITION_TASK_ID,
-                    decision_node_id=DECISION_NODE,
-                    request=cognition_request(),
+                    node_id=DECISION_NODE,
+                    context_request=cognition_request(),
                     token_budget=4_000,
                 )
-                turn.prepare_invocation(prepared, gateway_id="gateway:test")
                 assessment = assess_recovery(storage, COGNITION_TASK_ID)
-                self.assertEqual(assessment.action, RecoveryAction.EXTERNAL_COGNITION_REQUIRED)
+                self.assertEqual(assessment.action, RecoveryAction.COGNITION_RESULT_REQUIRED)
                 self.assertFalse(assessment.automatic)
                 result = reconciler(storage, runtime).reconcile(COGNITION_TASK_ID)
                 self.assertFalse(result.changed)

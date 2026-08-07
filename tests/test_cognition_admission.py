@@ -5,13 +5,13 @@ import unittest
 
 from ordivon_host.cognition import (
     CandidateAction,
-    CognitionRequest,
-    ContextCompiler,
-    DecisionAdmission,
-    DecisionAdmissionError,
+    ClosedChoiceContextRequest,
+    ClosedChoiceContextCompiler,
+    ActionSelectionAdmission,
+    ActionSelectionAdmissionError,
     DecisionKind,
-    ModelDecision,
-    ScriptedPreferenceAdapter,
+    ActionSelection,
+    ScriptedActionSelector,
 )
 
 WORLD = "sha256:" + ("a" * 64)
@@ -20,7 +20,7 @@ DISPATCH = "dispatch:runtime-job-7"
 
 
 def continuation_context():
-    request = CognitionRequest(
+    request = ClosedChoiceContextRequest(
         task_id="task:continue",
         world_digest=WORLD,
         blocks=(),
@@ -45,11 +45,11 @@ def continuation_context():
         forbidden_effect_ids=("effect:completed",),
         unresolved_dispatch_ids=(DISPATCH,),
     )
-    return ContextCompiler().compile(request, token_budget=4_000)
+    return ClosedChoiceContextCompiler().compile(request, token_budget=4_000)
 
 
 def mutation_context():
-    request = CognitionRequest(
+    request = ClosedChoiceContextRequest(
         task_id="task:mutate",
         world_digest=WORLD,
         blocks=(),
@@ -69,16 +69,16 @@ def mutation_context():
             ),
         ),
     )
-    return ContextCompiler().compile(request, token_budget=4_000)
+    return ClosedChoiceContextCompiler().compile(request, token_budget=4_000)
 
 
-class DecisionAdmissionTests(unittest.TestCase):
+class ActionSelectionAdmissionTests(unittest.TestCase):
     def test_multiple_candidates_can_select_and_admit_observation(self) -> None:
         context = continuation_context()
-        decision = ScriptedPreferenceAdapter(
+        decision = ScriptedActionSelector(
             (DecisionKind.OBSERVE_DISPATCH, DecisionKind.REQUEST_HUMAN)
-        ).decide(context)
-        admitted = DecisionAdmission().admit(
+        ).select(context)
+        admitted = ActionSelectionAdmission().admit(
             context,
             decision,
             current_world_digest=WORLD,
@@ -90,10 +90,10 @@ class DecisionAdmissionTests(unittest.TestCase):
 
     def test_decision_for_another_context_is_rejected(self) -> None:
         context = continuation_context()
-        decision = ScriptedPreferenceAdapter((DecisionKind.WAIT,)).decide(context)
+        decision = ScriptedActionSelector((DecisionKind.WAIT,)).select(context)
         forged = replace(decision, context_digest=OTHER_WORLD)
-        with self.assertRaisesRegex(DecisionAdmissionError, "another Context"):
-            DecisionAdmission().admit(
+        with self.assertRaisesRegex(ActionSelectionAdmissionError, "another Context"):
+            ActionSelectionAdmission().admit(
                 context,
                 forged,
                 current_world_digest=WORLD,
@@ -103,7 +103,7 @@ class DecisionAdmissionTests(unittest.TestCase):
 
     def test_invented_action_is_rejected(self) -> None:
         context = continuation_context()
-        decision = ModelDecision(
+        decision = ActionSelection(
             context_digest=context.digest,
             action_id="action:invented",
             kind=DecisionKind.WAIT,
@@ -113,8 +113,8 @@ class DecisionAdmissionTests(unittest.TestCase):
             required_world_digest=None,
             rationale="Invented by the model.",
         )
-        with self.assertRaisesRegex(DecisionAdmissionError, "not one exact"):
-            DecisionAdmission().admit(
+        with self.assertRaisesRegex(ActionSelectionAdmissionError, "not one exact"):
+            ActionSelectionAdmission().admit(
                 context,
                 decision,
                 current_world_digest=WORLD,
@@ -124,11 +124,11 @@ class DecisionAdmissionTests(unittest.TestCase):
 
     def test_world_drift_rejects_previously_valid_mutation(self) -> None:
         context = mutation_context()
-        decision = ScriptedPreferenceAdapter((DecisionKind.PROPOSE_EFFECT,)).decide(
+        decision = ScriptedActionSelector((DecisionKind.PROPOSE_EFFECT,)).select(
             context
         )
-        with self.assertRaisesRegex(DecisionAdmissionError, "world requirement is stale"):
-            DecisionAdmission().admit(
+        with self.assertRaisesRegex(ActionSelectionAdmissionError, "world requirement is stale"):
+            ActionSelectionAdmission().admit(
                 context,
                 decision,
                 current_world_digest=OTHER_WORLD,
@@ -138,11 +138,11 @@ class DecisionAdmissionTests(unittest.TestCase):
 
     def test_completed_effect_is_rechecked_at_admission_time(self) -> None:
         context = mutation_context()
-        decision = ScriptedPreferenceAdapter((DecisionKind.PROPOSE_EFFECT,)).decide(
+        decision = ScriptedActionSelector((DecisionKind.PROPOSE_EFFECT,)).select(
             context
         )
-        with self.assertRaisesRegex(DecisionAdmissionError, "repeat a completed Effect"):
-            DecisionAdmission().admit(
+        with self.assertRaisesRegex(ActionSelectionAdmissionError, "repeat a completed Effect"):
+            ActionSelectionAdmission().admit(
                 context,
                 decision,
                 current_world_digest=WORLD,
@@ -152,11 +152,11 @@ class DecisionAdmissionTests(unittest.TestCase):
 
     def test_new_effect_is_forbidden_when_dispatch_became_unresolved(self) -> None:
         context = mutation_context()
-        decision = ScriptedPreferenceAdapter((DecisionKind.PROPOSE_EFFECT,)).decide(
+        decision = ScriptedActionSelector((DecisionKind.PROPOSE_EFFECT,)).select(
             context
         )
-        with self.assertRaisesRegex(DecisionAdmissionError, "unresolved Dispatch"):
-            DecisionAdmission().admit(
+        with self.assertRaisesRegex(ActionSelectionAdmissionError, "unresolved Dispatch"):
+            ActionSelectionAdmission().admit(
                 context,
                 decision,
                 current_world_digest=WORLD,
@@ -166,11 +166,11 @@ class DecisionAdmissionTests(unittest.TestCase):
 
     def test_observe_must_target_current_unresolved_dispatch(self) -> None:
         context = continuation_context()
-        decision = ScriptedPreferenceAdapter((DecisionKind.OBSERVE_DISPATCH,)).decide(
+        decision = ScriptedActionSelector((DecisionKind.OBSERVE_DISPATCH,)).select(
             context
         )
-        with self.assertRaisesRegex(DecisionAdmissionError, "another Dispatch"):
-            DecisionAdmission().admit(
+        with self.assertRaisesRegex(ActionSelectionAdmissionError, "another Dispatch"):
+            ActionSelectionAdmission().admit(
                 context,
                 decision,
                 current_world_digest=WORLD,

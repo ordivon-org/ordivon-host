@@ -40,23 +40,14 @@ class HostConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unsupported"):
                 load_config(path, environ={})
 
-    def test_legacy_provider_table_is_accepted_but_not_projected(self) -> None:
+    def test_provider_table_is_rejected_as_removed_host_authority(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "host.toml"
             path.write_text(
                 "[providers]\ncodex_executable='legacy-codex'\n"
-                "hermes_executable='legacy-hermes'\ntimeout_seconds=12\n"
             )
-            config = load_config(path, environ={})
-            self.assertFalse(hasattr(config, "providers"))
-            self.assertNotIn("providers", config.to_dict())
-
-    def test_legacy_provider_table_still_fails_closed_on_invalid_values(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "host.toml"
-            path.write_text("[providers]\ntimeout_seconds=0\n")
-            with self.assertRaisesRegex(ValueError, "positive integer"):
-                load_config(path, environ={})
+            with self.assertRaisesRegex(ValueError, "unsupported fields"):
+                load_config(path)
 
     def test_token_file_is_bounded_and_single_token(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

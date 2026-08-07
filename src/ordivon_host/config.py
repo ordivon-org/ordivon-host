@@ -82,10 +82,9 @@ def load_config(
         raw = value
     elif path is not None:
         raise FileNotFoundError(config_path)
-    _check_keys(raw, {"state", "runtime", "providers", "repositories"}, "Host config")
+    _check_keys(raw, {"state", "runtime", "repositories"}, "Host config")
     state = _table(raw.get("state"), "state")
     runtime = _table(raw.get("runtime"), "runtime")
-    providers = _table(raw.get("providers"), "providers")
     repositories = _table(raw.get("repositories"), "repositories")
     _check_keys(state, {"root", "receipt_root"}, "state")
     _check_keys(
@@ -93,12 +92,6 @@ def load_config(
         {"endpoint", "token_file", "timeout_seconds", "max_response_bytes"},
         "runtime",
     )
-    _check_keys(
-        providers,
-        {"codex_executable", "hermes_executable", "timeout_seconds"},
-        "providers",
-    )
-    _validate_legacy_provider_table(providers)
     state_root = Path(
         env.get("ORDIVON_HOST_STATE_ROOT", str(state.get("root", DEFAULT_STATE_ROOT)))
     )
@@ -136,18 +129,6 @@ def load_config(
     )
 
 
-
-def _validate_legacy_provider_table(value: dict[str, object]) -> None:
-    """Accept pre-H2 Provider config without making it current Host authority."""
-    for field in ("codex_executable", "hermes_executable"):
-        executable = value.get(field)
-        if executable is not None and (
-            not isinstance(executable, str) or not executable.strip()
-        ):
-            raise ValueError(f"providers.{field} must be a non-empty string")
-    timeout = value.get("timeout_seconds")
-    if timeout is not None and (type(timeout) is not int or timeout < 1):
-        raise ValueError("providers.timeout_seconds must be a positive integer")
 
 def read_token_file(path: str | Path, *, max_bytes: int = 16_384) -> str:
     token_path = Path(path)

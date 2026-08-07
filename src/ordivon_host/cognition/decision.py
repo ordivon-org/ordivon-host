@@ -8,12 +8,12 @@ from anc_canonical import JsonValue
 from .context import CandidateAction, CompiledContext, DecisionKind
 
 
-class DecisionAdmissionError(RuntimeError):
+class ActionSelectionAdmissionError(RuntimeError):
     pass
 
 
 @dataclass(frozen=True, slots=True)
-class ModelDecision:
+class ActionSelection:
     context_digest: str
     action_id: str
     kind: DecisionKind
@@ -32,7 +32,7 @@ class ModelDecision:
                 for character in self.context_digest[7:]
             )
         ):
-            raise ValueError("ModelDecision context digest is invalid")
+            raise ValueError("ActionSelection context digest is invalid")
         CandidateAction(
             action_id=self.action_id,
             kind=self.kind,
@@ -45,9 +45,11 @@ class ModelDecision:
 
     def to_dict(self) -> dict[str, JsonValue]:
         return {
+            "schemaVersion": 1,
+            "kind": "ordivon.action-selection",
             "contextDigest": self.context_digest,
             "actionId": self.action_id,
-            "kind": self.kind.value,
+            "actionKind": self.kind.value,
             "effectId": self.effect_id,
             "bindingId": self.binding_id,
             "dispatchId": self.dispatch_id,
@@ -56,22 +58,28 @@ class ModelDecision:
         }
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> ModelDecision:
+    def from_dict(cls, value: dict[str, Any]) -> ActionSelection:
         expected = {
+            "schemaVersion",
+            "kind",
             "contextDigest",
             "actionId",
-            "kind",
+            "actionKind",
             "effectId",
             "bindingId",
             "dispatchId",
             "requiredWorldDigest",
             "rationale",
         }
-        if set(value) != expected:
-            raise ValueError("ModelDecision fields differ")
-        required_strings = ("contextDigest", "actionId", "kind", "rationale")
+        if (
+            set(value) != expected
+            or value.get("schemaVersion") != 1
+            or value.get("kind") != "ordivon.action-selection"
+        ):
+            raise ValueError("ActionSelection fields, version, or kind differ")
+        required_strings = ("contextDigest", "actionId", "actionKind", "rationale")
         if any(not isinstance(value[field], str) for field in required_strings):
-            raise ValueError("ModelDecision required fields must be strings")
+            raise ValueError("ActionSelection required fields must be strings")
         for field in (
             "effectId",
             "bindingId",
@@ -83,7 +91,7 @@ class ModelDecision:
         return cls(
             context_digest=value["contextDigest"],
             action_id=value["actionId"],
-            kind=DecisionKind(value["kind"]),
+            kind=DecisionKind(value["actionKind"]),
             effect_id=value["effectId"],
             binding_id=value["bindingId"],
             dispatch_id=value["dispatchId"],
@@ -93,7 +101,7 @@ class ModelDecision:
 
 
 @dataclass(frozen=True, slots=True)
-class AdmittedDecision:
+class AdmittedActionSelection:
     context_digest: str
     action: CandidateAction
     rationale: str
@@ -101,76 +109,76 @@ class AdmittedDecision:
     def to_dict(self) -> dict[str, JsonValue]:
         return {
             "schemaVersion": 1,
-            "kind": "ordivon.admitted-model-decision",
+            "kind": "ordivon.admitted-action-selection",
             "contextDigest": self.context_digest,
             "action": self.action.to_dict(),
             "rationale": self.rationale,
         }
 
 
-class DecisionAdmission:
+class ActionSelectionAdmission:
     def admit(
         self,
         context: CompiledContext,
-        decision: ModelDecision,
+        selection: ActionSelection,
         *,
         current_world_digest: str,
         completed_effect_ids: tuple[str, ...],
         unresolved_dispatch_ids: tuple[str, ...],
-    ) -> AdmittedDecision:
-        if decision.context_digest != context.digest:
-            raise DecisionAdmissionError("model decision targets another Context")
+    ) -> AdmittedActionSelection:
+        if selection.context_digest != context.digest:
+            raise ActionSelectionAdmissionError("action selection targets another Context")
         raw_actions = context.payload.get("allowedActions")
         if not isinstance(raw_actions, list):
-            raise DecisionAdmissionError("CompiledContext has no allowed action list")
+            raise ActionSelectionAdmissionError("CompiledContext has no allowed action list")
         exact = [
             value
             for value in raw_actions
             if isinstance(value, dict)
-            and value.get("actionId") == decision.action_id
-            and value.get("kind") == decision.kind.value
-            and value.get("effectId") == decision.effect_id
-            and value.get("bindingId") == decision.binding_id
-            and value.get("dispatchId") == decision.dispatch_id
-            and value.get("requiredWorldDigest") == decision.required_world_digest
+            and value.get("actionId") == selection.action_id
+            and value.get("kind") == selection.kind.value
+            and value.get("effectId") == selection.effect_id
+            and value.get("bindingId") == selection.binding_id
+            and value.get("dispatchId") == selection.dispatch_id
+            and value.get("requiredWorldDigest") == selection.required_world_digest
         ]
         if len(exact) != 1:
-            raise DecisionAdmissionError("model decision is not one exact allowed action")
+            raise ActionSelectionAdmissionError("action selection is not one exact allowed action")
         raw = exact[0]
         summary = raw.get("summary")
         if not isinstance(summary, str):
-            raise DecisionAdmissionError("allowed action summary is invalid")
+            raise ActionSelectionAdmissionError("allowed action summary is invalid")
         action = CandidateAction(
-            action_id=decision.action_id,
-            kind=decision.kind,
+            action_id=selection.action_id,
+            kind=selection.kind,
             summary=summary,
-            effect_id=decision.effect_id,
-            binding_id=decision.binding_id,
-            dispatch_id=decision.dispatch_id,
-            required_world_digest=decision.required_world_digest,
+            effect_id=selection.effect_id,
+            binding_id=selection.binding_id,
+            dispatch_id=selection.dispatch_id,
+            required_world_digest=selection.required_world_digest,
         )
         forbidden = context.payload.get("forbiddenEffects")
         if not isinstance(forbidden, list) or any(
             not isinstance(value, str) for value in forbidden
         ):
-            raise DecisionAdmissionError("CompiledContext forbidden Effects are invalid")
+            raise ActionSelectionAdmissionError("CompiledContext forbidden Effects are invalid")
         completed = set(completed_effect_ids) | set(forbidden)
         if action.effect_id is not None and action.effect_id in completed:
-            raise DecisionAdmissionError("model attempted to repeat a completed Effect")
+            raise ActionSelectionAdmissionError("selection attempted to repeat a completed Effect")
         if (
             action.required_world_digest is not None
             and action.required_world_digest != current_world_digest
         ):
-            raise DecisionAdmissionError("candidate world requirement is stale")
+            raise ActionSelectionAdmissionError("candidate world requirement is stale")
         unresolved = set(unresolved_dispatch_ids)
         if action.kind is DecisionKind.OBSERVE_DISPATCH:
             if action.dispatch_id not in unresolved:
-                raise DecisionAdmissionError("observe decision targets another Dispatch")
+                raise ActionSelectionAdmissionError("observe selection targets another Dispatch")
         elif unresolved and action.kind in {
             DecisionKind.PROPOSE_EFFECT,
             DecisionKind.FINISH_CANDIDATE,
         }:
-            raise DecisionAdmissionError(
+            raise ActionSelectionAdmissionError(
                 "unresolved Dispatch forbids another Effect or completion"
             )
-        return AdmittedDecision(context.digest, action, decision.rationale)
+        return AdmittedActionSelection(context.digest, action, selection.rationale)

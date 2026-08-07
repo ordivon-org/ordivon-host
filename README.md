@@ -47,7 +47,7 @@ participant or application intent
 
 Host owns durable Tasks, Goal-scoped Task coordination, Journal/CAS state, Contexts, proposal compilation or admission, Effect commitments, Runtime Dispatch identities, participant-routed DecisionRequests, verification receipts, conservative recovery, and Task outcomes.
 
-Host does **not** own model intelligence, Provider invocation or process continuity, physical process supervision, Workspace or Job truth, domain-world truth, or a permanent hierarchy among participants. Current cognition APIs persist semantic Context and invocation intent, then admit externally produced decisions or proposals; they never call a model Provider themselves.
+Host does **not** own model intelligence, Provider invocation or process continuity, physical process supervision, Workspace or Job truth, domain-world truth, or a permanent hierarchy among participants. Current cognition APIs persist a semantic `CognitionWorkRequest` containing the exact Context and requested result kind, then admit externally produced action selections or proposals with provider-neutral provenance. Host never models or executes a Provider call.
 
 ## Responsibility boundary
 
@@ -72,7 +72,7 @@ Current proven slices include:
 - deterministic Runtime repository read with independent digest verification;
 - guarded mutation with durable Dispatch identity, explicit UNKNOWN, original-Job reconciliation, and no blind redispatch;
 - version-bound two-file source change with structured Runtime checks, exact diff evidence, and compare-and-close;
-- closed-choice cognition and open ActionProposal admission with durable pre-execution invocation intent, external cognition execution, and Host-owned lowering or structured rejection;
+- closed-choice action selection and open ActionProposal admission with one durable semantic cognition request, provider-neutral execution evidence, and Host-owned lowering or structured rejection;
 - participant-aware DecisionRequest lifecycle for shared, foreign-owned, irreversible, or uncertain consequences;
 - Goal-scoped Task revision snapshots and idempotent joint VerificationReceipt application;
 - generic extension event and CAS admission used by the independently versioned Harness repository;

@@ -104,7 +104,7 @@ max_response_bytes = 2097152
 
 The `[runtime]` table configures the canonical modern MCP client. Host uses `2026-07-28` `server/discover`, verifies Runtime support, sends per-request client metadata, and binds method or Tool identity through `Mcp-Method` and `Mcp-Name`. The retained `2025-06-18` Session profile is available only when explicitly selected in code; configuration does not silently downgrade the lifecycle.
 
-Pre-H2 configuration may still contain a `[providers]` table with `codex_executable`, `hermes_executable`, and `timeout_seconds`. Host validates those legacy values so malformed retained configuration still fails closed, but it discards them: they are absent from `HostConfig` and `ordivon-host config show`, and no current Host writer reads them. Provider configuration belongs to the external cognition executor, normally `ordivon-harness`. The compatibility input is retained only until the later cleanup phase can prove it is no longer needed.
+`[providers]` is not a Host configuration surface. Provider and model configuration belongs to the cognition executor, normally `ordivon-harness`; a `[providers]` table now fails as an unsupported Host config field.
 
 `ORDIVON_HOST_STATE_ROOT`, `ORDIVON_HOST_RECEIPT_ROOT`, `ORDIVON_MCP_ENDPOINT`, and `ORDIVON_BEARER_TOKEN_FILE` may override non-secret configuration. The bearer token itself is read from a regular non-symlink `token_file` with no group/other permission bits; the CLI exposes no token argument.
 

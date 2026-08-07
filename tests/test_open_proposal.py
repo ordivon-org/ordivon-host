@@ -20,10 +20,11 @@ from ordivon_host.cognition import (
     ActionProposal,
     BlockKind,
     ConsequenceClass,
+    CognitionExecutionEvidence,
     DecisionRequest,
     Freshness,
     LoweredReadProposal,
-    OpenCognitionRequest,
+    OpenContextRequest,
     OpenContextCompiler,
     OpenProposalHost,
     ProposalIntent,
@@ -144,8 +145,8 @@ class FakeRuntime:
         raise AssertionError(f"unexpected Tool: {name}")
 
 
-def request(*, profile_id: str = OWNER_TRUSTED_PROFILE_ID) -> OpenCognitionRequest:
-    return OpenCognitionRequest(
+def request(*, profile_id: str = OWNER_TRUSTED_PROFILE_ID) -> OpenContextRequest:
+    return OpenContextRequest(
         task_id=PARENT_TASK,
         world_digest=WORLD,
         blocks=(
@@ -305,14 +306,11 @@ class OpenProposalTests(unittest.TestCase):
                     goal_id=GOAL,
                     proposal_node_id=PROPOSAL_NODE,
                 )
-                prepared = host.prepare(
+                prepared = host.request(
                     task_id=PARENT_TASK,
                     proposal_node_id=PROPOSAL_NODE,
-                    request=request(),
+                    context_request=request(),
                     token_budget=4_000,
-                )
-                invocation = host.prepare_invocation(
-                    prepared, executor_id="executor:fixture-open-proposal"
                 )
                 action = proposal(prepared.context)
                 token = action.digest[7:23]
@@ -340,18 +338,21 @@ class OpenProposalTests(unittest.TestCase):
                 self.assertEqual(storage.journal.event_count(child_task_id), 1)
                 self.assertEqual(
                     storage.read_task_event(PARENT_TASK).event_kind.value,
-                    "cognition.invocation-prepared",
+                    "cognition.requested",
                 )
 
             with HostStorage(directory) as storage:
                 receipt = open_host(storage, runtime).admit_proposal(
-                    invocation,
+                    prepared,
                     action,
-                    evidence={"recoveredAfterChildCommitGap": True},
+                    evidence=CognitionExecutionEvidence(
+                        source_ref="policy:fixture-open-proposal",
+                        metadata={"recoveredAfterChildCommitGap": True},
+                    ),
                 )
                 self.assertEqual(receipt.child_task_id, child_task_id)
                 self.assertEqual(storage.journal.event_count(child_task_id), 1)
-                self.assertEqual(storage.journal.event_count(PARENT_TASK), 4)
+                self.assertEqual(storage.journal.event_count(PARENT_TASK), 3)
 
     def test_decision_request_is_persisted_without_a_child_effect(self) -> None:
         runtime = FakeRuntime()
@@ -363,21 +364,21 @@ class OpenProposalTests(unittest.TestCase):
                     goal_id=GOAL,
                     proposal_node_id=PROPOSAL_NODE,
                 )
-                prepared = host.prepare(
+                prepared = host.request(
                     task_id=PARENT_TASK,
                     proposal_node_id=PROPOSAL_NODE,
-                    request=request(),
+                    context_request=request(),
                     token_budget=4_000,
                 )
-                invocation = host.prepare_invocation(
-                    prepared, executor_id="executor:fixture-open-proposal"
-                )
                 receipt = host.admit_proposal(
-                    invocation,
+                    prepared,
                     proposal(
                         prepared.context,
                         consequence=ConsequenceClass.SHARED_REVERSIBLE,
                         participants=("participant:another",),
+                    ),
+                    evidence=CognitionExecutionEvidence(
+                        source_ref="policy:fixture-open-proposal",
                     ),
                 )
                 self.assertEqual(
@@ -402,26 +403,28 @@ class OpenProposalTests(unittest.TestCase):
                     goal_id=GOAL,
                     proposal_node_id=PROPOSAL_NODE,
                 )
-                prepared = host.prepare(
+                prepared = host.request(
                     task_id=PARENT_TASK,
                     proposal_node_id=PROPOSAL_NODE,
-                    request=request(),
+                    context_request=request(),
                     token_budget=4_000,
-                )
-                invocation = host.prepare_invocation(
-                    prepared,
-                    executor_id="executor:fixture-open-proposal",
                 )
                 action = proposal(prepared.context)
                 receipt = host.admit_proposal(
-                    invocation,
+                    prepared,
                     action,
-                    evidence={"physicalProviderCall": False},
+                    evidence=CognitionExecutionEvidence(
+                        source_ref="policy:fixture-open-proposal",
+                        metadata={"sourceKind": "deterministic-policy"},
+                    ),
                 )
                 replayed = host.admit_proposal(
-                    invocation,
+                    prepared,
                     action,
-                    evidence={"physicalProviderCall": False},
+                    evidence=CognitionExecutionEvidence(
+                        source_ref="policy:fixture-open-proposal",
+                        metadata={"sourceKind": "deterministic-policy"},
+                    ),
                 )
                 self.assertEqual(receipt, replayed)
                 self.assertEqual(receipt.resolution_kind, ProposalResolutionKind.LOWERED)
@@ -433,7 +436,7 @@ class OpenProposalTests(unittest.TestCase):
                 assessment = assess_recovery(storage, PARENT_TASK)
                 self.assertEqual(assessment.action, RecoveryAction.MANUAL_STAGE)
                 self.assertNotEqual(
-                    assessment.action, RecoveryAction.EXTERNAL_COGNITION_REQUIRED
+                    assessment.action, RecoveryAction.COGNITION_RESULT_REQUIRED
                 )
                 child_task_id = receipt.child_task_id
                 assert child_task_id is not None

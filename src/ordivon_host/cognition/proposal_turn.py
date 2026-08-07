@@ -11,23 +11,25 @@ from ..engine.read_task import DeterministicReadHost
 from ..journal import JournalCorruption
 from ..kernel import worker_owner_id
 from ..objects import ObjectCorrupt
-from ..providers import (
-    ModelInvocationOutputObservation,
-    ModelInvocationReceipt,
-)
 from ..storage import HostStorage
 from ..runtime import RuntimeClient
 from .proposal import (
     ActionProposal,
     DecisionRequest,
     LoweredReadProposal,
-    OpenCognitionRequest,
+    OpenContextRequest,
     OpenContextCompiler,
     ProposalRejection,
     ProposalResolutionKind,
     RepositoryReadProposalCompiler,
 )
-from .turn import CognitionSuperseded, CognitionTurnHost, PreparedCognition, PreparedInvocation
+from .turn import (
+    CognitionExecutionEvidence,
+    CognitionHost,
+    CognitionRequestSuperseded,
+    CognitionResultKind,
+    PreparedCognitionRequest,
+)
 
 
 
@@ -39,9 +41,9 @@ class OpenProposalReceipt:
     proposal_object_digest: str
     resolution_kind: ProposalResolutionKind
     resolution_object_digest: str
-    invocation_id: str
-    invocation_receipt_digest: str
-    output_observation_digest: str
+    cognition_request_id: str
+    request_object_digest: str
+    evidence_object_digest: str
     child_task_id: str | None
     decision_request_id: str | None
 
@@ -55,9 +57,9 @@ class OpenProposalReceipt:
             "proposalObjectDigest": self.proposal_object_digest,
             "resolutionKind": self.resolution_kind.value,
             "resolutionObjectDigest": self.resolution_object_digest,
-            "invocationId": self.invocation_id,
-            "invocationReceiptDigest": self.invocation_receipt_digest,
-            "outputObservationDigest": self.output_observation_digest,
+            "cognitionRequestId": self.cognition_request_id,
+            "requestObjectDigest": self.request_object_digest,
+            "evidenceObjectDigest": self.evidence_object_digest,
             "childTaskId": self.child_task_id,
             "decisionRequestId": self.decision_request_id,
         }
@@ -82,10 +84,10 @@ class OpenProposalHost:
         self.clock_ms = clock_ms
         self.repository_resolver = repository_resolver or StaticRepositoryResolver({})
         self.profiles = profiles or CapabilityProfileAuthorizer()
-        self.cognition = CognitionTurnHost(
+        self.cognition = CognitionHost(
             storage,
             clock_ms=clock_ms,
-            owner_id=owner_id or worker_owner_id("host:open-proposal-v1"),
+            owner_id=owner_id or worker_owner_id("host:open-proposal-v2"),
             lease_ttl_ms=lease_ttl_ms,
         )
         self.context_compiler = OpenContextCompiler()
@@ -112,57 +114,54 @@ class OpenProposalHost:
             frontier=(proposal_node_id,),
         ).projection
 
-    def prepare(
+    def request(
         self,
         *,
         task_id: str,
         proposal_node_id: str,
-        request: OpenCognitionRequest,
+        context_request: OpenContextRequest,
         token_budget: int,
-    ) -> PreparedCognition:
-        if request.task_id != task_id:
-            raise ValueError("OpenCognitionRequest belongs to another Task")
-        context = self.context_compiler.compile(request, token_budget=token_budget)
-        return self.cognition.prepare_compiled(
+    ) -> PreparedCognitionRequest:
+        if context_request.task_id != task_id:
+            raise ValueError("OpenContextRequest belongs to another Task")
+        context = self.context_compiler.compile(
+            context_request, token_budget=token_budget
+        )
+        return self.cognition.request_compiled(
             task_id=task_id,
-            decision_node_id=proposal_node_id,
+            node_id=proposal_node_id,
             context=context,
+            result_kind=CognitionResultKind.ACTION_PROPOSAL,
             token_budget=token_budget,
         )
 
-    def prepare_invocation(
-        self,
-        prepared: PreparedCognition,
-        *,
-        executor_id: str,
-    ) -> PreparedInvocation:
-        """Persist external cognition intent before caller-owned proposal execution."""
-        return self.cognition.prepare_invocation(prepared, gateway_id=executor_id)
-
     def admit_proposal(
         self,
-        invocation: PreparedInvocation,
+        prepared: PreparedCognitionRequest,
         proposal: ActionProposal,
         *,
-        evidence: dict[str, JsonValue] | None = None,
+        evidence: CognitionExecutionEvidence,
     ) -> OpenProposalReceipt:
-        existing = self._existing_receipt(invocation.prepared.task_id, proposal)
+        if prepared.request.result_kind is not CognitionResultKind.ACTION_PROPOSAL:
+            raise ValueError("Cognition Work Request does not accept an ActionProposal")
+        existing = self._existing_receipt(prepared.request.task_id, proposal)
         if existing is not None:
             return existing
-        prepared = invocation.prepared
         with self.cognition.kernel.locked_task(
-            prepared.task_id,
-            expected_revision=invocation.task_revision,
+            prepared.request.task_id,
+            expected_revision=prepared.request.task_revision,
             expected_state=TaskState.WAITING,
-            expected_frontier=(prepared.decision_node_id,),
+            expected_frontier=(prepared.request.node_id,),
             label="Open proposal",
             error_factory=self._kernel_error,
         ) as locked:
-            latest = self.cognition.load_invocation(prepared.task_id)
-            if latest.intent != invocation.intent:
-                raise CognitionSuperseded("model invocation changed before proposal admission")
+            latest = self.cognition.load_request(prepared.request.task_id)
+            if latest.request != prepared.request:
+                raise CognitionRequestSuperseded(
+                    "Cognition Work Request changed before proposal admission"
+                )
             token = proposal.digest[7:23]
-            parent_token = prepared.task_id.removeprefix("task:")
+            parent_token = prepared.request.task_id.removeprefix("task:")
             child_task_id = f"task:{parent_token}:read-{token}"
             workspace_id = f"host-proposal-read-{token}"
             resolution = self.proposal_compiler.compile(
@@ -175,16 +174,8 @@ class OpenProposalHost:
             proposal_object = self.storage.put_object(
                 proposal.to_dict(), kind="action-proposal"
             )
-            output_observation = ModelInvocationOutputObservation(
-                invocation_id=invocation.intent.invocation_id,
-                gateway_id=invocation.intent.gateway_id,
-                output_kind="action-proposal",
-                output_object_digest=proposal_object.digest,
-                evidence=evidence or {},
-            )
-            output_object = self.storage.put_object(
-                output_observation.to_dict(),
-                kind="model-invocation-output-observation",
+            evidence_object = self.storage.put_object(
+                evidence.to_dict(), kind="cognition-execution-evidence"
             )
             if isinstance(resolution, LoweredReadProposal):
                 resolution_kind = ProposalResolutionKind.LOWERED
@@ -197,7 +188,7 @@ class OpenProposalHost:
                     clock_ms=self.clock_ms,
                     repository_resolver=self.repository_resolver,
                     authorizer=self.profiles.bind(resolution.capability_profile_id),
-                    owner_id=worker_owner_id("host:open-proposal-read-v1"),
+                    owner_id=worker_owner_id("host:open-proposal-read-v2"),
                 )
                 read_host.create(resolution.plan)
                 next_state = TaskState.WAITING
@@ -219,37 +210,26 @@ class OpenProposalHost:
                     resolution.to_dict(), kind="proposal-rejection"
                 )
                 next_state = TaskState.READY
-                next_frontier = (prepared.decision_node_id,)
+                next_frontier = (prepared.request.node_id,)
                 retained_child_id = None
                 decision_request_id = None
             else:
                 raise TypeError("unsupported proposal resolution")
-            invocation_receipt = ModelInvocationReceipt(
-                invocation_id=invocation.intent.invocation_id,
-                intent_object_digest=invocation.intent_object.digest,
-                observation_object_digest=output_object.digest,
-                admission_object_digest=resolution_object.digest,
-            )
-            invocation_receipt_object = self.storage.put_object(
-                invocation_receipt.to_dict(), kind="model-invocation-receipt"
-            )
             projection = locked.commit(
                 event_id=self._event_id(
-                    prepared.task_id,
+                    prepared.request.task_id,
                     "proposal",
                     locked.projection.revision + 1,
                 ),
                 kind=EventKind.COGNITION_PROPOSAL_RESOLVED,
                 payload={
+                    "cognitionRequestId": prepared.request.request_id,
+                    "requestObjectDigest": prepared.request_object.digest,
+                    "evidenceObjectDigest": evidence_object.digest,
                     "proposalDigest": proposal.digest,
                     "proposalObjectDigest": proposal_object.digest,
                     "resolutionKind": resolution_kind.value,
                     "resolutionObjectDigest": resolution_object.digest,
-                    "invocationId": invocation.intent.invocation_id,
-                    "gatewayId": invocation.intent.gateway_id,
-                    "intentObjectDigest": invocation.intent_object.digest,
-                    "outputObservationDigest": output_object.digest,
-                    "invocationReceiptDigest": invocation_receipt_object.digest,
                     "childTaskId": retained_child_id,
                     "decisionRequestId": decision_request_id,
                 },
@@ -257,23 +237,22 @@ class OpenProposalHost:
                 frontier=next_frontier,
                 referenced_objects=(
                     prepared.context_object,
-                    invocation.intent_object,
+                    prepared.request_object,
                     proposal_object,
-                    output_object,
+                    evidence_object,
                     resolution_object,
-                    invocation_receipt_object,
                 ),
             ).projection
             return OpenProposalReceipt(
-                task_id=prepared.task_id,
+                task_id=prepared.request.task_id,
                 revision=projection.revision,
                 proposal_digest=proposal.digest,
                 proposal_object_digest=proposal_object.digest,
                 resolution_kind=resolution_kind,
                 resolution_object_digest=resolution_object.digest,
-                invocation_id=invocation.intent.invocation_id,
-                invocation_receipt_digest=invocation_receipt_object.digest,
-                output_observation_digest=output_object.digest,
+                cognition_request_id=prepared.request.request_id,
+                request_object_digest=prepared.request_object.digest,
+                evidence_object_digest=evidence_object.digest,
                 child_task_id=retained_child_id,
                 decision_request_id=decision_request_id,
             )
@@ -364,14 +343,14 @@ class OpenProposalHost:
         if not isinstance(data, dict):
             raise ObjectCorrupt("proposal resolution event data must be an object")
         if data.get("proposalDigest") != proposal.digest:
-            raise CognitionSuperseded("Task already resolved another ActionProposal")
+            raise CognitionRequestSuperseded("Task already resolved another ActionProposal")
         required = (
             "proposalObjectDigest",
             "resolutionKind",
             "resolutionObjectDigest",
-            "invocationId",
-            "invocationReceiptDigest",
-            "outputObservationDigest",
+            "cognitionRequestId",
+            "requestObjectDigest",
+            "evidenceObjectDigest",
         )
         if any(not isinstance(data.get(field), str) for field in required):
             raise ObjectCorrupt("proposal resolution receipt fields are invalid")
@@ -388,9 +367,9 @@ class OpenProposalHost:
             proposal_object_digest=data["proposalObjectDigest"],
             resolution_kind=ProposalResolutionKind(data["resolutionKind"]),
             resolution_object_digest=data["resolutionObjectDigest"],
-            invocation_id=data["invocationId"],
-            invocation_receipt_digest=data["invocationReceiptDigest"],
-            output_observation_digest=data["outputObservationDigest"],
+            cognition_request_id=data["cognitionRequestId"],
+            request_object_digest=data["requestObjectDigest"],
+            evidence_object_digest=data["evidenceObjectDigest"],
             child_task_id=child_task_id,
             decision_request_id=decision_request_id,
         )
@@ -400,7 +379,7 @@ class OpenProposalHost:
         if category == "missing":
             return KeyError(message)
         if category == "revision":
-            return CognitionSuperseded(message)
+            return CognitionRequestSuperseded(message)
         return JournalCorruption(message)
 
     @staticmethod
