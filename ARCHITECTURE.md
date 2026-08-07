@@ -62,6 +62,23 @@ Checkpoint mutation is revision-safe. If `expectedRevision = r` commits at `r+1`
 
 `task resume` combines the current `TaskProjection`, `OperatorHandoffCapsule`, and latest `WorkingCheckpoint`. It never invokes Runtime or a Provider. The intended recovery loop is: Host semantic checkpoint → Runtime/Git/domain revalidation → continued work → new semantic checkpoint.
 
+H-C2 exposes this same authority through a thin Host MCP transport. The MCP server is loopback-only, bearer-authenticated, stateless at the transport layer, and opens a fresh `HostStorage` per Tool request. It exposes only `task.list`, `task.resume`, `task.adopt`, and `task.checkpoint`; transport sessions, HTTP connections, client identity, and MCP request state are never persisted into Task continuity. The official MCP SDK owns protocol lifecycle while Host continues to own only the H-C1 semantic transitions.
+
+```text
+external Agent / ChatGPT
+        │
+        ▼
+Host MCP  (auth + protocol only)
+        │
+        ▼
+ExternalContinuityHost
+        │
+        ▼
+Journal / CAS
+        │
+        └── navigation refs ──> Runtime / Git / domain truth
+```
+
 ## Data flow
 
 Participant or application intent becomes a durable Task and Context; replaceable cognition proposes or selects work; Host validates and commits Effect identity before delivery; Runtime executes; observations are independently verified; Host admits a terminal Task outcome or retains explicit uncertainty for reconciliation.

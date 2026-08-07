@@ -130,22 +130,33 @@ def load_config(
 
 
 
-def read_token_file(path: str | Path, *, max_bytes: int = 16_384) -> str:
+def read_private_token_file(
+    path: str | Path,
+    *,
+    label: str = "Bearer token",
+    max_bytes: int = 16_384,
+) -> str:
     token_path = Path(path)
     try:
         metadata = token_path.lstat()
     except FileNotFoundError:
         raise
     if token_path.is_symlink() or not stat.S_ISREG(metadata.st_mode):
-        raise ValueError("Runtime token path must be a regular file")
+        raise ValueError(f"{label} path must be a regular file")
     if stat.S_IMODE(metadata.st_mode) & 0o077:
-        raise PermissionError("Runtime token file must not be accessible by group or others")
+        raise PermissionError(f"{label} file must not be accessible by group or others")
     if metadata.st_size > max_bytes:
-        raise ValueError("Runtime token file exceeds the configured bound")
+        raise ValueError(f"{label} file exceeds the configured bound")
     token = token_path.read_text().strip()
     if not token or any(character.isspace() for character in token):
-        raise ValueError("Runtime token file must contain one non-whitespace token")
+        raise ValueError(f"{label} file must contain one non-whitespace token")
     return token
+
+
+def read_token_file(path: str | Path, *, max_bytes: int = 16_384) -> str:
+    return read_private_token_file(
+        path, label="Runtime token", max_bytes=max_bytes
+    )
 
 
 def _table(value: object, label: str) -> dict[str, object]:

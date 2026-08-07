@@ -14,7 +14,7 @@ audience:
   - builder
   - operator
   - agent
-updated: 2026-08-04
+updated: 2026-08-08
 summary: Canonical entry to Host Task continuity, commitment, uncertainty, evidence admission, verification, recovery, and extension boundaries.
 evidence_status: verified
 readiness: READY
@@ -77,7 +77,8 @@ Current proven slices include:
 - Goal-scoped Task revision snapshots and idempotent joint VerificationReceipt application;
 - generic extension event and CAS admission used by the independently versioned Harness repository;
 - recovery across fresh Host processes and local Runtime control-plane restarts;
-- modern stateless Runtime MCP transport with explicit retained legacy decoding.
+- modern stateless Runtime MCP transport with explicit retained legacy decoding;
+- authenticated loopback Host MCP exposing bounded Task discovery plus external-continuity resume/adopt/checkpoint operations without making MCP transport state durable.
 
 These are bounded vertical slices, not a general workflow engine, policy platform, or multi-Agent scheduler.
 
@@ -103,6 +104,7 @@ The `2025-06-18` Session lifecycle remains available only through the explicit `
 - Git;
 - SQLite through Python;
 - the exact `ordivon-protocol` revision pinned in `pyproject.toml`;
+- the exact official `mcp` Python SDK revision pinned in `pyproject.toml` for the Host MCP transport;
 - Linux for the canonical trusted-local operational path;
 - a reachable Ordivon Runtime for live workloads.
 
@@ -136,9 +138,13 @@ ordivon-host --state-root /var/lib/ordivon/host doctor --history
 ordivon-host --state-root /var/lib/ordivon/host task handoff TASK_ID --expected-revision REVISION
 ordivon-host --state-root /var/lib/ordivon/host task assess TASK_ID
 ordivon-host --state-root /var/lib/ordivon/host task reconcile TASK_ID
+
+# after one-time authority initialization and private token provisioning
+ordivon-host-mcp --check
+ordivon-host-mcp
 ```
 
-`task reconcile` performs at most one conservative step. It never invents a new Effect, blindly redispatches uncertain work, or invokes a Provider.
+`task reconcile` performs at most one conservative step. It never invents a new Effect, blindly redispatches uncertain work, or invokes a Provider. `ordivon-host-mcp` is a separate loopback-only transport surface for `task.list`, `task.resume`, `task.adopt`, and `task.checkpoint`; it uses a separate private bearer token and never proxies Runtime or Harness.
 
 ## Documentation map
 

@@ -32,6 +32,8 @@ The default Runtime client uses the stateless MCP `2026-07-28` `server/discover`
 
 Keep the Runtime endpoint loopback-bound or behind an operator-owned authenticated tunnel. Bearer tokens must be loaded from regular, non-symlink files with no group or other permission bits. Do not pass tokens on the command line or persist them in Task, Context, Effect, Dispatch, receipt, or CAS payloads.
 
+Host MCP is separately authenticated and loopback-only by construction. Its bearer token is independent from the Runtime token, is loaded only from a private regular file, and must not be reused as Runtime, Provider, Cloudflare, or repository credentials. Do not expose port 8898 directly to an untrusted network; if remote access is required, terminate it through an operator-owned authenticated tunnel and keep the Host listener on loopback. MCP client/session/HTTP identities are transport metadata and never become Task authority.
+
 ## Sensitive data
 
 Host may retain:

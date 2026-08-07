@@ -1,2 +1,5 @@
-# Ordivon Host has no third-party runtime dependencies.
+# Official MCP Python SDK owns the Streamable HTTP protocol implementation for Host MCP.
+# Pinning the exact v2 release keeps the transport/protocol boundary reproducible.
+mcp==2.0.0
+
 # The first-party ordivon-protocol Git dependency is verified by scripts/check_dependencies.py.

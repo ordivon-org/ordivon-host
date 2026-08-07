@@ -154,6 +154,35 @@ ordivon-host --state-root /var/lib/ordivon/host \
 
 On a lost checkpoint response, retry the same checkpoint with the original expected revision. If that exact transition already became the current revision, Host returns `admission: existing`; a different claim fails closed.
 
+### Host MCP service
+
+H-C2 projects the same continuity authority over a small MCP endpoint. It exposes exactly four Tools: `task.list`, `task.resume`, `task.adopt`, and `task.checkpoint`. Each request opens a fresh Host storage handle and delegates to the same H-C1 APIs; the MCP server does not own a second Task store, Runtime connection, Harness Run, scheduler, or Provider session.
+
+Bootstrap the authority once, then provision an independent Host MCP token:
+
+```bash
+ordivon-host --state-root /var/lib/ordivon/host init
+install -d -m 0700 /etc/ordivon
+python - <<'PY' | install -m 0600 /dev/stdin /etc/ordivon/host-mcp.token
+import secrets
+print(secrets.token_urlsafe(48))
+PY
+
+ORDIVON_HOST_STATE_ROOT=/var/lib/ordivon/host \
+ORDIVON_HOST_MCP_TOKEN_FILE=/etc/ordivon/host-mcp.token \
+  ordivon-host-mcp --check
+```
+
+The default endpoint is `http://127.0.0.1:8898/mcp`. `ordivon-host-mcp` accepts only a literal loopback bind address. The bearer token must be in a regular non-symlink file with no group/other permission bits and at least 32 characters; the token value has no CLI or direct environment-variable form. This token is separate from the Runtime MCP bearer token.
+
+The canonical deployment templates are `packaging/systemd/ordivon-host-mcp.service` and `packaging/systemd/ordivon-host-mcp.env.example`. The unit runs `ordivon-host-mcp --check` before starting and gives the service write access only to `/var/lib/ordivon/host` under its filesystem hardening profile.
+
+Transport behavior is deliberately stateless. The preferred MCP lifecycle is `2026-07-28`; the pinned official SDK also accepts the tested `2025-11-25` initialize/initialized/tools lifecycle without turning MCP Session identity into Host state. Request bodies are bounded to 1 MiB by default, including unauthenticated requests.
+
+A dropped HTTP response does not create a second replay protocol. After uncertain `task.checkpoint`, call `task.resume`; if the intended revision committed, replaying the identical checkpoint with its original `expectedRevision` returns `admission: existing`. A competing different writer receives `TASK_BUSY` or `REVISION_CONFLICT`.
+
+Tool failures use MCP `isError=true` plus a structured error object carrying `code`, `retryable`, `retryClass`, `commitState`, and `origin=host-mcp`. Python tracebacks are not returned to the Agent.
+
 ## Read-only live acceptance
 
 Portable tests use deterministic fake Runtime clients. The explicit live gate proves the current Host client, modern Runtime transport, catalog binding, durable read Task, independent verification, and Workspace closure against a reachable Runtime:

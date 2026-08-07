@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PROJECT = ROOT / ".ordivon/project.yaml"
 PYPROJECT = ROOT / "pyproject.toml"
 RUNTIME_CLIENT = ROOT / "src/ordivon_host/runtime/mcp.py"
+HOST_MCP_SERVER = ROOT / "src/ordivon_host/mcp_server.py"
 
 REQUIRED_FRONTMATTER = {
     "schema_version",
@@ -220,6 +221,29 @@ def validate_public_contracts() -> list[str]:
     for marker in required_markers:
         if marker not in client:
             errors.append(f"Runtime client lacks modern transport marker: {marker}")
+
+    host_mcp = HOST_MCP_SERVER.read_text(encoding="utf-8")
+    host_mcp_markers = (
+        'name="task.list"',
+        'name="task.resume"',
+        'name="task.adopt"',
+        'name="task.checkpoint"',
+        "stateless_http=True",
+        "json_response=True",
+        "hmac.compare_digest",
+        'DEFAULT_HOST_MCP_BIND = "127.0.0.1"',
+    )
+    for marker in host_mcp_markers:
+        if marker not in host_mcp:
+            errors.append(f"Host MCP lacks transport boundary marker: {marker}")
+    if 'mcp==2.0.0' not in pyproject:
+        errors.append("pyproject.toml does not pin the reviewed Host MCP SDK revision")
+    for relative in (
+        "packaging/systemd/ordivon-host-mcp.service",
+        "packaging/systemd/ordivon-host-mcp.env.example",
+    ):
+        if not (ROOT / relative).is_file():
+            errors.append(f"Host MCP packaging file is missing: {relative}")
 
     architecture = (ROOT / "ARCHITECTURE.md").read_text(encoding="utf-8")
     if "Host has not migrated to that transport profile" in architecture:

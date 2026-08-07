@@ -30,8 +30,14 @@ case "$mode" in
     test -f "$repo/requirements-audit.txt"
     test -f "$repo/scripts/live_runtime_read.py"
     test -f "$repo/src/ordivon_host/runtime/mcp.py"
+    test -f "$repo/src/ordivon_host/mcp_server.py"
+    test -f "$repo/packaging/systemd/ordivon-host-mcp.service"
+    test -f "$repo/packaging/systemd/ordivon-host-mcp.env.example"
     grep -q 'MODERN_PROTOCOL_VERSION = "2026-07-28"' \
       "$repo/src/ordivon_host/runtime/mcp.py"
+    grep -q 'ordivon-host-mcp = "ordivon_host.mcp_server:entrypoint"' \
+      "$repo/pyproject.toml"
+    grep -q 'stateless_http=True' "$repo/src/ordivon_host/mcp_server.py"
     "$python_bin" "$repo/scripts/check_docs.py"
     printf '%s\n' \
       'local acceptance contract: present' \

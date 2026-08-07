@@ -11,22 +11,29 @@ def list_tasks(
     storage: HostStorage,
     *,
     state: TaskState | None = None,
+    goal_id: str | None = None,
     limit: int = 100,
 ) -> tuple[TaskProjection, ...]:
     if limit < 1 or limit > 10_000:
         raise ValueError("Task list limit must be in [1, 10000]")
-    if state is None:
-        rows = storage.journal.connection.execute(
-            "SELECT task_id FROM task_projection "
-            "ORDER BY updated_at_ms DESC, task_id LIMIT ?",
-            (limit,),
-        ).fetchall()
-    else:
-        rows = storage.journal.connection.execute(
-            "SELECT task_id FROM task_projection WHERE state = ? "
-            "ORDER BY updated_at_ms DESC, task_id LIMIT ?",
-            (state.value, limit),
-        ).fetchall()
+    if goal_id is not None and (
+        not goal_id.startswith("goal:") or goal_id != goal_id.strip()
+    ):
+        raise ValueError("Goal identity must start with goal:")
+    clauses: list[str] = []
+    params: list[object] = []
+    if state is not None:
+        clauses.append("state = ?")
+        params.append(state.value)
+    if goal_id is not None:
+        clauses.append("goal_id = ?")
+        params.append(goal_id)
+    where = "" if not clauses else " WHERE " + " AND ".join(clauses)
+    rows = storage.journal.connection.execute(
+        "SELECT task_id FROM task_projection" + where
+        + " ORDER BY updated_at_ms DESC, task_id LIMIT ?",
+        (*params, limit),
+    ).fetchall()
     tasks = tuple(storage.journal.get_task(row["task_id"]) for row in rows)
     if any(task is None for task in tasks):
         raise RuntimeError("Task disappeared during list projection")
