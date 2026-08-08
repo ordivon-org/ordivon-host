@@ -121,6 +121,20 @@ def parser() -> argparse.ArgumentParser:
         command.add_argument("--pretty", action="store_true")
     sub.choices["gc-apply"].add_argument("--confirm-plan-digest", required=True)
     sub.choices["gc-apply"].add_argument("--lock-file", type=absolute_path, default=DEFAULT_LOCK_FILE)
+
+    claims = sub.add_parser(
+        "substrate-claims",
+        help="project Host retention claims over external execution substrate",
+    )
+    claims.add_argument("--release-root", type=absolute_path, default=DEFAULT_RELEASE_ROOT)
+    claims.add_argument("--candidate-root", type=absolute_path, default=DEFAULT_CANDIDATE_ROOT)
+    claims.add_argument("--receipt-root", type=absolute_path, default=DEFAULT_RECEIPT_ROOT)
+    claims.add_argument(
+        "--python-runtime-root",
+        type=absolute_path,
+        default=DEFAULT_PYTHON_RUNTIME_ROOT,
+    )
+    claims.add_argument("--pretty", action="store_true")
     return root
 
 
@@ -1437,6 +1451,71 @@ def lifecycle_plan(
     return base_plan
 
 
+def substrate_claims(
+    release_root: Path,
+    candidate_root: Path,
+    receipt_root: Path,
+    python_runtime_root: Path,
+) -> dict[str, object]:
+    plan = lifecycle_plan(
+        release_root, candidate_root, receipt_root, python_runtime_root
+    )
+    blockers = list(plan.get("blockers", []))
+    claims: list[dict[str, object]] = []
+    if plan.get("eligible"):
+        retained = plan.get("retained")
+        dependencies = (
+            retained.get("externalDependencies", [])
+            if isinstance(retained, dict)
+            else []
+        )
+        for dependency in dependencies:
+            if not isinstance(dependency, dict):
+                blockers.append("lifecycle external dependency is not an object")
+                continue
+            binding = dependency.get("binding")
+            reasons = dependency.get("reasons")
+            if (
+                dependency.get("kind") != "python_runtime"
+                or not isinstance(dependency.get("runtimeRoot"), str)
+                or not isinstance(binding, dict)
+                or not isinstance(reasons, list)
+                or not all(isinstance(reason, str) for reason in reasons)
+                or dependency.get("deletionAuthority") != "not_host"
+            ):
+                blockers.append("lifecycle external dependency is not a valid Host substrate claim")
+                continue
+            claim_body: dict[str, object] = {
+                "consumer": "ordivon-host",
+                "resourceKind": "python_runtime",
+                "resourceRoot": dependency["runtimeRoot"],
+                "binding": binding,
+                "reasons": sorted(set(reasons)),
+                "deletionAuthority": "not_host",
+            }
+            claims.append({"claimId": canonical_digest(claim_body), **claim_body})
+    if blockers:
+        claims = []
+    current = plan.get("current")
+    return {
+        "schemaVersion": 1,
+        "kind": "ordivon.host-substrate-claims",
+        "status": "ready" if not blockers and plan.get("eligible") else "blocked",
+        "consumer": "ordivon-host",
+        "lifecyclePlanDigest": plan.get("planDigest"),
+        "currentReleaseId": (
+            current.get("releaseId") if isinstance(current, dict) else None
+        ),
+        "claims": sorted(claims, key=lambda item: str(item["claimId"])),
+        "blockers": sorted(set(blockers)),
+        "limitations": [
+            "projection_only",
+            "not_a_shared_substrate_registry",
+            "absence_is_not_deletion_authority",
+        ],
+    }
+
+
 def lifecycle_receipt_path(root: Path, plan_digest: str) -> Path:
     if not plan_digest.startswith("sha256:"):
         raise RuntimeError("lifecycle plan digest must use sha256 identity")
@@ -1735,6 +1814,15 @@ def main() -> int:
             return 0 if result["eligible"] else 2
         elif args.command == "gc-apply":
             result = apply_lifecycle_plan(args)
+        elif args.command == "substrate-claims":
+            result = substrate_claims(
+                args.release_root,
+                args.candidate_root,
+                args.receipt_root,
+                args.python_runtime_root,
+            )
+            emit(result, args.pretty)
+            return 0 if result["status"] == "ready" else 2
         else:
             raise RuntimeError(f"unsupported command: {args.command}")
         emit(result, getattr(args, "pretty", False))

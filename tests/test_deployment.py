@@ -418,6 +418,90 @@ class HostDeploymentOperatorTests(unittest.TestCase):
                 "evidence_retained",
             )
 
+    def test_substrate_claims_project_one_deduplicated_runtime_dependency(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            release_root = base / "host"
+            candidate_root = base / "candidates"
+            receipt_root = base / "deployments"
+            runtime, executable = make_runtime(base)
+            unclaimed_runtime, _ = make_runtime(base, "cpython-unclaimed")
+            releases = release_root / "releases"
+            previous = make_release(releases, "b" * 40, "b" * 40, executable)
+            current_id = "c" * 40 + "-current"
+            make_release(releases, current_id, "c" * 40, executable)
+            module.switch_current(release_root, current_id)
+            _, current_candidate = make_candidate(
+                candidate_root, current_id, "c" * 40, executable
+            )
+            make_deployment_receipt(
+                receipt_root,
+                "001-current",
+                current_candidate,
+                release_snapshot(previous),
+            )
+            projection = module.substrate_claims(
+                release_root, candidate_root, receipt_root, runtime.parent
+            )
+            self.assertEqual(projection["status"], "ready")
+            self.assertEqual(projection["consumer"], "ordivon-host")
+            self.assertEqual(projection["currentReleaseId"], current_id)
+            self.assertEqual(projection["blockers"], [])
+            self.assertEqual(len(projection["claims"]), 1)
+            claim = projection["claims"][0]
+            self.assertTrue(claim["claimId"].startswith("sha256:"))
+            self.assertEqual(claim["resourceKind"], "python_runtime")
+            self.assertEqual(claim["resourceRoot"], str(runtime))
+            self.assertEqual(claim["deletionAuthority"], "not_host")
+            self.assertEqual(
+                claim["reasons"],
+                [
+                    "current_release",
+                    "recovery_candidate",
+                    "reversible_transition_peer",
+                ],
+            )
+            self.assertNotEqual(claim["resourceRoot"], str(unclaimed_runtime))
+            self.assertIn(
+                "absence_is_not_deletion_authority", projection["limitations"]
+            )
+
+    def test_substrate_claims_fail_closed_with_lifecycle_blocker(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            import shutil
+
+            base = Path(directory)
+            release_root = base / "host"
+            candidate_root = base / "candidates"
+            receipt_root = base / "deployments"
+            runtime, executable = make_runtime(base)
+            releases = release_root / "releases"
+            previous = make_release(releases, "b" * 40, "b" * 40, executable)
+            current_id = "c" * 40 + "-current"
+            make_release(releases, current_id, "c" * 40, executable)
+            module.switch_current(release_root, current_id)
+            candidate_path, candidate_manifest = make_candidate(
+                candidate_root, current_id, "c" * 40, executable
+            )
+            make_deployment_receipt(
+                receipt_root,
+                "001-current",
+                candidate_manifest,
+                release_snapshot(previous),
+            )
+            shutil.rmtree(candidate_path)
+            projection = module.substrate_claims(
+                release_root, candidate_root, receipt_root, runtime.parent
+            )
+            self.assertEqual(projection["status"], "blocked")
+            self.assertEqual(projection["claims"], [])
+            self.assertTrue(
+                any(
+                    "recovery candidate is unreadable" in blocker
+                    for blocker in projection["blockers"]
+                )
+            )
+
     def test_lifecycle_plan_reverses_protection_after_explicit_rollback(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)

@@ -176,7 +176,7 @@ A normal local deployment is:
 ```bash
 repo=/root/projects/ordivon-host
 commit=$(git -C "$repo" rev-parse HEAD)
-python=/usr/local/libexec/ordivon/python/cpython-3.12.13-linux-x86_64-gnu/bin/python3.12
+python=/usr/local/libexec/ordivon/python/cpython-3.12.13-ordivon-pyc1-linux-x86_64-gnu/bin/python3.12
 
 prepare=$(scripts/ordivon-host-deploy prepare \
   --source-repo "$repo" \
@@ -231,6 +231,18 @@ The retained execution frontier is direction-aware:
 Deployment receipts under `/var/lib/ordivon/host/deployments/` are evidence-retained and are never automatically removed by Host lifecycle GC. Their exact directory trees participate in the lifecycle plan digest, so receipt drift between planning and application invalidates the plan.
 
 The shared Python tree under `/usr/local/libexec/ordivon/python/` is **not Host-owned lifecycle state**. Host records exact retention claims for every production Python runtime required by the current reversible frontier, verifies those runtime trees, and reports `deletionAuthority = not_host`. Host GC never provisions, aliases, retires, or deletes those shared runtimes. A future shared execution-substrate owner must combine retention claims from all consumers before retiring one.
+
+### External substrate retention projection
+
+`scripts/ordivon-host-deploy substrate-claims` is the Host-owned observation surface for that boundary. It derives claims directly from the current receipt-bound lifecycle graph; it does not create a second claim database or persist another source of truth. A healthy projection contains one content-bound claim per distinct external runtime root and preserves every current reason that keeps the runtime reachable, such as `current_release`, `reversible_transition_peer`, or `recovery_candidate`. If lifecycle reconstruction is blocked, the command returns `status = blocked` and no claims rather than publishing a partial retention view.
+
+```bash
+scripts/ordivon-host-deploy substrate-claims --pretty
+```
+
+The projection is deliberately Host-local. `absence_is_not_deletion_authority`: a generation omitted from Host claims is only proven unnecessary to the current Host reversible frontier. It is not thereby safe to delete because another product, process, operator workflow, or machine-level alias may still depend on it. Likewise, `deletionAuthority = not_host` is a boundary statement, not a request for a new Host subsystem.
+
+H-A3 found no second production consumer of the Ordivon-managed CPython generation: Runtime's target execution plane resolves its explicit `ORDIVON_EXEC_PATH` independently, while Harness and Computing currently use their own uv/mise development environments. Therefore the substrate-claim shape remains an owner-native Host projection rather than a promoted `ordivon-protocol` object, shared registry, daemon, or new repository. Promotion requires a second materially different production consumer whose independent retention semantics demonstrate recurring cross-owner value. Provisioning should prefer mature lower owners such as uv when practical; Ordivon should retain only the materialization proof and consumer-specific retention semantics that those tools do not provide.
 
 A lifecycle plan is deterministic and digest-bound:
 
