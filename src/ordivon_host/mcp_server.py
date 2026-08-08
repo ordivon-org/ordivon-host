@@ -14,8 +14,10 @@ import sqlite3
 import sys
 import time
 from typing import Any
+from urllib.parse import urlsplit
 
 from mcp.server import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 
 from .config import load_config, read_private_token_file
@@ -51,6 +53,7 @@ class HostMcpSettings:
     bind_host: str = DEFAULT_HOST_MCP_BIND
     port: int = DEFAULT_HOST_MCP_PORT
     body_limit_bytes: int = DEFAULT_HOST_MCP_BODY_LIMIT_BYTES
+    public_origin: str | None = None
     log_level: str = "INFO"
 
     def __post_init__(self) -> None:
@@ -63,6 +66,8 @@ class HostMcpSettings:
             raise ValueError("Host MCP port must be in [1, 65535]")
         if type(self.body_limit_bytes) is not int or self.body_limit_bytes < 1:
             raise ValueError("Host MCP body limit must be a positive integer")
+        if self.public_origin is not None:
+            _public_origin_host(self.public_origin)
         if self.log_level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
             raise ValueError("Host MCP log level is invalid")
 
@@ -70,6 +75,12 @@ class HostMcpSettings:
     def endpoint(self) -> str:
         host = f"[{self.bind_host}]" if ":" in self.bind_host else self.bind_host
         return f"http://{host}:{self.port}/mcp"
+
+    @property
+    def public_endpoint(self) -> str | None:
+        if self.public_origin is None:
+            return None
+        return f"{self.public_origin}/mcp"
 
 
 class BearerAuthApp:
@@ -278,6 +289,7 @@ def build_authenticated_app(settings: HostMcpSettings, token: str) -> BearerAuth
         json_response=True,
         stateless_http=True,
         max_request_body_size=settings.body_limit_bytes,
+        transport_security=_transport_security(settings),
         host=settings.bind_host,
     )
     return BearerAuthApp(
@@ -299,6 +311,7 @@ def check_settings(settings: HostMcpSettings) -> dict[str, object]:
     return {
         "status": "ok",
         "endpoint": settings.endpoint,
+        "publicEndpoint": settings.public_endpoint,
         "stateRoot": str(settings.state_root),
         "tokenFile": str(settings.token_file),
         "tokenFilePrivate": True,
@@ -335,6 +348,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--bind")
     parser.add_argument("--port", type=int)
     parser.add_argument("--body-limit-bytes", type=int)
+    parser.add_argument(
+        "--public-origin",
+        help=(
+            "optional canonical HTTPS origin accepted by MCP DNS-rebinding protection "
+            "when this loopback listener is reached through a reverse proxy"
+        ),
+    )
     parser.add_argument(
         "--log-level",
         choices=("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"),
@@ -378,6 +398,7 @@ def _settings_from_args(args: argparse.Namespace) -> HostMcpSettings:
             "ORDIVON_HOST_MCP_BODY_LIMIT_BYTES", DEFAULT_HOST_MCP_BODY_LIMIT_BYTES
         )
     )
+    public_origin = args.public_origin or os.environ.get("ORDIVON_HOST_MCP_PUBLIC_ORIGIN")
     log_level = args.log_level or os.environ.get("ORDIVON_HOST_MCP_LOG_LEVEL", "INFO").upper()
     return HostMcpSettings(
         state_root=Path(state_root),
@@ -385,6 +406,7 @@ def _settings_from_args(args: argparse.Namespace) -> HostMcpSettings:
         bind_host=bind_host,
         port=port,
         body_limit_bytes=body_limit,
+        public_origin=public_origin,
         log_level=log_level,
     )
 
@@ -543,6 +565,41 @@ def _error_result(error: Exception, *, write: bool) -> CallToolResult:
         structuredContent=envelope,
         isError=True,
     )
+
+
+def _transport_security(settings: HostMcpSettings) -> TransportSecuritySettings:
+    allowed_hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+    allowed_origins = [
+        "http://127.0.0.1:*",
+        "http://localhost:*",
+        "http://[::1]:*",
+    ]
+    if settings.public_origin is not None:
+        allowed_hosts.append(_public_origin_host(settings.public_origin))
+        allowed_origins.append(settings.public_origin)
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=allowed_hosts,
+        allowed_origins=allowed_origins,
+    )
+
+
+def _public_origin_host(value: str) -> str:
+    parsed = urlsplit(value)
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path
+        or parsed.query
+        or parsed.fragment
+        or value != f"https://{parsed.netloc}"
+    ):
+        raise ValueError(
+            "Host MCP public origin must be one canonical HTTPS origin without path/query/fragment"
+        )
+    return parsed.netloc
 
 
 def _read_host_mcp_token(path: Path) -> str:

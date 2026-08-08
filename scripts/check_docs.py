@@ -232,6 +232,8 @@ def validate_public_contracts() -> list[str]:
         "json_response=True",
         "hmac.compare_digest",
         'DEFAULT_HOST_MCP_BIND = "127.0.0.1"',
+        "TransportSecuritySettings",
+        "ORDIVON_HOST_MCP_PUBLIC_ORIGIN",
     )
     for marker in host_mcp_markers:
         if marker not in host_mcp:

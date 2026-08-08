@@ -50,6 +50,7 @@ class HostMcpSettingsTests(unittest.TestCase):
                 state_root=root / "state",
                 token_file=token_file,
                 port=_port(),
+                public_origin="https://host-mcp.example.test",
             )
             with self.assertRaises(FileNotFoundError):
                 check_settings(settings)
@@ -58,6 +59,9 @@ class HostMcpSettingsTests(unittest.TestCase):
             result = check_settings(settings)
             self.assertEqual(result["status"], "ok")
             self.assertTrue(result["tokenFilePrivate"])
+            self.assertEqual(
+                result["publicEndpoint"], "https://host-mcp.example.test/mcp"
+            )
             self.assertNotIn("tokenCharacters", result)
             self.assertNotIn("x" * 32, str(result))
 
@@ -83,6 +87,29 @@ class HostMcpSettingsTests(unittest.TestCase):
                 bind_host="localhost",
             )
 
+    def test_public_origin_is_one_canonical_https_origin(self) -> None:
+        valid = HostMcpSettings(
+            state_root=Path("/tmp/state"),
+            token_file=Path("/tmp/token"),
+            public_origin="https://host-mcp.example.test",
+        )
+        self.assertEqual(valid.public_endpoint, "https://host-mcp.example.test/mcp")
+        for value in (
+            "http://host-mcp.example.test",
+            "https://host-mcp.example.test/",
+            "https://host-mcp.example.test/mcp",
+            "https://user@host-mcp.example.test",
+            "https://host-mcp.example.test?x=1",
+        ):
+            with self.subTest(value=value), self.assertRaisesRegex(
+                ValueError, "canonical HTTPS origin"
+            ):
+                HostMcpSettings(
+                    state_root=Path("/tmp/state"),
+                    token_file=Path("/tmp/token"),
+                    public_origin=value,
+                )
+
 
 class HostMcpEndToEndTests(unittest.TestCase):
     def test_modern_mcp_auth_catalog_and_continuity_round_trip(self) -> None:
@@ -107,6 +134,8 @@ class HostMcpEndToEndTests(unittest.TestCase):
                     str(token_file),
                     "--port",
                     str(port),
+                    "--public-origin",
+                    "https://host-mcp.example.test",
                     "--log-level",
                     "ERROR",
                 ],
@@ -125,6 +154,25 @@ class HostMcpEndToEndTests(unittest.TestCase):
                 )
                 discovered = client.initialize()
                 self.assertEqual(discovered["protocolVersion"], "2026-07-28")
+
+                external_status, external = self._request_with_host(
+                    port, token, "host-mcp.example.test",
+                    origin="https://host-mcp.example.test",
+                )
+                self.assertEqual(external_status, 200)
+                self.assertEqual(external["result"]["supportedVersions"], ["2026-07-28"])
+                rejected_host_status, rejected_host = self._request_with_host(
+                    port, token, "untrusted.example.test"
+                )
+                self.assertEqual(rejected_host_status, 421)
+                self.assertEqual(rejected_host, "Invalid Host header")
+                rejected_origin_status, rejected_origin = self._request_with_host(
+                    port, token, "host-mcp.example.test",
+                    origin="https://untrusted.example.test",
+                )
+                self.assertEqual(rejected_origin_status, 403)
+                self.assertEqual(rejected_origin, "Invalid Origin header")
+
                 tools = client.list_tools()
                 self.assertEqual(
                     {tool["name"] for tool in tools},
@@ -337,6 +385,54 @@ class HostMcpEndToEndTests(unittest.TestCase):
                     self.fail(
                         f"Host MCP exited {process.returncode}: stdout={stdout!r} stderr={stderr!r}"
                     )
+
+    @staticmethod
+    def _request_with_host(
+        port: int, token: str, host: str, *, origin: str | None = None
+    ) -> tuple[int, dict[str, object] | str]:
+        body = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 650,
+                "method": "server/discover",
+                "params": {
+                    "_meta": {
+                        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                        "io.modelcontextprotocol/clientInfo": {
+                            "name": "host-header-test",
+                            "version": "0.1.2",
+                        },
+                        "io.modelcontextprotocol/clientCapabilities": {},
+                    }
+                },
+            },
+            separators=(",", ":"),
+        ).encode()
+        headers = {
+            "Host": host,
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "MCP-Protocol-Version": "2026-07-28",
+            "Mcp-Method": "server/discover",
+        }
+        if origin is not None:
+            headers["Origin"] = origin
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+        try:
+            connection.request("POST", "/mcp", body=body, headers=headers)
+            response = connection.getresponse()
+            raw = response.read()
+            status = response.status
+        finally:
+            connection.close()
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return status, raw.decode("utf-8", errors="replace")
+        if not isinstance(parsed, dict):
+            raise AssertionError("MCP response must be an object")
+        return status, parsed
 
     @staticmethod
     def _legacy_lifecycle(endpoint: str, token: str) -> dict[str, object]:

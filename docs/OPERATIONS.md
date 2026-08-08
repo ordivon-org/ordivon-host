@@ -175,6 +175,8 @@ ORDIVON_HOST_MCP_TOKEN_FILE=/etc/ordivon/host-mcp.token \
 
 The default endpoint is `http://127.0.0.1:8898/mcp`. `ordivon-host-mcp` accepts only a literal loopback bind address. The bearer token must be in a regular non-symlink file with no group/other permission bits and at least 32 characters; the token value has no CLI or direct environment-variable form. This token is separate from the Runtime MCP bearer token.
 
+When a reverse proxy or tunnel presents a different public Host header, set one canonical HTTPS origin with `ORDIVON_HOST_MCP_PUBLIC_ORIGIN` (or `--public-origin`), for example `https://host-mcp.ordivon.com`. This does **not** change the listener: Host MCP remains loopback-only. It extends the pinned MCP SDK's DNS-rebinding allowlist with exactly that public Host and Origin while retaining the local Host/Origin allowlist. Do not disable DNS-rebinding protection merely to make a proxy work.
+
 The canonical deployment templates are `packaging/systemd/ordivon-host-mcp.service` and `packaging/systemd/ordivon-host-mcp.env.example`. The unit runs `ordivon-host-mcp --check` before starting and gives the service write access only to `/var/lib/ordivon/host` under its filesystem hardening profile.
 
 Transport behavior is deliberately stateless. The preferred MCP lifecycle is `2026-07-28`; the pinned official SDK also accepts the tested `2025-11-25` initialize/initialized/tools lifecycle without turning MCP Session identity into Host state. Request bodies are bounded to 1 MiB by default, including unauthenticated requests.

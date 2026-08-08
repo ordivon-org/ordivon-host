@@ -83,6 +83,7 @@ The legacy Session decoder remains because retained deployments and historical e
 
 - Host has no durable Goal event stream or Goal commitment object; Goal coordination is a snapshot over Task revisions.
 - Host MCP intentionally exposes only the H-C1 external-continuity surface plus bounded Task discovery; it is not a general remote Host administration API, Runtime proxy, scheduler, or cognition endpoint.
+- Reverse-proxy deployment keeps the listener on loopback and requires one explicit canonical HTTPS `public_origin`; Host extends only the MCP SDK Host/Origin allowlist and keeps DNS-rebinding protection enabled.
 - The current official MCP SDK path publishes typed input schemas and structured success/error content, but does not publish explicit output schemas for these `CallToolResult` tools without coupling Host to SDK-private output-model plumbing. H-C2 leaves that as a measured Agent-UX limitation rather than adding a second schema system.
 - Host authority creation is a single-operator bootstrap: initialize the state root once before concurrent CLI/MCP consumers. H-C1/H-C2 concurrent adoption/checkpoint guarantees apply to an initialized authority, not simultaneous first-time SQLite schema creation.
 - Workload-specific hosts remain explicit state machines rather than a generic Effect lifecycle.

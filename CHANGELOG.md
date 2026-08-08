@@ -31,6 +31,7 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 
 ### Fixed
 
+- Host MCP reverse-proxy deployment now accepts one explicit canonical HTTPS public origin while retaining loopback binding and MCP SDK DNS-rebinding protection, preventing authenticated tunnel traffic from being rejected with HTTP 421;
 - concurrent Journal reopen/close now hardens the main database and transient WAL/SHM sidecars through no-follow file descriptors outside active SQLite lock ownership, so legitimate sidecar retirement cannot be misclassified as corruption or disturb process-scoped locking;
 - the read-only live Runtime script now constructs the current logical `RepositoryRef` and explicit resolver instead of the removed physical `source_repo` plan field;
 - a direct regression test now prevents live-script drift from escaping the deterministic suite.
