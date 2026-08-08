@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
 import re
 import stat
-
+from pathlib import Path
 
 DEFAULT_HOST_RELEASE_ROOT = Path("/usr/local/libexec/ordivon/host")
 _COMMIT = re.compile(r"[0-9a-f]{40}")
@@ -28,14 +27,13 @@ def inspect_deployment(
     revision = commit_file.read_text(encoding="utf-8").strip()
     if _COMMIT.fullmatch(revision) is None:
         raise ValueError("Host release COMMIT is not an exact Git revision")
-    if release.name != revision:
-        raise ValueError("Host release directory and COMMIT revision differ")
     return {
         "schemaVersion": 1,
         "kind": "ordivon.host-deployment",
         "releaseRoot": str(root),
         "currentLink": str(current),
         "currentRelease": str(release),
+        "releaseId": release.name,
         "deployedRevision": revision,
         "commitFile": str(commit_file),
     }

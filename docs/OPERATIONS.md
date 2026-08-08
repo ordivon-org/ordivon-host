@@ -157,7 +157,57 @@ On a lost checkpoint response, retry the same checkpoint with the original expec
 
 ### Deployment identity
 
-`ordivon-host deployment` projects the exact installed release from the deployment-owned `current` symlink and immutable `releases/<commit>/COMMIT` marker. It does not infer deployment state from a Git checkout, package version, process age, or Host Journal state. Use `--release-root` only when inspecting a nonstandard installation root.
+`ordivon-host deployment` projects the exact installed source revision from the deployment-owned `current` symlink and immutable `releases/<releaseId>/COMMIT` marker. `releaseId` is a physical release identity and is deliberately independent from the Git Commit recorded in `COMMIT`; a source revision alone does not identify its resolved dependency graph, Python/uv build toolchain, or installed bytes. The command does not infer deployment state from a Git checkout, package version, process age, or Host Journal state. Use `--release-root` only when inspecting a nonstandard installation root.
+
+### Receipt-bound local deployment
+
+`scripts/ordivon-host-deploy` owns the canonical local release transition. Deployment state is not stored in the Host Journal: immutable release directories and private deployment receipts are an operational authority separate from Task semantics. The source tree must contain an up-to-date `uv.lock`; the build backend is exactly pinned; `prepare` verifies that lock offline, materializes the requested Git Commit in a clean detached checkout, records exact Python and uv executable digests, builds the Host wheel, and constructs a `uv --relocatable` virtual environment from the frozen dependency graph. It removes transient bytecode and build-path metadata before hashing the complete release tree.
+
+The physical identity is `releaseId = <sourceCommit>-<releaseTreeDigestPrefix>`. The complete tree digest binds file bytes, modes, directory modes, and symlink targets. `plan` independently re-reads `uv.lock` from the requested Git Commit, requires the configured releasable Git ref to resolve to that Commit, validates the candidate tree against its manifest, requires the current Host release to provide an exact rollback target, and requires the Host MCP service to be active.
+
+A normal local deployment is:
+
+```bash
+repo=/root/projects/ordivon-host
+commit=$(git -C "$repo" rev-parse HEAD)
+python=/root/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/bin/python3.12
+
+prepare=$(scripts/ordivon-host-deploy prepare \
+  --source-repo "$repo" \
+  --commit "$commit" \
+  --python "$python")
+release_id=$(printf '%s' "$prepare" | python3 -c 'import json,sys; print(json.load(sys.stdin)["releaseId"])')
+candidate_dir=$(printf '%s' "$prepare" | python3 -c 'import json,sys; print(json.load(sys.stdin)["candidateDir"])')
+
+scripts/ordivon-host-deploy plan \
+  --source-repo "$repo" \
+  --commit "$commit" \
+  --candidate-dir "$candidate_dir" \
+  --require-ref refs/heads/main \
+  --pretty
+
+scripts/ordivon-host-deploy apply \
+  --source-repo "$repo" \
+  --commit "$commit" \
+  --candidate-dir "$candidate_dir" \
+  --require-ref refs/heads/main \
+  --confirm-release-id "$release_id"
+
+scripts/ordivon-host-deploy status --json
+```
+
+`apply` copies the verified candidate into an immutable `releases/<releaseId>` directory, atomically replaces only the `current` symlink, restarts `ordivon-host-mcp.service`, and requires an authenticated modern `2026-07-28` MCP `server/discover` plus the exact four-Tool catalog (`task.list`, `task.resume`, `task.adopt`, `task.checkpoint`). A failed activation or probe restores the exact previous symlink target, restarts and probes it, and receipts that automatic restoration. The global `/usr/local/bin/ordivon-host*` launchers intentionally resolve through `current/venv/bin/python -m ...`; relocatable virtual environments additionally make their own console scripts safe after staging moves.
+
+Receipts live under `/var/lib/ordivon/host/deployments/`. `status` verifies the current physical tree against the latest successful deployment or rollback event. An older pre-H-A1 release may legitimately appear as `unreceipted`; that is explicit legacy state rather than invented provenance. Explicit rollback requires the original deployment receipt and exact previous `releaseId` confirmation:
+
+```bash
+scripts/ordivon-host-deploy rollback \
+  --receipt /var/lib/ordivon/host/deployments/<receipt> \
+  --confirm-release-id <previousReleaseId> \
+  --pretty
+```
+
+Rollback verifies the previous tree against the receipt before switching `current`; it then restarts and authenticates the same MCP surface. A rollback failure attempts to recover the displaced release.
 
 ### Host MCP service
 

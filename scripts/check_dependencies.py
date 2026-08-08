@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT = ROOT / "pyproject.toml"
 AUDIT_REQUIREMENTS = ROOT / "requirements-audit.txt"
+EXPECTED_BUILD_REQUIRES = ["setuptools==83.0.0"]
 PROTOCOL = re.compile(
     r"^ordivon-protocol @ git\+https://github\.com/zycxfyh/"
     r"ordivon-computing\.git@([0-9a-f]{40})"
@@ -56,13 +57,14 @@ def main() -> int:
         return 1
 
     build_requires = data.get("build-system", {}).get("requires")
-    if build_requires != ["setuptools>=68"]:
+    if build_requires != EXPECTED_BUILD_REQUIRES:
         print("dependencies: build-system requirements changed without review", file=sys.stderr)
         return 1
 
     print(
         "dependency contract: valid "
-        f"protocol={protocol_pins[0]} third_party_runtime={len(third_party)}"
+        f"protocol={protocol_pins[0]} third_party_runtime={len(third_party)} "
+        f"build_backend={EXPECTED_BUILD_REQUIRES[0]}"
     )
     return 0
 

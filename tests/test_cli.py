@@ -52,19 +52,21 @@ class HostCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "host"
             revision = "a" * 40
-            release = root / "releases" / revision
+            release_id = revision + "-release-digest"
+            release = root / "releases" / release_id
             release.mkdir(parents=True)
             (release / "COMMIT").write_text(revision + "\n", encoding="utf-8")
-            (root / "current").symlink_to(Path("releases") / revision)
+            (root / "current").symlink_to(Path("releases") / release_id)
             code, result = self.invoke(
                 "deployment", "--release-root", str(root)
             )
             self.assertEqual(code, 0)
             self.assertEqual(result["kind"], "ordivon.host-deployment")
             self.assertEqual(result["deployedRevision"], revision)
+            self.assertEqual(result["releaseId"], release_id)
             self.assertEqual(result["currentRelease"], str(release))
 
-            (release / "COMMIT").write_text("b" * 40 + "\n", encoding="utf-8")
+            (release / "COMMIT").write_text("not-a-git-revision\n", encoding="utf-8")
             code, result = self.invoke(
                 "deployment", "--release-root", str(root)
             )

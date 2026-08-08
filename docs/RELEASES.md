@@ -81,8 +81,8 @@ A releasable commit requires:
 1. clean compile and Ruff checks;
 2. the complete deterministic suite with `ResourceWarning` treated as error;
 3. documentation ownership and link validation;
-4. wheel build and metadata inspection;
-5. dependency resolution check and vulnerability audit;
+4. wheel build and metadata inspection with the exact pinned build backend;
+5. an up-to-date committed `uv.lock`, offline lock validation, frozen dependency installation, and vulnerability audit;
 6. secret scanning and CodeQL;
 7. Changelog entry;
 8. exact Protocol dependency pin;
@@ -95,7 +95,7 @@ A hosted CI run cannot prove local Runtime/systemd behavior unless it executes a
 
 `ordivon-protocol` is pinned to an exact Computing commit. Dependabot may update ordinary packaging or GitHub Action dependencies, but a Protocol revision change is a cross-repository contract update and must be reviewed with Host workload vectors and migration implications.
 
-The Protocol package is first-party and not published through the Python Package Index, so `pip-audit` cannot resolve it as a public advisory target. `scripts/check_dependencies.py` therefore enforces its immutable Git identity, while `requirements-audit.txt` exactly enumerates any third-party Runtime dependencies for independent vulnerability scanning. The current third-party Runtime dependency set is empty.
+The Protocol package is first-party and not published through the Python Package Index, so `pip-audit` cannot resolve it as a public advisory target. `scripts/check_dependencies.py` therefore enforces its immutable Git identity. `uv.lock` is the runtime dependency resolution authority for a local release; deploy preparation consumes it frozen and records its digest together with the exact Python and uv executable identities. Build-system requirements are exact rather than lower-bounded so wheel construction cannot silently select a newer backend. `requirements-audit.txt` remains the independent vulnerability-audit input for dependencies in its declared scope.
 
 GitHub Actions are pinned to complete commits. Python remains constrained to `>=3.12,<3.13` until the complete suite and operational path are deliberately qualified on a newer interpreter.
 
@@ -113,6 +113,8 @@ A decoder, migration, compatibility profile, import alias, or fallback may be re
 
 The `2025-06-18` Session transport remains a compatibility decoder under this rule. Its existence does not authorize new architecture on the legacy lifecycle.
 
-## Publication
+## Local deployment and publication
 
-The package is currently distributed from source and repository-built wheels. A public package-index release, hosted service image, signed artifact channel, or automatic deployment pipeline requires a separate publication and provenance contract.
+Local production activation uses the receipt-bound `scripts/ordivon-host-deploy` contract described in [`OPERATIONS.md`](OPERATIONS.md). Source revision and physical `releaseId` remain distinct: the latter binds the frozen dependency graph, exact build toolchain evidence, and complete installed release tree. Activation is an atomic `current` symlink transition followed by an authenticated modern Host MCP probe, with exact previous-release rollback evidence.
+
+This local deployment authority does not imply a public publication channel. A public package-index release, hosted service image, signed artifact channel, or remote automatic deployment pipeline still requires a separate publication and provenance contract.

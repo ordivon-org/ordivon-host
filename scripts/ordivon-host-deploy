@@ -1,0 +1,848 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import fcntl
+import hashlib
+import json
+import os
+import re
+import shutil
+import stat
+import subprocess
+import tempfile
+import time
+import urllib.error
+import urllib.request
+from contextlib import contextmanager
+from pathlib import Path
+
+SCHEMA_VERSION = 1
+MODERN_PROTOCOL_VERSION = "2026-07-28"
+REQUIRED_TOOLS = ("task.list", "task.resume", "task.adopt", "task.checkpoint")
+DEFAULT_RELEASE_ROOT = Path("/usr/local/libexec/ordivon/host")
+DEFAULT_CANDIDATE_ROOT = Path("/var/lib/ordivon/host/candidates")
+DEFAULT_RECEIPT_ROOT = Path("/var/lib/ordivon/host/deployments")
+DEFAULT_ENV_FILE = Path("/etc/ordivon/ordivon-host-mcp.env")
+DEFAULT_LOCK_FILE = Path("/run/ordivon-host-deploy.lock")
+DEFAULT_SERVICE = "ordivon-host-mcp.service"
+DEFAULT_GIT = Path("/usr/bin/git")
+DEFAULT_UV = Path("/usr/bin/uv")
+DEFAULT_SYSTEMCTL = Path("/usr/bin/systemctl")
+COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
+
+
+def absolute_path(value: str) -> Path:
+    path = Path(value)
+    if not path.is_absolute():
+        raise argparse.ArgumentTypeError("path must be absolute")
+    return path
+
+
+def parser() -> argparse.ArgumentParser:
+    root = argparse.ArgumentParser(prog="ordivon-host-deploy", description=__doc__)
+    sub = root.add_subparsers(dest="command", required=True)
+
+    prepare = sub.add_parser("prepare", help="materialize one exact relocatable Host release candidate")
+    prepare.add_argument("--source-repo", type=absolute_path, required=True)
+    prepare.add_argument("--commit", required=True)
+    prepare.add_argument("--candidate-root", type=absolute_path, default=DEFAULT_CANDIDATE_ROOT)
+    prepare.add_argument("--python", type=absolute_path, required=True)
+    prepare.add_argument("--uv", type=absolute_path, default=DEFAULT_UV)
+    prepare.add_argument("--git", type=absolute_path, default=DEFAULT_GIT)
+    prepare.add_argument("--pretty", action="store_true")
+
+    for name in ("plan", "apply"):
+        command = sub.add_parser(name, help=f"{name} one prepared Host release")
+        command.add_argument("--source-repo", type=absolute_path, required=True)
+        command.add_argument("--commit", required=True)
+        command.add_argument("--candidate-dir", type=absolute_path, required=True)
+        command.add_argument("--release-root", type=absolute_path, default=DEFAULT_RELEASE_ROOT)
+        command.add_argument("--receipt-root", type=absolute_path, default=DEFAULT_RECEIPT_ROOT)
+        command.add_argument("--env-file", type=absolute_path, default=DEFAULT_ENV_FILE)
+        command.add_argument("--service", default=DEFAULT_SERVICE)
+        command.add_argument("--systemctl", type=absolute_path, default=DEFAULT_SYSTEMCTL)
+        command.add_argument("--git", type=absolute_path, default=DEFAULT_GIT)
+        command.add_argument("--require-ref", default="refs/heads/main")
+        command.add_argument("--wait-seconds", type=float, default=20.0)
+        command.add_argument("--pretty", action="store_true")
+    sub.choices["apply"].add_argument("--confirm-release-id", required=True)
+    sub.choices["apply"].add_argument("--lock-file", type=absolute_path, default=DEFAULT_LOCK_FILE)
+
+    status = sub.add_parser("status", help="reconcile current Host release with deployment receipts")
+    status.add_argument("--release-root", type=absolute_path, default=DEFAULT_RELEASE_ROOT)
+    status.add_argument("--receipt-root", type=absolute_path, default=DEFAULT_RECEIPT_ROOT)
+    status.add_argument("--json", action="store_true")
+
+    rollback = sub.add_parser("rollback", help="restore the previous release bound by one receipt")
+    rollback.add_argument("--receipt", type=absolute_path, required=True)
+    rollback.add_argument("--release-root", type=absolute_path, default=DEFAULT_RELEASE_ROOT)
+    rollback.add_argument("--receipt-root", type=absolute_path, default=DEFAULT_RECEIPT_ROOT)
+    rollback.add_argument("--env-file", type=absolute_path, default=DEFAULT_ENV_FILE)
+    rollback.add_argument("--service", default=DEFAULT_SERVICE)
+    rollback.add_argument("--systemctl", type=absolute_path, default=DEFAULT_SYSTEMCTL)
+    rollback.add_argument("--wait-seconds", type=float, default=20.0)
+    rollback.add_argument("--lock-file", type=absolute_path, default=DEFAULT_LOCK_FILE)
+    rollback.add_argument("--confirm-release-id", required=True)
+    rollback.add_argument("--pretty", action="store_true")
+    return root
+
+
+def run(command: list[str], *, cwd: Path | None = None, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(command, cwd=cwd, env=env, text=True, capture_output=True, check=False)
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
+        raise RuntimeError(f"command failed ({' '.join(command)}): {detail}")
+    return result
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return "sha256:" + digest.hexdigest()
+
+
+def canonical_digest(value: object) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def write_json_atomic(path: Path, value: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+    temporary_path = Path(temporary)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(value, handle, sort_keys=True, separators=(",", ":"))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary_path, 0o600)
+        os.replace(temporary_path, path)
+        fsync_dir(path.parent)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+def fsync_dir(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def git_text(git: Path, repo: Path, arguments: list[str]) -> str:
+    return run([str(git), "-C", str(repo), *arguments]).stdout.strip()
+
+
+def git_blob_digest(git: Path, repo: Path, commit: str, relative_path: str) -> str:
+    result = subprocess.run(
+        [str(git), "-C", str(repo), "show", f"{commit}:{relative_path}"],
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", errors="replace").strip() or f"exit {result.returncode}"
+        raise RuntimeError(f"cannot read {relative_path} from {commit}: {detail}")
+    return "sha256:" + hashlib.sha256(result.stdout).hexdigest()
+
+
+@contextmanager
+def exact_source_checkout(source_repo: Path, commit: str, git: Path):
+    with tempfile.TemporaryDirectory(prefix="ordivon-host-release-source-") as temporary:
+        checkout = Path(temporary) / "source"
+        run([str(git), "clone", "--quiet", "--shared", "--no-checkout", str(source_repo), str(checkout)])
+        run([str(git), "-C", str(checkout), "checkout", "--quiet", "--detach", commit])
+        head = git_text(git, checkout, ["rev-parse", "HEAD"])
+        if head != commit:
+            raise RuntimeError(f"detached source resolved to {head} instead of {commit}")
+        if git_text(git, checkout, ["status", "--porcelain", "--untracked-files=all"]):
+            raise RuntimeError("detached release source is not clean")
+        yield checkout
+        if git_text(git, checkout, ["status", "--porcelain", "--untracked-files=all"]):
+            raise RuntimeError("release build changed detached source")
+
+
+def executable_identity(path: Path, version_args: list[str]) -> dict[str, object]:
+    resolved = path.resolve(strict=True)
+    metadata = resolved.stat()
+    if not stat.S_ISREG(metadata.st_mode) or not os.access(resolved, os.X_OK):
+        raise RuntimeError(f"toolchain executable is not usable: {path}")
+    version = run([str(path), *version_args]).stdout.strip()
+    if not version:
+        raise RuntimeError(f"toolchain executable returned no identity: {path}")
+    return {
+        "path": str(path),
+        "resolvedPath": str(resolved),
+        "digest": sha256_file(resolved),
+        "version": version.splitlines()[0],
+    }
+
+
+def python_identity(path: Path) -> dict[str, object]:
+    resolved = path.resolve(strict=True)
+    metadata = resolved.stat()
+    if not stat.S_ISREG(metadata.st_mode) or not os.access(resolved, os.X_OK):
+        raise RuntimeError(f"Python executable is not usable: {path}")
+    code = "import json,platform,sys; print(json.dumps({'version':sys.version,'implementation':platform.python_implementation(),'cacheTag':sys.implementation.cache_tag,'executable':sys.executable},sort_keys=True))"
+    detail = json.loads(run([str(path), "-c", code]).stdout)
+    return {
+        "path": str(path),
+        "resolvedPath": str(resolved),
+        "digest": sha256_file(resolved),
+        **detail,
+    }
+
+
+def tree_description(root: Path) -> dict[str, object]:
+    if not root.is_dir() or root.is_symlink():
+        raise RuntimeError(f"release tree is missing or unsafe: {root}")
+    digest = hashlib.sha256()
+    counts = {"directories": 0, "files": 0, "symlinks": 0}
+    total_bytes = 0
+    for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
+        relative = path.relative_to(root).as_posix()
+        metadata = path.lstat()
+        mode = stat.S_IMODE(metadata.st_mode)
+        if stat.S_ISDIR(metadata.st_mode):
+            record = {"path": relative, "type": "directory", "mode": mode}
+            counts["directories"] += 1
+        elif stat.S_ISREG(metadata.st_mode):
+            file_digest = sha256_file(path)
+            record = {"path": relative, "type": "file", "mode": mode, "bytes": metadata.st_size, "digest": file_digest}
+            counts["files"] += 1
+            total_bytes += metadata.st_size
+        elif stat.S_ISLNK(metadata.st_mode):
+            record = {"path": relative, "type": "symlink", "mode": mode, "target": os.readlink(path)}
+            counts["symlinks"] += 1
+        else:
+            raise RuntimeError(f"release tree contains unsupported file type: {path}")
+        digest.update(json.dumps(record, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+        digest.update(b"\n")
+    return {
+        "digest": "sha256:" + digest.hexdigest(),
+        "bytes": total_bytes,
+        "entries": sum(counts.values()),
+        **counts,
+    }
+
+
+def dependency_inventory(python: Path) -> dict[str, object]:
+    code = "import importlib.metadata as m,json; print(json.dumps(sorted((d.metadata['Name'],d.version) for d in m.distributions() if d.metadata.get('Name'))))"
+    items = json.loads(run([str(python), "-c", code], env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}).stdout)
+    return {"count": len(items), "digest": canonical_digest(items), "items": items}
+
+
+def remove_runtime_bytecode(root: Path) -> None:
+    for path in sorted(root.rglob("__pycache__"), reverse=True):
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+    for path in root.rglob("*.pyc"):
+        path.unlink(missing_ok=True)
+
+
+def prepare_candidate(args: argparse.Namespace) -> dict[str, object]:
+    validate_commit(args.commit)
+    source_repo = args.source_repo.resolve(strict=True)
+    args.candidate_root.mkdir(parents=True, exist_ok=True)
+    toolchain = {
+        "python": python_identity(args.python),
+        "uv": executable_identity(args.uv, ["--version"]),
+    }
+    with exact_source_checkout(source_repo, args.commit, args.git) as source:
+        lock = source / "uv.lock"
+        if not lock.is_file():
+            raise RuntimeError("releasable Host source must contain uv.lock")
+        lock_digest = sha256_file(lock)
+        run([str(args.uv), "lock", "--check", "--offline", "--python", str(args.python)], cwd=source)
+        build_root = Path(tempfile.mkdtemp(prefix=f".build-{args.commit[:12]}-", dir=str(args.candidate_root)))
+        completed = False
+        try:
+            release = build_root / "release"
+            release.mkdir()
+            (release / "COMMIT").write_text(args.commit + "\n", encoding="utf-8")
+            os.chmod(release / "COMMIT", 0o644)
+            venv = release / "venv"
+            run([str(args.uv), "venv", "--relocatable", "--python", str(args.python), str(venv)])
+            build_env = os.environ.copy()
+            build_env.update({
+                "UV_PROJECT_ENVIRONMENT": str(venv),
+                "PYTHONDONTWRITEBYTECODE": "1",
+            })
+            run([
+                str(args.uv), "sync", "--frozen", "--no-editable", "--no-install-project",
+                "--project", str(source), "--python", str(args.python), "--link-mode", "copy",
+                "--no-python-downloads",
+            ], cwd=source, env=build_env)
+            dist = build_root / "dist"
+            dist.mkdir()
+            run([
+                str(args.uv), "build", "--wheel", "--python", str(args.python),
+                "--out-dir", str(dist), str(source),
+            ], cwd=source, env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+            wheels = list(dist.glob("ordivon_host-*.whl"))
+            if len(wheels) != 1:
+                raise RuntimeError("Host wheel build did not produce exactly one wheel")
+            wheel = wheels[0]
+            wheel_digest = sha256_file(wheel)
+            run([
+                str(args.uv), "pip", "install", "--python", str(venv / "bin/python"),
+                "--no-deps", "--link-mode", "copy", str(wheel),
+            ], env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+            for direct_url in venv.glob("lib/python3.12/site-packages/ordivon_host-*.dist-info/direct_url.json"):
+                direct_url.unlink()
+            remove_runtime_bytecode(venv)
+            check_env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+            run([str(venv / "bin/ordivon-host"), "--help"], env=check_env)
+            run([str(venv / "bin/ordivon-host-mcp"), "--check"], env=check_env)
+            dependencies = dependency_inventory(venv / "bin/python")
+            content = tree_description(release)
+            release_id = f"{args.commit}-{str(content['digest'])[7:19]}"
+            candidate = args.candidate_root / release_id
+            manifest = {
+                "schemaVersion": SCHEMA_VERSION,
+                "kind": "ordivon.host-release-candidate",
+                "releaseId": release_id,
+                "commit": args.commit,
+                "sourceRepo": str(source_repo),
+                "sourceMaterialization": "detached_git_checkout",
+                "lockDigest": lock_digest,
+                "wheelDigest": wheel_digest,
+                "toolchain": toolchain,
+                "dependencies": dependencies,
+                "content": content,
+                "builtAtMs": int(time.time() * 1000),
+            }
+            if candidate.exists():
+                existing = load_candidate(candidate)
+                if existing.get("content") != content or existing.get("commit") != args.commit:
+                    raise RuntimeError(f"candidate identity collision: {candidate}")
+                shutil.rmtree(build_root)
+                completed = True
+                return {**existing, "candidateDir": str(candidate), "admission": "existing"}
+            write_json_atomic(build_root / "manifest.json", manifest)
+            os.rename(build_root, candidate)
+            fsync_dir(args.candidate_root)
+            completed = True
+            return {**manifest, "candidateDir": str(candidate), "admission": "created"}
+        finally:
+            if not completed:
+                shutil.rmtree(build_root, ignore_errors=True)
+
+
+def load_candidate(candidate_dir: Path) -> dict[str, object]:
+    manifest_path = candidate_dir / "manifest.json"
+    value = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict) or value.get("schemaVersion") != SCHEMA_VERSION:
+        raise RuntimeError("candidate manifest schema is unsupported")
+    return value
+
+
+def validate_candidate(candidate_dir: Path, commit: str, source_repo: Path) -> tuple[dict[str, object], list[str]]:
+    blockers: list[str] = []
+    try:
+        manifest = load_candidate(candidate_dir)
+    except (OSError, ValueError, TypeError, RuntimeError) as error:
+        return {}, [f"candidate manifest unreadable: {error}"]
+    if manifest.get("commit") != commit:
+        blockers.append("candidate commit differs from requested commit")
+    if Path(str(manifest.get("sourceRepo", ""))).resolve() != source_repo.resolve():
+        blockers.append("candidate source repository differs from source-repo")
+    if manifest.get("sourceMaterialization") != "detached_git_checkout":
+        blockers.append("candidate source materialization is unsupported")
+    release_id = manifest.get("releaseId")
+    if not isinstance(release_id, str) or candidate_dir.name != release_id:
+        blockers.append("candidate directory does not match releaseId")
+    try:
+        observed = tree_description(candidate_dir / "release")
+    except (OSError, ValueError, TypeError, RuntimeError) as error:
+        blockers.append(f"candidate release tree is invalid: {error}")
+        observed = None
+    if observed is not None and manifest.get("content") != observed:
+        blockers.append("candidate release tree does not match manifest content digest")
+    return manifest, blockers
+
+
+def validate_commit(commit: str) -> None:
+    if COMMIT_PATTERN.fullmatch(commit) is None:
+        raise RuntimeError("commit must be a 40-character lowercase Git SHA")
+
+
+def service_active(systemctl: Path, service: str) -> bool:
+    result = subprocess.run([str(systemctl), "is-active", service], text=True, capture_output=True, check=False)
+    return result.stdout.strip() == "active"
+
+
+def wait_service_active(systemctl: Path, service: str, wait_seconds: float) -> None:
+    deadline = time.monotonic() + wait_seconds
+    while time.monotonic() < deadline:
+        if service_active(systemctl, service):
+            return
+        time.sleep(0.25)
+    raise RuntimeError(f"service did not become active: {service}")
+
+
+def parse_environment_file(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            raise RuntimeError(f"invalid environment line: {raw}")
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
+
+
+def read_private_token(path: Path) -> str:
+    metadata = path.lstat()
+    if not stat.S_ISREG(metadata.st_mode) or path.is_symlink():
+        raise RuntimeError("Host MCP token path must be a regular non-symlink file")
+    if stat.S_IMODE(metadata.st_mode) & 0o077:
+        raise RuntimeError("Host MCP token file must be private")
+    if metadata.st_size > 16_384:
+        raise RuntimeError("Host MCP token file exceeds bound")
+    token = path.read_text(encoding="utf-8").strip()
+    if len(token) < 32 or any(character.isspace() for character in token):
+        raise RuntimeError("Host MCP token must be one non-whitespace token of at least 32 characters")
+    return token
+
+
+def mcp_exchange(endpoint: str, token: str, method: str, params: dict[str, object], request_id: int) -> dict[str, object]:
+    meta = {
+        "io.modelcontextprotocol/protocolVersion": MODERN_PROTOCOL_VERSION,
+        "io.modelcontextprotocol/clientInfo": {"name": "ordivon-host-deploy", "version": "1"},
+        "io.modelcontextprotocol/clientCapabilities": {},
+    }
+    payload_params = dict(params)
+    payload_params["_meta"] = meta
+    body = json.dumps({"jsonrpc": "2.0", "id": request_id, "method": method, "params": payload_params}, separators=(",", ":")).encode()
+    request = urllib.request.Request(endpoint, data=body, method="POST", headers={
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "MCP-Protocol-Version": MODERN_PROTOCOL_VERSION,
+        "Mcp-Method": method,
+    })
+    with urllib.request.urlopen(request, timeout=3.0) as response:
+        parsed = json.loads(response.read())
+    if not isinstance(parsed, dict) or parsed.get("id") != request_id:
+        raise RuntimeError(f"Host MCP returned invalid response for {method}")
+    if "error" in parsed:
+        raise RuntimeError(f"Host MCP returned error for {method}: {parsed['error']}")
+    result = parsed.get("result")
+    if not isinstance(result, dict):
+        raise TypeError(f"Host MCP omitted result for {method}")
+    return result
+
+
+def probe_host_mcp(env_file: Path, wait_seconds: float) -> dict[str, object]:
+    environment = parse_environment_file(env_file)
+    bind = environment.get("ORDIVON_HOST_MCP_BIND", "127.0.0.1")
+    port = environment.get("ORDIVON_HOST_MCP_PORT", "8898")
+    if bind not in {"127.0.0.1", "::1"}:
+        raise RuntimeError("Host MCP production probe requires loopback bind")
+    token_file = Path(environment.get("ORDIVON_HOST_MCP_TOKEN_FILE", "/etc/ordivon/host-mcp.token"))
+    token = read_private_token(token_file)
+    endpoint = f"http://127.0.0.1:{port}/mcp"
+    deadline = time.monotonic() + wait_seconds
+    last: Exception | None = None
+    while time.monotonic() < deadline:
+        try:
+            discovery = mcp_exchange(endpoint, token, "server/discover", {}, 1)
+            supported = discovery.get("supportedVersions")
+            if supported != [MODERN_PROTOCOL_VERSION]:
+                raise RuntimeError(f"Host MCP modern protocol mismatch: {supported}")
+            metadata = discovery.get("_meta")
+            server_info = metadata.get("io.modelcontextprotocol/serverInfo") if isinstance(metadata, dict) else None
+            if not isinstance(server_info, dict) or server_info.get("name") != "ordivon-host-mcp":
+                raise RuntimeError("Host MCP server identity mismatch")
+            listed = mcp_exchange(endpoint, token, "tools/list", {}, 2)
+            tools = listed.get("tools")
+            if not isinstance(tools, list):
+                raise TypeError("Host MCP tools/list omitted tools")
+            names = [item.get("name") for item in tools if isinstance(item, dict)]
+            if names != list(REQUIRED_TOOLS):
+                raise RuntimeError(f"Host MCP Tool catalog mismatch: {names}")
+            return {
+                "protocolVersion": MODERN_PROTOCOL_VERSION,
+                "serverInfo": server_info,
+                "toolCount": len(names),
+                "toolNames": names,
+                "toolCatalogDigest": canonical_digest(tools),
+            }
+        except (OSError, ValueError, TypeError, RuntimeError, urllib.error.URLError) as error:
+            last = error
+            time.sleep(0.25)
+    raise RuntimeError(f"Host MCP did not pass production probe: {last}")
+
+
+def inspect_current(release_root: Path) -> dict[str, object] | None:
+    current = release_root / "current"
+    if not current.is_symlink():
+        return None
+    release = current.resolve(strict=True)
+    releases = (release_root / "releases").resolve(strict=True)
+    if release.parent != releases:
+        raise RuntimeError("Host current release escapes releases directory")
+    commit_file = release / "COMMIT"
+    commit = commit_file.read_text(encoding="utf-8").strip()
+    validate_commit(commit)
+    return {
+        "releaseId": release.name,
+        "commit": commit,
+        "path": str(release),
+        "content": tree_description(release),
+    }
+
+
+def deployment_plan(args: argparse.Namespace) -> dict[str, object]:
+    validate_commit(args.commit)
+    source_repo = args.source_repo.resolve(strict=True)
+    manifest, blockers = validate_candidate(args.candidate_dir, args.commit, source_repo)
+    try:
+        source_lock_digest = git_blob_digest(args.git, source_repo, args.commit, "uv.lock")
+    except RuntimeError as error:
+        blockers.append(str(error))
+        source_lock_digest = None
+    if source_lock_digest is not None and manifest.get("lockDigest") != source_lock_digest:
+        blockers.append("candidate lockDigest differs from uv.lock at requested Git commit")
+    required_ref = git_text(args.git, source_repo, ["rev-parse", "--verify", args.require_ref])
+    if required_ref != args.commit:
+        blockers.append("required Git ref does not resolve to requested commit")
+    if not service_active(args.systemctl, args.service):
+        blockers.append("Host MCP service is not active")
+    current = inspect_current(args.release_root)
+    if current is None:
+        blockers.append("Host current release is missing; canonical apply requires an exact rollback target")
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "commit": args.commit,
+        "releaseId": manifest.get("releaseId"),
+        "sourceRepo": str(source_repo),
+        "requiredRef": args.require_ref,
+        "requiredRefCommit": required_ref,
+        "candidateDir": str(args.candidate_dir),
+        "sourceLockDigest": source_lock_digest,
+        "candidate": manifest,
+        "current": current,
+        "service": args.service,
+        "eligible": not blockers,
+        "blockers": blockers,
+    }
+
+
+def copy_release(candidate_release: Path, release_root: Path, release_id: str, expected: dict[str, object]) -> Path:
+    releases = release_root / "releases"
+    releases.mkdir(parents=True, exist_ok=True)
+    final = releases / release_id
+    if final.exists():
+        observed = tree_description(final)
+        if observed != expected:
+            raise RuntimeError("existing releaseId has different physical tree")
+        return final
+    stage = releases / f".stage-{release_id}-{os.getpid()}"
+    shutil.rmtree(stage, ignore_errors=True)
+    shutil.copytree(candidate_release, stage, symlinks=True, copy_function=shutil.copy2)
+    observed = tree_description(stage)
+    if observed != expected:
+        shutil.rmtree(stage, ignore_errors=True)
+        raise RuntimeError("staged release differs from candidate content digest")
+    os.rename(stage, final)
+    fsync_dir(releases)
+    return final
+
+
+def switch_current(release_root: Path, release_id: str) -> None:
+    releases = release_root / "releases"
+    target = releases / release_id
+    if not target.is_dir():
+        raise RuntimeError(f"release target does not exist: {target}")
+    temporary = release_root / f".current-{os.getpid()}-{time.time_ns()}"
+    temporary.unlink(missing_ok=True)
+    os.symlink(Path("releases") / release_id, temporary)
+    os.replace(temporary, release_root / "current")
+    fsync_dir(release_root)
+
+
+def receipt_directory(root: Path, release_id: str) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    path = root / f"{stamp}-{release_id[:25]}-{time.time_ns() % 1_000_000_000:09d}"
+    path.mkdir(mode=0o700)
+    return path
+
+
+@contextmanager
+def exclusive_lock(path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(descriptor)
+
+
+def apply_deployment(args: argparse.Namespace) -> dict[str, object]:
+    with exclusive_lock(args.lock_file):
+        plan = deployment_plan(args)
+        if not plan["eligible"]:
+            raise RuntimeError("deployment is not eligible: " + "; ".join(plan["blockers"]))
+        release_id = str(plan["releaseId"])
+        if args.confirm_release_id != release_id:
+            raise RuntimeError("confirm-release-id must exactly equal candidate releaseId")
+        candidate = plan["candidate"]
+        if not isinstance(candidate, dict) or not isinstance(candidate.get("content"), dict):
+            raise TypeError("candidate manifest lacks content identity")
+        previous = plan.get("current")
+        receipt = receipt_directory(args.receipt_root, release_id)
+        manifest = {
+            "schemaVersion": SCHEMA_VERSION,
+            "kind": "ordivon.host-deployment-receipt",
+            "releaseId": release_id,
+            "commit": args.commit,
+            "service": args.service,
+            "releaseRoot": str(args.release_root),
+            "envFile": str(args.env_file),
+            "candidate": candidate,
+            "previous": previous,
+            "planDigest": canonical_digest(plan),
+        }
+        write_json_atomic(receipt / "plan.json", plan)
+        write_json_atomic(receipt / "manifest.json", manifest)
+        final_release = copy_release(args.candidate_dir / "release", args.release_root, release_id, candidate["content"])
+        commit_started = False
+        try:
+            switch_current(args.release_root, release_id)
+            commit_started = True
+            run([str(args.systemctl), "restart", args.service])
+            wait_service_active(args.systemctl, args.service, args.wait_seconds)
+            probe = probe_host_mcp(args.env_file, args.wait_seconds)
+            observed = inspect_current(args.release_root)
+            if observed is None or observed["releaseId"] != release_id or observed["content"] != candidate["content"]:
+                raise RuntimeError("current release does not match deployed candidate after restart")
+            result = {
+                "schemaVersion": SCHEMA_VERSION,
+                "status": "deployed",
+                "releaseId": release_id,
+                "commit": args.commit,
+                "releasePath": str(final_release),
+                "previous": previous,
+                "probe": probe,
+                "finishedAtMs": int(time.time() * 1000),
+                "receipt": str(receipt),
+            }
+            write_json_atomic(receipt / "result.json", result)
+            return result
+        except Exception as deployment_error:
+            rollback_error: Exception | None = None
+            rollback_result: dict[str, object] | None = None
+            if commit_started and isinstance(previous, dict):
+                try:
+                    switch_current(args.release_root, str(previous["releaseId"]))
+                    run([str(args.systemctl), "restart", args.service])
+                    wait_service_active(args.systemctl, args.service, args.wait_seconds)
+                    rollback_probe = probe_host_mcp(args.env_file, args.wait_seconds)
+                    rollback_result = {"serviceActive": True, "probe": rollback_probe}
+                except (OSError, ValueError, TypeError, RuntimeError) as error:
+                    rollback_error = error
+            restored_previous = rollback_error is None and rollback_result is not None and isinstance(previous, dict)
+            failed = {
+                "schemaVersion": SCHEMA_VERSION,
+                "status": "rolled_back" if restored_previous else "failed",
+                "releaseId": release_id,
+                "commit": args.commit,
+                "restoredReleaseId": previous.get("releaseId") if restored_previous else None,
+                "restoredCommit": previous.get("commit") if restored_previous else None,
+                "errorType": type(deployment_error).__name__,
+                "error": str(deployment_error),
+                "rollback": rollback_result,
+                "rollbackError": None if rollback_error is None else str(rollback_error),
+                "finishedAtMs": int(time.time() * 1000),
+                "receipt": str(receipt),
+            }
+            write_json_atomic(receipt / "result.json", failed)
+            if restored_previous:
+                write_json_atomic(
+                    receipt / "rollback-result.json",
+                    {
+                        "schemaVersion": SCHEMA_VERSION,
+                        "status": "restored_previous",
+                        "releaseId": previous["releaseId"],
+                        "commit": previous.get("commit"),
+                        "automatic": True,
+                        "cause": "deployment_probe_or_activation_failure",
+                        "probe": rollback_result.get("probe") if isinstance(rollback_result, dict) else None,
+                        "finishedAtMs": int(time.time() * 1000),
+                        "receipt": str(receipt),
+                    },
+                )
+            if rollback_error is not None:
+                raise RuntimeError(f"deployment failed and rollback failed: {deployment_error}; rollback={rollback_error}") from deployment_error
+            raise
+
+
+def successful_release_events(receipt_root: Path) -> list[dict[str, object]]:
+    events: list[dict[str, object]] = []
+    if not receipt_root.is_dir():
+        return events
+    for receipt in sorted(receipt_root.iterdir()):
+        if not receipt.is_dir():
+            continue
+        for name in ("result.json", "rollback-result.json"):
+            path = receipt / name
+            if not path.is_file():
+                continue
+            value = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(value, dict):
+                continue
+            if value.get("status") not in {"deployed", "restored_previous"}:
+                continue
+            release_id = value.get("releaseId")
+            if not isinstance(release_id, str):
+                continue
+            events.append({"receipt": str(receipt), "event": name, **value})
+    return events
+
+
+def deployment_status(release_root: Path, receipt_root: Path) -> dict[str, object]:
+    current = inspect_current(release_root)
+    if current is None:
+        return {"schemaVersion": SCHEMA_VERSION, "status": "missing", "current": None, "receipt": None}
+    events = successful_release_events(receipt_root)
+    matching = [event for event in events if event.get("releaseId") == current["releaseId"]]
+    event = matching[-1] if matching else None
+    if event is None:
+        return {"schemaVersion": SCHEMA_VERSION, "status": "unreceipted", "current": current, "receipt": None}
+    manifest = json.loads((Path(str(event["receipt"])) / "manifest.json").read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        return {
+            "schemaVersion": SCHEMA_VERSION,
+            "status": "mismatch",
+            "current": current,
+            "receipt": {"path": event["receipt"], "event": event["event"], "status": event["status"]},
+            "contentMatchesReceipt": False,
+            "reason": "deployment receipt manifest is not an object",
+        }
+    if event["event"] == "rollback-result.json" and event["status"] == "restored_previous":
+        previous = manifest.get("previous")
+        expected = previous.get("content") if isinstance(previous, dict) else None
+    else:
+        candidate = manifest.get("candidate")
+        expected = candidate.get("content") if isinstance(candidate, dict) else None
+    matches = expected == current["content"]
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "status": "healthy" if matches else "mismatch",
+        "current": current,
+        "receipt": {"path": event["receipt"], "event": event["event"], "status": event["status"]},
+        "contentMatchesReceipt": matches,
+    }
+
+
+def rollback_deployment(args: argparse.Namespace) -> dict[str, object]:
+    with exclusive_lock(args.lock_file):
+        receipt = args.receipt.resolve(strict=True)
+        if receipt.parent.resolve() != args.receipt_root.resolve():
+            raise RuntimeError("rollback receipt is outside configured receipt root")
+        manifest = json.loads((receipt / "manifest.json").read_text(encoding="utf-8"))
+        if not isinstance(manifest, dict) or manifest.get("schemaVersion") != SCHEMA_VERSION:
+            raise RuntimeError("deployment receipt schema is unsupported")
+        if Path(str(manifest.get("releaseRoot"))).resolve() != args.release_root.resolve():
+            raise RuntimeError("rollback release root differs from receipt")
+        if manifest.get("service") != args.service or Path(str(manifest.get("envFile"))).resolve() != args.env_file.resolve():
+            raise RuntimeError("rollback service or env file differs from receipt")
+        previous = manifest.get("previous")
+        if not isinstance(previous, dict):
+            raise TypeError("deployment receipt has no previous release")
+        previous_id = previous.get("releaseId")
+        if not isinstance(previous_id, str) or args.confirm_release_id != previous_id:
+            raise RuntimeError("confirm-release-id must exactly equal previous receipt releaseId")
+        previous_path = args.release_root / "releases" / previous_id
+        if tree_description(previous_path) != previous.get("content"):
+            raise RuntimeError("previous release bytes no longer match deployment receipt")
+        displaced = inspect_current(args.release_root)
+        if displaced is None:
+            raise RuntimeError("current release is missing before rollback")
+        switched = False
+        try:
+            switch_current(args.release_root, previous_id)
+            switched = True
+            run([str(args.systemctl), "restart", args.service])
+            wait_service_active(args.systemctl, args.service, args.wait_seconds)
+            probe = probe_host_mcp(args.env_file, args.wait_seconds)
+            current = inspect_current(args.release_root)
+            if current is None or current["releaseId"] != previous_id or current["content"] != previous.get("content"):
+                raise RuntimeError("rollback current release does not match previous receipt release")
+            result = {
+                "schemaVersion": SCHEMA_VERSION,
+                "status": "restored_previous",
+                "releaseId": previous_id,
+                "commit": previous.get("commit"),
+                "displaced": displaced,
+                "probe": probe,
+                "finishedAtMs": int(time.time() * 1000),
+                "receipt": str(receipt),
+            }
+            write_json_atomic(receipt / "rollback-result.json", result)
+            return result
+        except Exception as rollback_error:
+            recovery_error: Exception | None = None
+            if switched:
+                try:
+                    switch_current(args.release_root, str(displaced["releaseId"]))
+                    run([str(args.systemctl), "restart", args.service])
+                    wait_service_active(args.systemctl, args.service, args.wait_seconds)
+                    probe_host_mcp(args.env_file, args.wait_seconds)
+                except (OSError, ValueError, TypeError, RuntimeError) as error:
+                    recovery_error = error
+            failed = {
+                "schemaVersion": SCHEMA_VERSION,
+                "status": "rollback_failed",
+                "releaseId": previous_id,
+                "errorType": type(rollback_error).__name__,
+                "error": str(rollback_error),
+                "recoveryError": None if recovery_error is None else str(recovery_error),
+                "finishedAtMs": int(time.time() * 1000),
+            }
+            write_json_atomic(receipt / "rollback-result.json", failed)
+            raise
+
+
+def emit(value: object, pretty: bool) -> None:
+    print(json.dumps(value, indent=2 if pretty else None, sort_keys=True))
+
+
+def main() -> int:
+    args = parser().parse_args()
+    try:
+        if args.command == "prepare":
+            result = prepare_candidate(args)
+        elif args.command == "plan":
+            result = deployment_plan(args)
+            emit(result, args.pretty)
+            return 0 if result["eligible"] else 2
+        elif args.command == "apply":
+            result = apply_deployment(args)
+        elif args.command == "status":
+            result = deployment_status(args.release_root, args.receipt_root)
+            emit(result, args.json)
+            return 0 if result["status"] in {"healthy", "unreceipted"} else 2
+        elif args.command == "rollback":
+            result = rollback_deployment(args)
+        else:
+            raise RuntimeError(f"unsupported command: {args.command}")
+        emit(result, getattr(args, "pretty", False))
+        return 0
+    except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as error:
+        print(f"ordivon-host-deploy: {error}", file=os.sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
