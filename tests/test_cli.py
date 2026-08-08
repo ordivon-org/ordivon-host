@@ -48,6 +48,29 @@ class HostCliTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertTrue(result["restored"])
 
+    def test_deployment_projects_release_commit_without_git_inference(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "host"
+            revision = "a" * 40
+            release = root / "releases" / revision
+            release.mkdir(parents=True)
+            (release / "COMMIT").write_text(revision + "\n", encoding="utf-8")
+            (root / "current").symlink_to(Path("releases") / revision)
+            code, result = self.invoke(
+                "deployment", "--release-root", str(root)
+            )
+            self.assertEqual(code, 0)
+            self.assertEqual(result["kind"], "ordivon.host-deployment")
+            self.assertEqual(result["deployedRevision"], revision)
+            self.assertEqual(result["currentRelease"], str(release))
+
+            (release / "COMMIT").write_text("b" * 40 + "\n", encoding="utf-8")
+            code, result = self.invoke(
+                "deployment", "--release-root", str(root)
+            )
+            self.assertEqual(code, 1)
+            self.assertEqual(result["error"], "ValueError")
+
     def test_history_doctor_and_recovery_assessment_commands(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory) / "state"

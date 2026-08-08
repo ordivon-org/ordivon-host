@@ -12,8 +12,10 @@ from .continuity_models import WorkingCheckpoint
 from .domain import StaticRepositoryResolver, TaskState
 from .handoff import operator_handoff
 from .ops import (
+    DEFAULT_HOST_RELEASE_ROOT,
     create_backup,
     doctor_state,
+    inspect_deployment,
     inspect_state,
     list_tasks,
     plan_gc,
@@ -32,6 +34,8 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("init")
     commands.add_parser("inspect")
+    deployment = commands.add_parser("deployment")
+    deployment.add_argument("--release-root", type=Path, default=DEFAULT_HOST_RELEASE_ROOT)
     config = commands.add_parser("config")
     config.add_argument("action", choices=("show",))
     task = commands.add_parser("task")
@@ -115,6 +119,8 @@ def _dispatch(config: HostConfig, args: argparse.Namespace) -> dict[str, object]
         return inspect_state(config.state_root)
     if args.command == "inspect":
         return inspect_state(config.state_root)
+    if args.command == "deployment":
+        return inspect_deployment(args.release_root)
     if args.command == "config":
         return config.to_dict()
     if args.command == "task":

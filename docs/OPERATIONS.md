@@ -155,6 +155,10 @@ ordivon-host --state-root /var/lib/ordivon/host \
 
 On a lost checkpoint response, retry the same checkpoint with the original expected revision. If that exact transition already became the current revision, Host returns `admission: existing`; a different claim fails closed.
 
+### Deployment identity
+
+`ordivon-host deployment` projects the exact installed release from the deployment-owned `current` symlink and immutable `releases/<commit>/COMMIT` marker. It does not infer deployment state from a Git checkout, package version, process age, or Host Journal state. Use `--release-root` only when inspecting a nonstandard installation root.
+
 ### Host MCP service
 
 H-C2 projects the same continuity authority over a small MCP endpoint. It exposes exactly four Tools: `task.list`, `task.resume`, `task.adopt`, and `task.checkpoint`. Each request opens a fresh Host storage handle and delegates to the same H-C1 APIs; the MCP server does not own a second Task store, Runtime connection, Harness Run, scheduler, or Provider session.
