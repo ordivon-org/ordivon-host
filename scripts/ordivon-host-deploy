@@ -17,7 +17,7 @@ import urllib.request
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 LIFECYCLE_SCHEMA_VERSION = 1
 MODERN_PROTOCOL_VERSION = "2026-07-28"
 REQUIRED_TOOLS = ("task.list", "task.resume", "task.adopt", "task.checkpoint")
@@ -271,6 +271,91 @@ def tree_description(root: Path) -> dict[str, object]:
     }
 
 
+def validate_python_runtime_stability(
+    python: Path, runtime_root: Path
+) -> dict[str, object]:
+    validator_script = '''
+import _imp
+import importlib.util
+import json
+import marshal
+from pathlib import Path
+import struct
+import sys
+
+root = Path(sys.argv[1]).resolve(strict=True)
+stdlib = root / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}"
+if not stdlib.is_dir():
+    raise SystemExit(f"stdlib is missing: {stdlib}")
+tag = sys.implementation.cache_tag
+sources = sorted(stdlib.rglob("*.py"))
+expected = set()
+errors = []
+magic_key = int.from_bytes(importlib.util.MAGIC_NUMBER, "little")
+for source in sources:
+    pyc = source.parent / "__pycache__" / f"{source.stem}.{tag}.pyc"
+    expected.add(pyc)
+    if not pyc.is_file():
+        errors.append(f"missing checked-hash pyc: {source}")
+        continue
+    data = pyc.read_bytes()
+    if len(data) < 16:
+        errors.append(f"truncated pyc: {pyc}")
+        continue
+    flags = struct.unpack("<I", data[4:8])[0]
+    if flags != 3:
+        errors.append(f"non checked-hash pyc flags={flags}: {pyc}")
+        continue
+    source_hash = _imp.source_hash(magic_key, source.read_bytes())
+    if data[8:16] != source_hash:
+        errors.append(f"pyc source hash mismatch: {pyc}")
+        continue
+    try:
+        code = marshal.loads(data[16:])
+    except Exception as error:
+        errors.append(f"unreadable pyc code object: {pyc}: {error}")
+        continue
+    if code.co_filename != str(source):
+        errors.append(
+            f"pyc co_filename mismatch: {pyc}: {code.co_filename!r} != {str(source)!r}"
+        )
+actual = set(stdlib.rglob("*.pyc"))
+for extra in sorted(actual - expected):
+    errors.append(f"extra pyc outside canonical source mapping: {extra}")
+if errors:
+    print(json.dumps({"errors": errors[:32], "errorCount": len(errors)}, sort_keys=True))
+    raise SystemExit(9)
+print(
+    json.dumps(
+        {
+            "kind": "checked-hash-complete-stdlib",
+            "cacheTag": tag,
+            "stdlib": str(stdlib),
+            "sourceCount": len(sources),
+            "pycCount": len(actual),
+            "invalidationMode": "checked-hash",
+            "coFilenameRoot": str(root),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+)
+'''
+    result = subprocess.run(
+        [str(python), "-B", "-c", validator_script, str(runtime_root)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = result.stdout.strip() or result.stderr.strip() or f"exit {result.returncode}"
+        raise RuntimeError(f"Python runtime is not fully materialized: {detail}")
+    value = json.loads(result.stdout)
+    if not isinstance(value, dict):
+        raise TypeError("Python runtime stability validator returned non-object")
+    return value
+
+
 def python_runtime_dependency(python: Path) -> dict[str, object]:
     resolved = python.resolve(strict=True)
     metadata = resolved.stat()
@@ -343,6 +428,9 @@ def prepare_candidate(args: argparse.Namespace) -> dict[str, object]:
     }
     requested_python_runtime = python_runtime_dependency(args.python)
     validate_python_runtime_root(requested_python_runtime, args.python_runtime_root)
+    requested_python_runtime_policy = validate_python_runtime_stability(
+        args.python, Path(str(requested_python_runtime["runtimeRoot"]))
+    )
     with exact_source_checkout(source_repo, args.commit, args.git) as source:
         lock = source / "uv.lock"
         if not lock.is_file():
@@ -394,9 +482,16 @@ def prepare_candidate(args: argparse.Namespace) -> dict[str, object]:
             content = tree_description(release)
             python_runtime = python_runtime_dependency(venv / "bin/python")
             validate_python_runtime_root(python_runtime, args.python_runtime_root)
+            python_runtime_policy = validate_python_runtime_stability(
+                venv / "bin/python", Path(str(python_runtime["runtimeRoot"]))
+            )
             if python_runtime != requested_python_runtime:
                 raise RuntimeError(
                     "constructed virtual environment does not use the requested Python runtime"
+                )
+            if python_runtime_policy != requested_python_runtime_policy:
+                raise RuntimeError(
+                    "constructed virtual environment changed Python runtime stability policy"
                 )
             effective_digest = effective_release_digest(content, python_runtime)
             release_id = f"{args.commit}-{effective_digest[7:19]}"
@@ -412,6 +507,7 @@ def prepare_candidate(args: argparse.Namespace) -> dict[str, object]:
                 "wheelDigest": wheel_digest,
                 "toolchain": toolchain,
                 "pythonRuntime": python_runtime,
+                "pythonRuntimePolicy": python_runtime_policy,
                 "dependencies": dependencies,
                 "content": content,
                 "effectiveDigest": effective_digest,
@@ -488,6 +584,20 @@ def validate_candidate(
         and manifest.get("pythonRuntime") != observed_python_runtime
     ):
         blockers.append("candidate Python runtime differs from manifest binding")
+    observed_python_runtime_policy: dict[str, object] | None = None
+    if observed_python_runtime is not None:
+        try:
+            observed_python_runtime_policy = validate_python_runtime_stability(
+                candidate_dir / "release" / "venv" / "bin" / "python",
+                Path(str(observed_python_runtime["runtimeRoot"])),
+            )
+        except (OSError, ValueError, TypeError, RuntimeError) as error:
+            blockers.append(f"candidate Python runtime is not stable: {error}")
+    if (
+        observed_python_runtime_policy is not None
+        and manifest.get("pythonRuntimePolicy") != observed_python_runtime_policy
+    ):
+        blockers.append("candidate Python runtime policy differs from manifest binding")
     if observed is not None and observed_python_runtime is not None:
         observed_effective = effective_release_digest(observed, observed_python_runtime)
         if manifest.get("effectiveDigest") != observed_effective:

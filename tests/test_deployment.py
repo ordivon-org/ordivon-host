@@ -3,9 +3,12 @@ from __future__ import annotations
 import argparse
 import importlib.machinery
 import importlib.util
+import py_compile
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "scripts/ordivon-host-deploy"
@@ -74,6 +77,7 @@ def make_candidate(
         "commit": commit,
         "content": module.tree_description(release),
         "pythonRuntime": module.python_runtime_dependency(python_executable),
+        "pythonRuntimePolicy": {"kind": "test-stable-runtime"},
     }
     module.write_json_atomic(candidate / "manifest.json", manifest)
     return candidate, manifest
@@ -252,17 +256,23 @@ class HostDeploymentOperatorTests(unittest.TestCase):
                 "sourceMaterialization": "detached_git_checkout",
                 "content": content,
                 "pythonRuntime": runtime_binding,
+                "pythonRuntimePolicy": {"kind": "test-stable-runtime"},
                 "effectiveDigest": effective,
             }
             module.write_json_atomic(candidate / "manifest.json", manifest)
-            _, blockers = module.validate_candidate(
-                candidate, commit, source, runtime.parent
-            )
-            self.assertEqual(blockers, [])
-            (release / "extra").write_text("tamper", encoding="utf-8")
-            _, blockers = module.validate_candidate(
-                candidate, commit, source, runtime.parent
-            )
+            with mock.patch.object(
+                module,
+                "validate_python_runtime_stability",
+                return_value={"kind": "test-stable-runtime"},
+            ):
+                _, blockers = module.validate_candidate(
+                    candidate, commit, source, runtime.parent
+                )
+                self.assertEqual(blockers, [])
+                (release / "extra").write_text("tamper", encoding="utf-8")
+                _, blockers = module.validate_candidate(
+                    candidate, commit, source, runtime.parent
+                )
             self.assertIn(
                 "candidate release tree does not match manifest content digest", blockers
             )
@@ -292,22 +302,55 @@ class HostDeploymentOperatorTests(unittest.TestCase):
                     "sourceMaterialization": "detached_git_checkout",
                     "content": content,
                     "pythonRuntime": runtime_binding,
+                    "pythonRuntimePolicy": {"kind": "test-stable-runtime"},
                     "effectiveDigest": effective,
                 },
             )
-            _, blockers = module.validate_candidate(
-                candidate, commit, source, runtime.parent
-            )
-            self.assertEqual(blockers, [])
-            (runtime / "lib" / "python3.12" / "stdlib.txt").write_text(
-                "stdlib-two\n", encoding="utf-8"
-            )
-            _, blockers = module.validate_candidate(
-                candidate, commit, source, runtime.parent
-            )
+            with mock.patch.object(
+                module,
+                "validate_python_runtime_stability",
+                return_value={"kind": "test-stable-runtime"},
+            ):
+                _, blockers = module.validate_candidate(
+                    candidate, commit, source, runtime.parent
+                )
+                self.assertEqual(blockers, [])
+                (runtime / "lib" / "python3.12" / "stdlib.txt").write_text(
+                    "stdlib-two\n", encoding="utf-8"
+                )
+                _, blockers = module.validate_candidate(
+                    candidate, commit, source, runtime.parent
+                )
             self.assertIn(
                 "candidate Python runtime differs from manifest binding", blockers
             )
+
+    def test_python_runtime_stability_requires_complete_checked_hash_pyc(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            stdlib = root / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}"
+            stdlib.mkdir(parents=True)
+            source = stdlib / "example.py"
+            source.write_text("VALUE = 1\n", encoding="utf-8")
+            cache = Path(
+                py_compile.compile(
+                    str(source),
+                    doraise=True,
+                    invalidation_mode=py_compile.PycInvalidationMode.CHECKED_HASH,
+                )
+            )
+            policy = module.validate_python_runtime_stability(
+                Path(sys.executable), root
+            )
+            self.assertEqual(policy["sourceCount"], 1)
+            self.assertEqual(policy["pycCount"], 1)
+            self.assertEqual(policy["invalidationMode"], "checked-hash")
+            cache.unlink()
+            with self.assertRaisesRegex(RuntimeError, "not fully materialized"):
+                module.validate_python_runtime_stability(Path(sys.executable), root)
+            py_compile.compile(str(source), doraise=True)
+            with self.assertRaisesRegex(RuntimeError, "not fully materialized"):
+                module.validate_python_runtime_stability(Path(sys.executable), root)
 
     def test_lifecycle_plan_keeps_minimal_reversible_frontier(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
