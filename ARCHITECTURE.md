@@ -36,7 +36,7 @@ Preserve durable work, commitments, uncertainty, evidence, and terminal outcomes
 
 ## Boundaries
 
-Host owns Task continuity and external commitment admission. Runtime owns physical execution, domain systems own authoritative world state and domain verification, Harness owns Agent Assignment and Run semantics, Computing owns promoted contracts, and Git owns source history. A universal scheduler remains deliberately frozen.
+Host owns Task continuity and external commitment admission. Runtime owns physical execution, domain systems own authoritative world state and domain verification, Harness owns caller-neutral Agent Run semantics, Computing owns promoted contracts, and Git owns source history. A universal scheduler remains deliberately frozen.
 
 ### Component responsibility matrix
 
@@ -44,7 +44,7 @@ Host owns Task continuity and external commitment admission. Runtime owns physic
 | --- | --- | --- |
 | Runtime | Workspace lifecycle, physical Jobs and Attempts, process trees, bounded Artifacts, cancellation, and physical reconciliation | Task semantics, Assignment/Run policy, Provider behavior, or domain completion |
 | Host | durable Task continuity, Journal/CAS, generic extension admission, commitment identities, verification records, and Task outcomes | Harness-specific schemas, model–Tool execution, physical process truth, or domain-world truth |
-| Harness | Task Attempt and Assignment semantics, Agent Runs, Provider adapters, Tool-step checkpoints, Run recovery, abandonment, and completion proposals/decisions | another Task database, generic Host persistence, Runtime supervision, promoted protocol, or final domain authority |
+| Harness | caller-neutral Agent Runs, Provider adapters and calls, model–Tool execution, Tool-step checkpoints, Run-local recovery, Trace/Receipt evidence, and completion proposals | caller Task authority, generic Host persistence, Runtime supervision, promoted protocol, or final domain authority |
 
 ## Components
 

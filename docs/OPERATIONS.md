@@ -58,7 +58,7 @@ The deployable Host state root is a trusted-local private boundary. Host enforce
 It contains:
 
 ```text
-host.sqlite3   schema v3 event journal, Task projection, leases, and CAS validation cache
+host.sqlite3   schema v4 event journal, Task projection, leases, event-object references, and CAS validation cache
 objects/       immutable content-addressed objects
 receipts/      operational and live-scenario receipts
 backups/       optional operator-selected backup destinations
@@ -68,8 +68,9 @@ Schema evolution is explicit:
 
 - v1 → v2 removes the unowned `task_nodes`, `task_edges`, `runtime_links`, and `wakeups` tables. Migration proceeds only when all four tables are empty; populated legacy tables fail closed. The source database is retained as `host.sqlite3.pre-schema-v2.sqlite3`.
 - v2 → v3 adds `object_validation`, which binds a previously SHA-256-verified CAS object to its device, inode, length, modification time, change time, and mode. The source database is retained as `host.sqlite3.pre-schema-v3.sqlite3`.
+- v3 → v4 adds `event_object_refs`, a unique payload-reference constraint, a legacy-object reference set, and the sequence boundary from which every newly admitted Event must bind its payload/reference objects explicitly. The source database is retained as `host.sqlite3.pre-schema-v4.sqlite3`.
 
-A v1 database advances through both migrations in order and records both entries in `schema_migrations`.
+A v1 database advances through all migrations in order and records every transition in `schema_migrations`.
 
 ## CAS validation modes
 

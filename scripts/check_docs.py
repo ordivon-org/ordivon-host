@@ -12,6 +12,7 @@ PROJECT = ROOT / ".ordivon/project.yaml"
 PYPROJECT = ROOT / "pyproject.toml"
 RUNTIME_CLIENT = ROOT / "src/ordivon_host/runtime/mcp.py"
 HOST_MCP_SERVER = ROOT / "src/ordivon_host/mcp_server.py"
+HOST_SCHEMA = ROOT / "src/ordivon_host/journal/_schema.py"
 
 REQUIRED_FRONTMATTER = {
     "schema_version",
@@ -252,6 +253,32 @@ def validate_public_contracts() -> list[str]:
     architecture = (ROOT / "ARCHITECTURE.md").read_text(encoding="utf-8")
     if "Host has not migrated to that transport profile" in architecture:
         errors.append("ARCHITECTURE.md still claims modern Runtime migration is incomplete")
+    for stale in (
+        "Harness owns Agent Assignment and Run semantics",
+        "Task Attempt and Assignment semantics, Agent Runs",
+    ):
+        if stale in architecture:
+            errors.append(f"ARCHITECTURE.md retains stale Harness ownership: {stale}")
+
+    readme_stale = "| Assignment, Agent Run, Provider adapter, model–Tool loop"
+    if readme_stale in readme:
+        errors.append("README.md still advertises the removed Host-backed Assignment boundary")
+
+    schema_source = HOST_SCHEMA.read_text(encoding="utf-8")
+    schema_match = re.search(r"(?m)^SCHEMA_VERSION = (\d+)$", schema_source)
+    if schema_match is None:
+        errors.append("Host schema source has no SCHEMA_VERSION")
+    else:
+        current_schema = int(schema_match.group(1))
+        operations = (ROOT / "docs/OPERATIONS.md").read_text(encoding="utf-8")
+        if f"host.sqlite3   schema v{current_schema} " not in operations:
+            errors.append(
+                f"OPERATIONS.md does not describe current Host schema v{current_schema}"
+            )
+        if current_schema > 1 and f"v{current_schema - 1} → v{current_schema}" not in operations:
+            errors.append(
+                f"OPERATIONS.md omits migration v{current_schema - 1} → v{current_schema}"
+            )
     return errors
 
 

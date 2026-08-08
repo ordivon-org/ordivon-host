@@ -55,7 +55,7 @@ Host does **not** own model intelligence, Provider invocation or process continu
 | --- | --- | --- |
 | durable Task continuity, Journal/CAS, commitments, uncertainty, referenced evidence, verification admission, Task outcomes | `ordivon-host` | physical execution, Agent Run loops, domain truth |
 | Workspace, Job, Attempt, process tree, Artifact, physical cancellation and recovery | `ordivon-runtime` | Task meaning or semantic completion |
-| Assignment, Agent Run, Provider adapter, model–Tool loop, Tool-step checkpoint and Run recovery | `ordivon-harness` | another Task database or Runtime supervisor |
+| caller-neutral Agent Run, Provider adapter, model–Tool loop, Tool-step checkpoint and Run recovery | `ordivon-harness` | caller Task authority, another Task database, or Runtime supervision |
 | authoritative world state and domain verification | Game, Security, World, or another domain owner | generic Host inference |
 | promoted cross-repository contracts | `ordivon-computing` | Host-local experiments before repeated proof |
 
