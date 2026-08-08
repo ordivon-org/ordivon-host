@@ -244,6 +244,22 @@ def remove_runtime_bytecode(root: Path) -> None:
         path.unlink(missing_ok=True)
 
 
+def install_no_bytecode_policy(venv_python: Path) -> Path:
+    code = "import sysconfig; print(sysconfig.get_paths()['purelib'])"
+    purelib = Path(
+        run(
+            [str(venv_python), "-c", code],
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        ).stdout.strip()
+    )
+    if not purelib.is_absolute() or not purelib.is_dir():
+        raise RuntimeError("virtual environment purelib path is invalid")
+    policy = purelib / "ordivon_release_no_bytecode.pth"
+    policy.write_text("import sys; sys.dont_write_bytecode = True\n", encoding="utf-8")
+    os.chmod(policy, 0o644)
+    return policy
+
+
 def prepare_candidate(args: argparse.Namespace) -> dict[str, object]:
     validate_commit(args.commit)
     source_repo = args.source_repo.resolve(strict=True)
@@ -294,6 +310,7 @@ def prepare_candidate(args: argparse.Namespace) -> dict[str, object]:
             ], env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
             for direct_url in venv.glob("lib/python3.12/site-packages/ordivon_host-*.dist-info/direct_url.json"):
                 direct_url.unlink()
+            install_no_bytecode_policy(venv / "bin/python")
             remove_runtime_bytecode(venv)
             check_env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
             run([str(venv / "bin/ordivon-host"), "--help"], env=check_env)
