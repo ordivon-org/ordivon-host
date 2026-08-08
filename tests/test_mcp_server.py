@@ -110,6 +110,13 @@ class HostMcpSettingsTests(unittest.TestCase):
                     public_origin=value,
                 )
 
+        with self.assertRaisesRegex(ValueError, "requires public_origin"):
+            HostMcpSettings(
+                state_root=Path("/tmp/state"),
+                token_file=Path("/tmp/token"),
+                trust_cf_access=True,
+            )
+
 
 class HostMcpEndToEndTests(unittest.TestCase):
     def test_modern_mcp_auth_catalog_and_continuity_round_trip(self) -> None:
@@ -136,6 +143,7 @@ class HostMcpEndToEndTests(unittest.TestCase):
                     str(port),
                     "--public-origin",
                     "https://host-mcp.example.test",
+                    "--trust-cf-access",
                     "--log-level",
                     "ERROR",
                 ],
@@ -161,6 +169,17 @@ class HostMcpEndToEndTests(unittest.TestCase):
                 )
                 self.assertEqual(external_status, 200)
                 self.assertEqual(external["result"]["supportedVersions"], ["2026-07-28"])
+                cf_access_status, cf_access = self._request_with_host(
+                    port,
+                    None,
+                    "host-mcp.example.test",
+                    origin="https://host-mcp.example.test",
+                    cf_access_assertion="signed-access-assertion",
+                )
+                self.assertEqual(cf_access_status, 200)
+                self.assertEqual(
+                    cf_access["result"]["supportedVersions"], ["2026-07-28"]
+                )
                 rejected_host_status, rejected_host = self._request_with_host(
                     port, token, "untrusted.example.test"
                 )
@@ -388,7 +407,12 @@ class HostMcpEndToEndTests(unittest.TestCase):
 
     @staticmethod
     def _request_with_host(
-        port: int, token: str, host: str, *, origin: str | None = None
+        port: int,
+        token: str | None,
+        host: str,
+        *,
+        origin: str | None = None,
+        cf_access_assertion: str | None = None,
     ) -> tuple[int, dict[str, object] | str]:
         body = json.dumps(
             {
@@ -410,14 +434,17 @@ class HostMcpEndToEndTests(unittest.TestCase):
         ).encode()
         headers = {
             "Host": host,
-            "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
             "Accept": "application/json",
             "MCP-Protocol-Version": "2026-07-28",
             "Mcp-Method": "server/discover",
         }
+        if token is not None:
+            headers["Authorization"] = f"Bearer {token}"
         if origin is not None:
             headers["Origin"] = origin
+        if cf_access_assertion is not None:
+            headers["Cf-Access-Jwt-Assertion"] = cf_access_assertion
         connection = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
         try:
             connection.request("POST", "/mcp", body=body, headers=headers)

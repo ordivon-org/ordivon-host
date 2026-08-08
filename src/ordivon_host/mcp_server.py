@@ -54,6 +54,7 @@ class HostMcpSettings:
     port: int = DEFAULT_HOST_MCP_PORT
     body_limit_bytes: int = DEFAULT_HOST_MCP_BODY_LIMIT_BYTES
     public_origin: str | None = None
+    trust_cf_access: bool = False
     log_level: str = "INFO"
 
     def __post_init__(self) -> None:
@@ -68,6 +69,10 @@ class HostMcpSettings:
             raise ValueError("Host MCP body limit must be a positive integer")
         if self.public_origin is not None:
             _public_origin_host(self.public_origin)
+        if type(self.trust_cf_access) is not bool:
+            raise ValueError("Host MCP trust_cf_access must be a boolean")
+        if self.trust_cf_access and self.public_origin is None:
+            raise ValueError("Host MCP Cloudflare Access trust requires public_origin")
         if self.log_level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
             raise ValueError("Host MCP log level is invalid")
 
@@ -86,10 +91,18 @@ class HostMcpSettings:
 class BearerAuthApp:
     """Exact static Bearer authentication around the SDK-owned MCP ASGI app."""
 
-    def __init__(self, app: AsgiApp, token: str, *, body_limit_bytes: int) -> None:
+    def __init__(
+        self,
+        app: AsgiApp,
+        token: str,
+        *,
+        body_limit_bytes: int,
+        trust_cf_access: bool = False,
+    ) -> None:
         self.app = app
         self._expected = f"Bearer {token}".encode("utf-8")
         self._body_limit_bytes = body_limit_bytes
+        self._trust_cf_access = trust_cf_access
 
     async def __call__(self, scope: dict[str, Any], receive: Receive, send: Send) -> None:
         if scope.get("type") != "http":
@@ -100,7 +113,15 @@ class BearerAuthApp:
             if raw_name.lower() == b"authorization":
                 authorization = raw_value
                 break
-        if not hmac.compare_digest(authorization, self._expected):
+        cf_access_assertion = b""
+        for raw_name, raw_value in scope.get("headers", []):
+            if raw_name.lower() == b"cf-access-jwt-assertion":
+                cf_access_assertion = raw_value
+                break
+        authorized = hmac.compare_digest(authorization, self._expected) or (
+            self._trust_cf_access and bool(cf_access_assertion)
+        )
+        if not authorized:
             within_limit = await _drain_http_request(
                 receive, max_bytes=self._body_limit_bytes
             )
@@ -293,7 +314,10 @@ def build_authenticated_app(settings: HostMcpSettings, token: str) -> BearerAuth
         host=settings.bind_host,
     )
     return BearerAuthApp(
-        app, token, body_limit_bytes=settings.body_limit_bytes
+        app,
+        token,
+        body_limit_bytes=settings.body_limit_bytes,
+        trust_cf_access=settings.trust_cf_access,
     )
 
 
@@ -312,6 +336,7 @@ def check_settings(settings: HostMcpSettings) -> dict[str, object]:
         "status": "ok",
         "endpoint": settings.endpoint,
         "publicEndpoint": settings.public_endpoint,
+        "trustCloudflareAccess": settings.trust_cf_access,
         "stateRoot": str(settings.state_root),
         "tokenFile": str(settings.token_file),
         "tokenFilePrivate": True,
@@ -353,6 +378,15 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "optional canonical HTTPS origin accepted by MCP DNS-rebinding protection "
             "when this loopback listener is reached through a reverse proxy"
+        ),
+    )
+    parser.add_argument(
+        "--trust-cf-access",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "trust a non-empty cf-access-jwt-assertion only when this loopback origin is "
+            "exclusively reachable through an operator-owned Cloudflare Access application"
         ),
     )
     parser.add_argument(
@@ -399,6 +433,11 @@ def _settings_from_args(args: argparse.Namespace) -> HostMcpSettings:
         )
     )
     public_origin = args.public_origin or os.environ.get("ORDIVON_HOST_MCP_PUBLIC_ORIGIN")
+    trust_cf_access = (
+        args.trust_cf_access
+        if args.trust_cf_access is not None
+        else _env_bool("ORDIVON_HOST_MCP_TRUST_CF_ACCESS", False)
+    )
     log_level = args.log_level or os.environ.get("ORDIVON_HOST_MCP_LOG_LEVEL", "INFO").upper()
     return HostMcpSettings(
         state_root=Path(state_root),
@@ -407,6 +446,7 @@ def _settings_from_args(args: argparse.Namespace) -> HostMcpSettings:
         port=port,
         body_limit_bytes=body_limit,
         public_origin=public_origin,
+        trust_cf_access=trust_cf_access,
         log_level=log_level,
     )
 
@@ -618,6 +658,18 @@ def _require_loopback(host: str) -> None:
         raise ValueError("Host MCP bind must be a literal loopback IP address") from error
     if not address.is_loopback:
         raise ValueError("Host MCP bind must remain loopback-only")
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes"}:
+        return True
+    if normalized in {"0", "false", "no"}:
+        return False
+    raise ValueError(f"{name} must be true or false")
 
 
 def _env_int(name: str, default: int) -> int:

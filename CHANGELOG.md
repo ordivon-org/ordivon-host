@@ -6,6 +6,7 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 
 ### Added
 
+- Host MCP can explicitly trust Cloudflare Access assertions behind its loopback-only Tunnel deployment while retaining the independent local Bearer path, matching the proven Runtime remote-auth pattern;
 - authenticated loopback `ordivon-host-mcp` using the pinned official MCP Python SDK, with a separate private bearer token, stateless HTTP transport, four-Tool surface for bounded Task discovery plus external-continuity resume/adopt/checkpoint, systemd templates, structured Tool errors, and real response-loss/concurrency acceptance;
 - `ordivon.host.external-continuity.v1`, bounded `WorkingCheckpoint` CAS objects, `task.context-checkpointed`, revision-safe adoption/checkpoint/resume APIs, and local CLI commands for cross-session semantic continuity without Runtime or Provider execution;
 - caller-neutral `ExternalExecutorAdapter`, durable external request, foreign Run binding, exact response-loss recovery, cancellation/observation reconciliation, and CompletionProposal collection without Task acceptance;
