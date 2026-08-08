@@ -96,6 +96,7 @@ def operator_handoff(
         EventKind.TASK_STATE_CHANGED,
     }:
         must_not_repeat.append(effect_digest)
+    descriptor = storage.read_task_descriptor(task_id)
     if snapshot.event_kind in {
         EventKind.EFFECT_OUTCOME_UNKNOWN,
         EventKind.RUNTIME_OUTCOME_UNKNOWN,
@@ -106,6 +107,18 @@ def operator_handoff(
         and decision_request_id is not None
     ):
         next_admissible = ("resolve-decision-request",)
+    elif (
+        descriptor is not None
+        and descriptor.workload_id == "ordivon.host.external-continuity.v1"
+        and snapshot.projection.state is TaskState.READY
+    ):
+        next_admissible = ("continue-external-work",)
+    elif (
+        descriptor is not None
+        and descriptor.workload_id == "ordivon.host.external-continuity.v1"
+        and snapshot.projection.state.terminal
+    ):
+        next_admissible = ()
     elif snapshot.projection.ready_frontier:
         next_admissible = snapshot.projection.ready_frontier
     elif snapshot.projection.state.terminal:

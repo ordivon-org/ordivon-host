@@ -198,7 +198,11 @@ def _validate_core_semantic_links(
     binding_key = data.get("bindingDigest")
     authority_key = data.get("authorityDecisionDigest")
     checks = 0
-    if event_kind is EventKind.TASK_CONTEXT_CHECKPOINTED:
+    checkpoint_bearing = event_kind is EventKind.TASK_CONTEXT_CHECKPOINTED or (
+        event_kind is EventKind.TASK_CREATED
+        and ("checkpointDigest" in data or "checkpointObjectDigest" in data)
+    )
+    if checkpoint_bearing:
         expected = {
             "descriptorDigest",
             "descriptorObjectDigest",

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 import hashlib
+from collections.abc import Callable
 
 from .continuity_models import (
     EXTERNAL_CONTINUITY_WORKLOAD_ID,
@@ -59,6 +59,9 @@ class ExternalContinuityHost:
             descriptor_object = self.storage.put_object(
                 descriptor.to_dict(), kind="task-descriptor"
             )
+            checkpoint_object = self.storage.put_object(
+                initial_checkpoint.to_dict(), kind=WORKING_CHECKPOINT_OBJECT_KIND
+            )
             try:
                 self.kernel.create_task(
                     event_id=self._event_id(task_id, "adopt", 1),
@@ -68,10 +71,12 @@ class ExternalContinuityHost:
                     payload={
                         "descriptorDigest": descriptor.digest,
                         "descriptorObjectDigest": descriptor_object.digest,
+                        "checkpointDigest": initial_checkpoint.digest,
+                        "checkpointObjectDigest": checkpoint_object.digest,
                     },
                     state=TaskState.READY,
                     frontier=(self._continue_node(task_id),),
-                    referenced_objects=(descriptor_object,),
+                    referenced_objects=(descriptor_object, checkpoint_object),
                 )
             except (EventConflict, RevisionConflict):
                 # A concurrent adopter may have created the same explicit Task.
@@ -83,6 +88,14 @@ class ExternalContinuityHost:
             current = self._require_external_task(task_id, expected_goal_id=goal_id)
 
         if current.revision == 1:
+            seeded = self._checkpoint_at_revision(task_id, 1)
+            if (
+                seeded is not None
+                and seeded.checkpoint_digest != initial_checkpoint.digest
+            ):
+                raise RevisionConflict(
+                    "existing external-continuity Task seed checkpoint differs"
+                )
             try:
                 self.checkpoint(
                     task_id=task_id,
@@ -102,10 +115,10 @@ class ExternalContinuityHost:
                 ):
                     raise
         else:
-            initial = self._checkpoint_at_revision(task_id, 2)
+            initial = self._initial_checkpoint(task_id)
             if initial is None:
                 raise RevisionConflict(
-                    "existing external-continuity Task has no initial checkpoint at revision 2"
+                    "existing external-continuity Task has no initial checkpoint"
                 )
             if initial.checkpoint_digest != initial_checkpoint.digest:
                 raise RevisionConflict(
@@ -119,16 +132,22 @@ class ExternalContinuityHost:
         task_id: str,
         expected_revision: int,
         checkpoint: WorkingCheckpoint,
+        disposition: str = "continue",
     ) -> CheckpointReceipt:
         if type(expected_revision) is not int or expected_revision < 1:
             raise ValueError("expected checkpoint revision must be a positive integer")
         if checkpoint.task_id != task_id:
             raise ValueError("WorkingCheckpoint Task identity differs")
+        target_state = self._disposition_state(disposition)
         current = self._require_external_task(task_id)
         if current.revision != expected_revision:
             if current.revision == expected_revision + 1:
                 existing = self._checkpoint_at_revision(task_id, current.revision)
-                if existing is not None and existing.checkpoint_digest == checkpoint.digest:
+                if (
+                    existing is not None
+                    and existing.checkpoint_digest == checkpoint.digest
+                    and current.state is target_state
+                ):
                     return CheckpointReceipt(EventAdmission.EXISTING, current, existing)
             raise RevisionConflict(
                 f"Task revision is {current.revision}, expected {expected_revision}"
@@ -155,6 +174,7 @@ class ExternalContinuityHost:
             )
             descriptor_digest = self.storage.task_descriptor_digest(task_id)
             descriptor_object_digest = self.storage.task_descriptor_object_digest(task_id)
+            terminal = target_state.terminal
             transition = locked.commit(
                 event_id=self._event_id(task_id, "checkpoint", next_revision),
                 kind=_CHECKPOINT_EVENT_KIND,
@@ -164,6 +184,8 @@ class ExternalContinuityHost:
                     "checkpointDigest": checkpoint.digest,
                     "checkpointObjectDigest": checkpoint_object.digest,
                 },
+                state=target_state,
+                frontier=() if terminal else expected_frontier,
                 referenced_objects=(checkpoint_object,),
             )
         return CheckpointReceipt(
@@ -182,9 +204,9 @@ class ExternalContinuityHost:
         snapshot = self.storage.read_latest_task_event_of_kind(
             task_id, _CHECKPOINT_EVENT_KIND
         )
-        if snapshot is None:
-            return None
-        return self._checkpoint_from_snapshot(snapshot)
+        if snapshot is not None:
+            return self._checkpoint_from_snapshot(snapshot)
+        return self._checkpoint_at_revision(task_id, 1)
 
     def resume(
         self,
@@ -205,16 +227,36 @@ class ExternalContinuityHost:
         return ExternalContinuityResume(
             projection=projection,
             handoff=handoff,
-            checkpoint=self.latest_checkpoint(task_id),
+            checkpoint=self._checkpoint_at_revision(task_id, projection.revision),
         )
+
+    def checkpoint_at_revision(
+        self, task_id: str, revision: int
+    ) -> WorkingCheckpointRecord | None:
+        if type(revision) is not int or revision < 1:
+            raise ValueError("checkpoint revision must be a positive integer")
+        self._require_external_task(task_id)
+        return self._checkpoint_at_revision(task_id, revision)
 
     def _checkpoint_at_revision(
         self, task_id: str, revision: int
     ) -> WorkingCheckpointRecord | None:
         snapshot = self.storage.read_task_event_at_revision(task_id, revision)
-        if snapshot is None or snapshot.event_kind != _CHECKPOINT_EVENT_KIND:
+        if snapshot is None:
             return None
-        return self._checkpoint_from_snapshot(snapshot)
+        if snapshot.event_kind is _CHECKPOINT_EVENT_KIND:
+            return self._checkpoint_from_snapshot(snapshot)
+        if snapshot.event_kind is EventKind.TASK_CREATED and isinstance(
+            snapshot.data, dict
+        ) and {"checkpointDigest", "checkpointObjectDigest"}.issubset(snapshot.data):
+            return self._checkpoint_from_snapshot(snapshot)
+        return None
+
+    def _initial_checkpoint(self, task_id: str) -> WorkingCheckpointRecord | None:
+        seeded = self._checkpoint_at_revision(task_id, 1)
+        if seeded is not None:
+            return seeded
+        return self._checkpoint_at_revision(task_id, 2)
 
     def _checkpoint_from_snapshot(
         self, snapshot: TaskEventSnapshot
@@ -270,6 +312,18 @@ class ExternalContinuityHost:
         if expected_goal_id is not None and projection.goal_id != expected_goal_id:
             raise ValueError("existing external-continuity Goal identity differs")
         return projection
+
+    @staticmethod
+    def _disposition_state(disposition: str) -> TaskState:
+        if disposition == "continue":
+            return TaskState.READY
+        if disposition == "complete":
+            return TaskState.COMPLETED
+        if disposition == "abandon":
+            return TaskState.CANCELLED
+        raise ValueError(
+            "external-continuity disposition must be continue, complete, or abandon"
+        )
 
     @staticmethod
     def _descriptor(task_id: str, goal_id: str) -> TaskDescriptor:

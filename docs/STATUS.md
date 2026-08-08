@@ -66,8 +66,8 @@ Python 3.13+, hostile multi-tenancy, remote distributed consensus, a general sch
 | Goal-scoped Task revision coordination | operational narrow slice |
 | generic extension event and CAS admission for independently versioned components | operational boundary |
 | external executor request, foreign Run binding, recovery and completion collection | operational P0 boundary; Task acceptance remains Host-owned |
-| external-continuity Task adoption, bounded WorkingCheckpoint, revision-safe checkpoint/retry, and resume projection | operational local authority |
-| authenticated loopback Host MCP for task.list/resume/adopt/checkpoint | operational transport boundary |
+| external-continuity adoption with crash-safe initial semantic seed, bounded WorkingCheckpoint, revision-coherent discovery/resume, terminal tracking disposition, and exact response-loss replay | operational local authority |
+| authenticated loopback Host MCP for paginated external-continuity discovery plus self-describing resume/adopt/checkpoint inputs | operational transport boundary |
 | general workflow engine or multi-Agent scheduler | not provided |
 | domain-world truth and semantic verification | domain-owned |
 | physical execution and process recovery | Runtime-owned |
@@ -83,6 +83,7 @@ The legacy Session decoder remains because retained deployments and historical e
 
 - Host has no durable Goal event stream or Goal commitment object; Goal coordination is a snapshot over Task revisions.
 - Host MCP intentionally exposes only the H-C1 external-continuity surface plus bounded Task discovery; it is not a general remote Host administration API, Runtime proxy, scheduler, or cognition endpoint.
+- `WorkingCheckpoint.runtime` remains a single Runtime Workspace navigation hint rather than a copied physical-state graph. Runtime currently preserves closed-Workspace source identity in its tombstone but `workspace.get` reports a closed identity as not found; durable cross-session navigation after Workspace closure therefore requires a Runtime-owned projection improvement rather than Host shadow state.
 - Reverse-proxy deployment keeps the listener on loopback and requires one explicit canonical HTTPS `public_origin`; Host extends only the MCP SDK Host/Origin allowlist and keeps DNS-rebinding protection enabled.
 - The canonical remote-auth pattern matches Runtime: static local Bearer remains valid, while optional `trust_cf_access` admits a non-empty Cloudflare Access assertion only under the explicit loopback + Access-protected Tunnel deployment precondition.
 - The current official MCP SDK path publishes typed input schemas and structured success/error content, but does not publish explicit output schemas for these `CallToolResult` tools without coupling Host to SDK-private output-model plumbing. H-C2 leaves that as a measured Agent-UX limitation rather than adding a second schema system.

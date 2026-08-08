@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 import tempfile
 import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from unittest import mock
 
+import ordivon_host.continuity as continuity_module
 from ordivon_host.continuity import ExternalContinuityHost
 from ordivon_host.continuity_models import (
     EXTERNAL_CONTINUITY_WORKLOAD_ID,
@@ -112,8 +114,68 @@ class ExternalContinuityTests(unittest.TestCase):
                 self.assertEqual(latest.handoff.task_revision, 3)
                 self.assertEqual(
                     latest.handoff.next_admissible,
-                    latest.projection.ready_frontier,
+                    ("continue-external-work",),
                 )
+                self.assertNotIn(
+                    latest.projection.ready_frontier[0],
+                    latest.handoff.next_admissible,
+                )
+
+    def test_resume_binds_checkpoint_to_projection_revision_under_race(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "state"
+            task_id = "task:external-continuity:resume-race"
+            clock = FixedClock()
+            with HostStorage(root) as storage:
+                host = ExternalContinuityHost(storage, clock_ms=clock)
+                host.adopt(
+                    task_id=task_id,
+                    goal_id="goal:external-continuity",
+                    initial_checkpoint=checkpoint(task_id, "old"),
+                )
+                original_handoff = continuity_module.operator_handoff
+                raced = [False]
+
+                def racing_handoff(
+                    handoff_storage: HostStorage,
+                    handoff_task_id: str,
+                    *,
+                    expected_revision: int | None = None,
+                ):
+                    capsule = original_handoff(
+                        handoff_storage,
+                        handoff_task_id,
+                        expected_revision=expected_revision,
+                    )
+                    if not raced[0]:
+                        raced[0] = True
+                        with HostStorage(root) as other_storage:
+                            ExternalContinuityHost(
+                                other_storage, clock_ms=clock
+                            ).checkpoint(
+                                task_id=task_id,
+                                expected_revision=2,
+                                checkpoint=checkpoint(task_id, "new"),
+                            )
+                    return capsule
+
+                with mock.patch.object(
+                    continuity_module, "operator_handoff", racing_handoff
+                ):
+                    resumed = host.resume(task_id, expected_revision=2)
+
+                self.assertEqual(resumed.projection.revision, 2)
+                self.assertEqual(resumed.handoff.task_revision, 2)
+                assert resumed.checkpoint is not None
+                self.assertEqual(resumed.checkpoint.task_revision, 2)
+                self.assertEqual(
+                    resumed.checkpoint.checkpoint.frontier,
+                    checkpoint(task_id, "old").frontier,
+                )
+                current = host.resume(task_id)
+                self.assertEqual(current.projection.revision, 3)
+                assert current.checkpoint is not None
+                self.assertEqual(current.checkpoint.task_revision, 3)
 
     def test_checkpoint_response_loss_retry_returns_existing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -147,6 +209,62 @@ class ExternalContinuityTests(unittest.TestCase):
                         expected_revision=2,
                         checkpoint=checkpoint(task_id, "different"),
                     )
+
+    def test_final_checkpoint_can_complete_or_abandon_continuity_tracking(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            clock = FixedClock()
+            with HostStorage(directory) as storage:
+                host = ExternalContinuityHost(storage, clock_ms=clock)
+                completed_id = "task:external-continuity:complete"
+                host.adopt(
+                    task_id=completed_id,
+                    goal_id="goal:external-continuity",
+                    initial_checkpoint=checkpoint(completed_id),
+                )
+                final = checkpoint(completed_id, "final")
+                first = host.checkpoint(
+                    task_id=completed_id,
+                    expected_revision=2,
+                    checkpoint=final,
+                    disposition="complete",
+                )
+                self.assertEqual(first.projection.state, TaskState.COMPLETED)
+                self.assertEqual(first.projection.ready_frontier, ())
+                replay = host.checkpoint(
+                    task_id=completed_id,
+                    expected_revision=2,
+                    checkpoint=final,
+                    disposition="complete",
+                )
+                self.assertEqual(replay.admission, EventAdmission.EXISTING)
+                resumed = host.resume(completed_id, expected_revision=3)
+                self.assertEqual(resumed.projection.state, TaskState.COMPLETED)
+                self.assertEqual(resumed.handoff.next_admissible, ())
+                assert resumed.checkpoint is not None
+                self.assertEqual(resumed.checkpoint.checkpoint, final)
+                with self.assertRaises(RevisionConflict):
+                    host.checkpoint(
+                        task_id=completed_id,
+                        expected_revision=2,
+                        checkpoint=final,
+                        disposition="abandon",
+                    )
+
+                abandoned_id = "task:external-continuity:abandon"
+                host.adopt(
+                    task_id=abandoned_id,
+                    goal_id="goal:external-continuity",
+                    initial_checkpoint=checkpoint(abandoned_id),
+                )
+                abandoned = host.checkpoint(
+                    task_id=abandoned_id,
+                    expected_revision=2,
+                    checkpoint=checkpoint(abandoned_id, "abandoned"),
+                    disposition="abandon",
+                )
+                self.assertEqual(abandoned.projection.state, TaskState.CANCELLED)
+                self.assertEqual(abandoned.projection.ready_frontier, ())
+                validate_history(storage)
 
     def test_adopt_retry_recovers_creation_and_rejects_different_initial_claim(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -254,6 +372,58 @@ class ExternalContinuityTests(unittest.TestCase):
                 self.assertEqual(storage.journal.event_count(task_id), 3)
                 self.assertEqual(plan_gc(directory, storage=storage)["orphanedObjects"], [])
                 storage.journal.validate_invariants()
+
+    def test_new_adopt_seed_survives_crash_before_revision_two(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / "state"
+            task_id = "task:external-continuity:seed-crash"
+            goal_id = "goal:external-continuity"
+            clock = FixedClock()
+            initial = checkpoint(task_id, "seed survives")
+            with HostStorage(state_root) as storage:
+                host = ExternalContinuityHost(storage, clock_ms=clock)
+                with mock.patch.object(
+                    ExternalContinuityHost,
+                    "checkpoint",
+                    side_effect=RuntimeError("synthetic crash after rev1"),
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "synthetic crash"):
+                        host.adopt(
+                            task_id=task_id,
+                            goal_id=goal_id,
+                            initial_checkpoint=initial,
+                        )
+                current = storage.journal.get_task(task_id)
+                assert current is not None
+                self.assertEqual(current.revision, 1)
+                seeded = host.resume(task_id, expected_revision=1)
+                assert seeded.checkpoint is not None
+                self.assertEqual(seeded.checkpoint.task_revision, 1)
+                self.assertEqual(seeded.checkpoint.checkpoint, initial)
+                self.assertEqual(
+                    seeded.handoff.next_admissible, ("continue-external-work",)
+                )
+                validate_history(storage)
+
+            with HostStorage(state_root) as storage:
+                fresh = ExternalContinuityHost(storage, clock_ms=clock)
+                with self.assertRaises(RevisionConflict):
+                    fresh.adopt(
+                        task_id=task_id,
+                        goal_id=goal_id,
+                        initial_checkpoint=checkpoint(task_id, "different seed"),
+                    )
+                recovered = fresh.adopt(
+                    task_id=task_id,
+                    goal_id=goal_id,
+                    initial_checkpoint=initial,
+                )
+                self.assertEqual(recovered.projection.revision, 2)
+                assert recovered.checkpoint is not None
+                self.assertEqual(recovered.checkpoint.task_revision, 2)
+                self.assertEqual(recovered.checkpoint.checkpoint, initial)
+                self.assertEqual(storage.journal.event_count(task_id), 2)
+                validate_history(storage)
 
     def test_adopt_recovers_after_creation_before_initial_checkpoint(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

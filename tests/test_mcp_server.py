@@ -1,21 +1,25 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 import http.client
 import json
-from pathlib import Path
 import socket
 import stat
-import urllib.error
-import urllib.request
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+import urllib.error
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from unittest import mock
 
+from ordivon_host.continuity import ExternalContinuityHost
 from ordivon_host.continuity_models import WorkingCheckpoint
-from ordivon_host.mcp_server import HostMcpSettings, check_settings
+from ordivon_host.domain import EventKind, TaskState
+from ordivon_host.kernel import HostKernel
+from ordivon_host.mcp_server import HostMcpSettings, _list_host_tasks, check_settings
 from ordivon_host.runtime import McpRuntimeClient, RuntimeToolRejected, RuntimeTransportError
 from ordivon_host.storage import HostStorage
 
@@ -118,6 +122,577 @@ class HostMcpSettingsTests(unittest.TestCase):
             )
 
 
+class HostMcpTaskDiscoveryTests(unittest.TestCase):
+    def test_external_continuity_discovery_is_paginated_and_not_starved(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / "state"
+            now = [1_000]
+
+            def clock() -> int:
+                now[0] += 1
+                return now[0]
+
+            with HostStorage(state_root) as storage:
+                continuity = ExternalContinuityHost(storage, clock_ms=clock)
+                oldest = "task:mcp:external-oldest"
+                continuity.adopt(
+                    task_id=oldest,
+                    goal_id="goal:mcp:external-oldest",
+                    initial_checkpoint=WorkingCheckpoint(
+                        task_id=oldest,
+                        objective="remain discoverable",
+                        frontier="continue",
+                    ),
+                )
+                kernel = HostKernel(storage, clock_ms=clock, owner_id="mcp-list-test")
+                for index in range(100):
+                    task_id = f"task:mcp:internal-{index:03d}"
+                    kernel.create_task(
+                        event_id=f"event:mcp:internal-{index:03d}:r1",
+                        kind=EventKind.TASK_CREATED,
+                        task_id=task_id,
+                        goal_id=f"goal:mcp:internal-{index:03d}",
+                        payload={"test": True},
+                        state=TaskState.READY,
+                        frontier=(f"node:mcp:internal-{index:03d}",),
+                    )
+                for index in range(104):
+                    task_id = f"task:mcp:external-{index:03d}"
+                    continuity.adopt(
+                        task_id=task_id,
+                        goal_id=f"goal:mcp:external-{index:03d}",
+                        initial_checkpoint=WorkingCheckpoint(
+                            task_id=task_id,
+                            objective="page external continuity",
+                            frontier="continue",
+                        ),
+                    )
+
+            first = _list_host_tasks(
+                state_root, goal_id=None, limit=100
+            )
+            self.assertEqual(first["schemaVersion"], 2)
+            self.assertEqual(first["scope"], "external-continuity")
+            self.assertTrue(first["hasMore"])
+            self.assertIsInstance(first["nextCursor"], str)
+            self.assertTrue(
+                all(item["externalContinuity"] for item in first["tasks"])
+            )
+            self.assertTrue(
+                all(
+                    item["workloadId"] == "ordivon.host.external-continuity.v1"
+                    for item in first["tasks"]
+                )
+            )
+            for item in first["tasks"]:
+                summary = item["semanticSummary"]
+                self.assertIsInstance(summary, dict)
+                self.assertEqual(
+                    set(summary),
+                    {
+                        "objectivePreview",
+                        "objectiveTruncated",
+                        "frontierPreview",
+                        "frontierTruncated",
+                        "checkpointRevision",
+                        "checkpointDigest",
+                    },
+                )
+
+            second = _list_host_tasks(
+                state_root,
+                goal_id=None,
+                limit=100,
+                cursor=str(first["nextCursor"]),
+            )
+            self.assertFalse(second["hasMore"])
+            self.assertIsNone(second["nextCursor"])
+            ids = [
+                item["projection"]["taskId"]
+                for item in [*first["tasks"], *second["tasks"]]
+            ]
+            self.assertEqual(len(ids), 105)
+            self.assertEqual(len(set(ids)), 105)
+            self.assertIn(oldest, ids)
+            self.assertFalse(any(task_id.startswith("task:mcp:internal-") for task_id in ids))
+
+    def test_task_list_prefilters_tasks_without_durable_descriptors(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / "state"
+            now = [5_000]
+
+            def clock() -> int:
+                now[0] += 1
+                return now[0]
+
+            with HostStorage(state_root) as storage:
+                continuity = ExternalContinuityHost(storage, clock_ms=clock)
+                continuity.adopt(
+                    task_id="task:mcp:prefilter-external",
+                    goal_id="goal:mcp:prefilter",
+                    initial_checkpoint=WorkingCheckpoint(
+                        task_id="task:mcp:prefilter-external",
+                        objective="remain cheap to discover",
+                        frontier="continue",
+                    ),
+                )
+                kernel = HostKernel(storage, clock_ms=clock, owner_id="prefilter-test")
+                for index in range(100):
+                    kernel.create_task(
+                        event_id=f"event:mcp:prefilter-{index:03d}:r1",
+                        kind=EventKind.TASK_CREATED,
+                        task_id=f"task:mcp:prefilter-internal-{index:03d}",
+                        goal_id=f"goal:mcp:prefilter-internal-{index:03d}",
+                        payload={"test": True},
+                        state=TaskState.READY,
+                        frontier=(f"node:mcp:prefilter-{index:03d}",),
+                    )
+
+            original = HostStorage.read_task_descriptor
+            seen: list[str] = []
+
+            def counted(storage: HostStorage, task_id: str):
+                seen.append(task_id)
+                return original(storage, task_id)
+
+            with mock.patch.object(HostStorage, "read_task_descriptor", counted):
+                page = _list_host_tasks(state_root, goal_id=None, limit=50)
+            self.assertEqual(
+                [item["projection"]["taskId"] for item in page["tasks"]],
+                ["task:mcp:prefilter-external"],
+            )
+            self.assertEqual(
+                seen,
+                [
+                    "task:mcp:prefilter-external",
+                    "task:mcp:prefilter-external",
+                ],
+            )
+
+    def test_task_list_exposes_bounded_semantic_selection_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / "state"
+            now = [7_000]
+
+            def clock() -> int:
+                now[0] += 1
+                return now[0]
+
+            with HostStorage(state_root) as storage:
+                continuity = ExternalContinuityHost(storage, clock_ms=clock)
+                for task_id, objective, frontier in (
+                    ("task:mcp:opaque-a", "audit deployment authority", "inspect receipts"),
+                    ("task:mcp:opaque-b", "research adversarial agents", "design deception trial"),
+                ):
+                    continuity.adopt(
+                        task_id=task_id,
+                        goal_id="goal:mcp:opaque",
+                        initial_checkpoint=WorkingCheckpoint(
+                            task_id=task_id,
+                            objective=objective,
+                            frontier=frontier,
+                        ),
+                    )
+
+            page = _list_host_tasks(
+                state_root, goal_id="goal:mcp:opaque", limit=10
+            )
+            summaries = {
+                item["projection"]["taskId"]: item["semanticSummary"]
+                for item in page["tasks"]
+            }
+            self.assertEqual(
+                summaries["task:mcp:opaque-a"]["objectivePreview"],
+                "audit deployment authority",
+            )
+            self.assertEqual(
+                summaries["task:mcp:opaque-b"]["frontierPreview"],
+                "design deception trial",
+            )
+            self.assertTrue(
+                summaries["task:mcp:opaque-a"]["checkpointDigest"].startswith("sha256:")
+            )
+
+    def test_task_list_hides_terminal_continuity_unless_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / "state"
+            now = [9_000]
+
+            def clock() -> int:
+                now[0] += 1
+                return now[0]
+
+            task_id = "task:mcp:terminal-history"
+            with HostStorage(state_root) as storage:
+                continuity = ExternalContinuityHost(storage, clock_ms=clock)
+                continuity.adopt(
+                    task_id=task_id,
+                    goal_id="goal:mcp:terminal-history",
+                    initial_checkpoint=WorkingCheckpoint(
+                        task_id=task_id,
+                        objective="finish continuity tracking",
+                        frontier="finish",
+                    ),
+                )
+                continuity.checkpoint(
+                    task_id=task_id,
+                    expected_revision=2,
+                    checkpoint=WorkingCheckpoint(
+                        task_id=task_id,
+                        objective="finish continuity tracking",
+                        frontier="continuity tracking complete",
+                    ),
+                    disposition="complete",
+                )
+
+            active = _list_host_tasks(
+                state_root,
+                goal_id="goal:mcp:terminal-history",
+                limit=10,
+            )
+            self.assertEqual(active["tasks"], [])
+            historical = _list_host_tasks(
+                state_root,
+                goal_id="goal:mcp:terminal-history",
+                limit=10,
+                include_terminal=True,
+            )
+            self.assertEqual(len(historical["tasks"]), 1)
+            self.assertEqual(
+                historical["tasks"][0]["projection"]["state"], "completed"
+            )
+
+    def test_task_list_semantic_summary_is_revision_coherent_under_race(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / "state"
+            now = [8_000]
+
+            def clock() -> int:
+                now[0] += 1
+                return now[0]
+
+            task_id = "task:mcp:list-race"
+            with HostStorage(state_root) as storage:
+                continuity = ExternalContinuityHost(storage, clock_ms=clock)
+                continuity.adopt(
+                    task_id=task_id,
+                    goal_id="goal:mcp:list-race",
+                    initial_checkpoint=WorkingCheckpoint(
+                        task_id=task_id,
+                        objective="old objective",
+                        frontier="old frontier",
+                    ),
+                )
+
+            original = ExternalContinuityHost.checkpoint_at_revision
+            raced = [False]
+
+            def racing_checkpoint_at_revision(
+                host: ExternalContinuityHost,
+                target_task_id: str,
+                revision: int,
+            ):
+                if not raced[0]:
+                    raced[0] = True
+                    with HostStorage(state_root) as other_storage:
+                        ExternalContinuityHost(other_storage, clock_ms=clock).checkpoint(
+                            task_id=task_id,
+                            expected_revision=2,
+                            checkpoint=WorkingCheckpoint(
+                                task_id=task_id,
+                                objective="new objective",
+                                frontier="new frontier",
+                            ),
+                        )
+                return original(host, target_task_id, revision)
+
+            with mock.patch.object(
+                ExternalContinuityHost,
+                "checkpoint_at_revision",
+                racing_checkpoint_at_revision,
+            ):
+                page = _list_host_tasks(
+                    state_root,
+                    goal_id="goal:mcp:list-race",
+                    limit=10,
+                )
+
+            self.assertEqual(len(page["tasks"]), 1)
+            item = page["tasks"][0]
+            self.assertEqual(item["projection"]["revision"], 2)
+            self.assertEqual(item["semanticSummary"]["checkpointRevision"], 2)
+            self.assertEqual(
+                item["semanticSummary"]["frontierPreview"], "old frontier"
+            )
+            with HostStorage(state_root) as storage:
+                current = ExternalContinuityHost(
+                    storage, clock_ms=clock
+                ).resume(task_id)
+                self.assertEqual(current.projection.revision, 3)
+
+    def test_task_list_semantic_summary_has_independent_preview_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / "state"
+            now = [9_500]
+
+            def clock() -> int:
+                now[0] += 1
+                return now[0]
+
+            task_id = "task:mcp:preview-budget"
+            large = "界" * 1_365
+            with HostStorage(state_root) as storage:
+                continuity = ExternalContinuityHost(storage, clock_ms=clock)
+                continuity.adopt(
+                    task_id=task_id,
+                    goal_id="goal:mcp:preview-budget",
+                    initial_checkpoint=WorkingCheckpoint(
+                        task_id=task_id,
+                        objective=large,
+                        frontier=large,
+                    ),
+                )
+
+            page = _list_host_tasks(
+                state_root,
+                goal_id="goal:mcp:preview-budget",
+                limit=10,
+            )
+            summary = page["tasks"][0]["semanticSummary"]
+            self.assertLessEqual(
+                len(summary["objectivePreview"].encode("utf-8")), 512
+            )
+            self.assertLessEqual(
+                len(summary["frontierPreview"].encode("utf-8")), 512
+            )
+            self.assertTrue(summary["objectiveTruncated"])
+            self.assertTrue(summary["frontierTruncated"])
+            self.assertEqual(summary["checkpointRevision"], 2)
+            self.assertTrue(summary["checkpointDigest"].startswith("sha256:"))
+
+    def test_task_list_rechecks_terminal_state_after_initial_query(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / "state"
+            now = [11_000]
+
+            def clock() -> int:
+                now[0] += 1
+                return now[0]
+
+            task_id = "task:mcp:terminal-race"
+            with HostStorage(state_root) as storage:
+                continuity = ExternalContinuityHost(storage, clock_ms=clock)
+                continuity.adopt(
+                    task_id=task_id,
+                    goal_id="goal:mcp:terminal-race",
+                    initial_checkpoint=WorkingCheckpoint(
+                        task_id=task_id,
+                        objective="close during list",
+                        frontier="continue",
+                    ),
+                )
+
+            from ordivon_host.journal.sqlite import HostJournal
+
+            original = HostJournal.get_task
+            fired = [False]
+
+            def racing_get_task(journal: HostJournal, target_task_id: str):
+                if target_task_id == task_id and not fired[0]:
+                    fired[0] = True
+                    with HostStorage(state_root) as other_storage:
+                        ExternalContinuityHost(
+                            other_storage, clock_ms=clock
+                        ).checkpoint(
+                            task_id=task_id,
+                            expected_revision=2,
+                            checkpoint=WorkingCheckpoint(
+                                task_id=task_id,
+                                objective="close during list",
+                                frontier="closed",
+                            ),
+                            disposition="complete",
+                        )
+                return original(journal, target_task_id)
+
+            with mock.patch.object(HostJournal, "get_task", racing_get_task):
+                active = _list_host_tasks(
+                    state_root,
+                    goal_id="goal:mcp:terminal-race",
+                    limit=10,
+                )
+            self.assertEqual(active["tasks"], [])
+            historical = _list_host_tasks(
+                state_root,
+                goal_id="goal:mcp:terminal-race",
+                limit=10,
+                include_terminal=True,
+            )
+            self.assertEqual(len(historical["tasks"]), 1)
+            self.assertEqual(
+                historical["tasks"][0]["projection"]["state"], "completed"
+            )
+
+    def test_task_list_recovers_seeded_initial_checkpoint_before_revision_two(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / "state"
+            now = [11_500]
+
+            def clock() -> int:
+                now[0] += 1
+                return now[0]
+
+            task_id = "task:mcp:seeded-discovery"
+            with HostStorage(state_root) as storage:
+                continuity = ExternalContinuityHost(storage, clock_ms=clock)
+                with mock.patch.object(
+                    ExternalContinuityHost,
+                    "checkpoint",
+                    side_effect=RuntimeError("synthetic crash after seeded creation"),
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "synthetic crash"):
+                        continuity.adopt(
+                            task_id=task_id,
+                            goal_id="goal:mcp:seeded-discovery",
+                            initial_checkpoint=WorkingCheckpoint(
+                                task_id=task_id,
+                                objective="seeded objective",
+                                frontier="seeded frontier",
+                            ),
+                        )
+
+            page = _list_host_tasks(
+                state_root,
+                goal_id="goal:mcp:seeded-discovery",
+                limit=10,
+            )
+            self.assertEqual(len(page["tasks"]), 1)
+            item = page["tasks"][0]
+            self.assertEqual(item["projection"]["revision"], 1)
+            self.assertEqual(item["semanticSummary"]["checkpointRevision"], 1)
+            self.assertEqual(
+                item["semanticSummary"]["objectivePreview"], "seeded objective"
+            )
+            self.assertEqual(
+                item["semanticSummary"]["frontierPreview"], "seeded frontier"
+            )
+
+    def test_task_list_cursor_uses_immutable_creation_order(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / "state"
+            now = [10_000]
+
+            def clock() -> int:
+                now[0] += 1
+                return now[0]
+
+            task_ids = [f"task:mcp:cursor-{index}" for index in range(3)]
+            with HostStorage(state_root) as storage:
+                continuity = ExternalContinuityHost(storage, clock_ms=clock)
+                for task_id in task_ids:
+                    continuity.adopt(
+                        task_id=task_id,
+                        goal_id="goal:mcp:cursor",
+                        initial_checkpoint=WorkingCheckpoint(
+                            task_id=task_id,
+                            objective="cursor stability",
+                            frontier="initial",
+                        ),
+                    )
+
+            first = _list_host_tasks(
+                state_root, goal_id="goal:mcp:cursor", limit=1
+            )
+            first_id = first["tasks"][0]["projection"]["taskId"]
+            cursor = str(first["nextCursor"])
+            with HostStorage(state_root) as storage:
+                continuity = ExternalContinuityHost(storage, clock_ms=clock)
+                current = continuity.resume(first_id).projection
+                continuity.checkpoint(
+                    task_id=first_id,
+                    expected_revision=current.revision,
+                    checkpoint=WorkingCheckpoint(
+                        task_id=first_id,
+                        objective="cursor stability",
+                        frontier="updated after first page",
+                    ),
+                )
+
+            second = _list_host_tasks(
+                state_root,
+                goal_id="goal:mcp:cursor",
+                limit=10,
+                cursor=cursor,
+            )
+            remaining = [
+                item["projection"]["taskId"] for item in second["tasks"]
+            ]
+            self.assertEqual(len(remaining), 2)
+            self.assertNotIn(first_id, remaining)
+            self.assertEqual(set(remaining), set(task_ids) - {first_id})
+
+    def test_task_list_rejects_invalid_cursor(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / "state"
+            with HostStorage(state_root):
+                pass
+            with self.assertRaisesRegex(ValueError, "cursor is invalid") as captured:
+                _list_host_tasks(
+                    state_root,
+                    goal_id=None,
+                    limit=10,
+                    cursor="not-a-valid-cursor!",
+                )
+            self.assertEqual(captured.exception.field, "cursor")
+
+    def test_task_list_cursor_is_bound_to_query_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / "state"
+            now = [12_000]
+
+            def clock() -> int:
+                now[0] += 1
+                return now[0]
+
+            with HostStorage(state_root) as storage:
+                continuity = ExternalContinuityHost(storage, clock_ms=clock)
+                for index in range(3):
+                    task_id = f"task:mcp:scope-{index}"
+                    continuity.adopt(
+                        task_id=task_id,
+                        goal_id="goal:mcp:scope-a",
+                        initial_checkpoint=WorkingCheckpoint(
+                            task_id=task_id, objective="scope a", frontier="continue"
+                        ),
+                    )
+
+            first = _list_host_tasks(
+                state_root, goal_id="goal:mcp:scope-a", limit=1
+            )
+            cursor = str(first["nextCursor"])
+            with self.assertRaisesRegex(
+                ValueError, "does not match the current query scope"
+            ) as wrong_goal:
+                _list_host_tasks(
+                    state_root,
+                    goal_id="goal:mcp:scope-b",
+                    limit=1,
+                    cursor=cursor,
+                )
+            self.assertEqual(wrong_goal.exception.field, "cursor")
+            with self.assertRaisesRegex(
+                ValueError, "does not match the current query scope"
+            ) as wrong_terminal_scope:
+                _list_host_tasks(
+                    state_root,
+                    goal_id="goal:mcp:scope-a",
+                    limit=1,
+                    cursor=cursor,
+                    include_terminal=True,
+                )
+            self.assertEqual(wrong_terminal_scope.exception.field, "cursor")
+
+
 class HostMcpEndToEndTests(unittest.TestCase):
     def test_modern_mcp_auth_catalog_and_continuity_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -199,6 +774,131 @@ class HostMcpEndToEndTests(unittest.TestCase):
                 )
                 for tool in tools:
                     self.assertIsInstance(tool.get("inputSchema"), dict)
+                by_name = {tool["name"]: tool for tool in tools}
+                list_schema = by_name["task.list"]["inputSchema"]
+                self.assertIn("cursor", list_schema["properties"])
+                self.assertIn("includeTerminal", list_schema["properties"])
+                adopt_schema = by_name["task.adopt"]["inputSchema"]
+                checkpoint_schema = by_name["task.checkpoint"]["inputSchema"]
+                self.assertEqual(
+                    checkpoint_schema["properties"]["continuityDisposition"]["enum"],
+                    ["continue", "complete", "abandon"],
+                )
+                for schema, field in (
+                    (adopt_schema, "initialCheckpoint"),
+                    (checkpoint_schema, "checkpoint"),
+                ):
+                    definition = schema["properties"][field]
+                    self.assertFalse(definition["additionalProperties"])
+                    self.assertNotIn("$ref", definition)
+                    self.assertNotIn("$defs", definition)
+                    self.assertEqual(
+                        set(definition["required"]),
+                        {
+                            "schemaVersion",
+                            "kind",
+                            "truthRole",
+                            "taskId",
+                            "objective",
+                            "frontier",
+                            "established",
+                            "unresolved",
+                            "rejected",
+                            "constraints",
+                            "nextActions",
+                            "runtime",
+                        },
+                    )
+                    self.assertEqual(
+                        definition["properties"]["kind"]["const"],
+                        "ordivon.host-working-checkpoint",
+                    )
+                    self.assertEqual(
+                        definition["properties"]["truthRole"]["const"],
+                        "semantic-working-claim",
+                    )
+
+                with self.assertRaises(RuntimeToolRejected) as invalid_checkpoint:
+                    client.call_tool(
+                        "task.adopt",
+                        {
+                            "taskId": "task:mcp:invalid-checkpoint",
+                            "goalId": "goal:mcp:continuity",
+                            "initialCheckpoint": {
+                                "taskId": "task:mcp:invalid-checkpoint"
+                            },
+                        },
+                    )
+                self.assertEqual(
+                    invalid_checkpoint.exception.detail.code, "INVALID_ARGUMENT"
+                )
+                self.assertEqual(
+                    invalid_checkpoint.exception.detail.commit_state, "not_committed"
+                )
+                self.assertEqual(
+                    invalid_checkpoint.exception.detail.field, "initialCheckpoint"
+                )
+                self.assertEqual(
+                    invalid_checkpoint.exception.detail.retry_class, "fix_request"
+                )
+                self.assertEqual(
+                    invalid_checkpoint.exception.detail.origin, "host-mcp"
+                )
+                mismatch = _checkpoint(
+                    "task:mcp:checkpoint-inner-other", "mismatched inner Task"
+                )
+                with self.assertRaises(RuntimeToolRejected) as mismatched_checkpoint:
+                    client.call_tool(
+                        "task.adopt",
+                        {
+                            "taskId": "task:mcp:checkpoint-outer",
+                            "goalId": "goal:mcp:continuity",
+                            "initialCheckpoint": mismatch,
+                        },
+                    )
+                self.assertEqual(
+                    mismatched_checkpoint.exception.detail.code, "INVALID_ARGUMENT"
+                )
+                self.assertEqual(
+                    mismatched_checkpoint.exception.detail.field,
+                    "initialCheckpoint.taskId",
+                )
+                self.assertEqual(
+                    mismatched_checkpoint.exception.detail.commit_state,
+                    "not_committed",
+                )
+                valid_for_bad_disposition = _checkpoint(
+                    "task:mcp:bad-disposition", "bad disposition"
+                )
+                client.call_tool(
+                    "task.adopt",
+                    {
+                        "taskId": "task:mcp:bad-disposition",
+                        "goalId": "goal:mcp:continuity",
+                        "initialCheckpoint": valid_for_bad_disposition,
+                    },
+                )
+                with self.assertRaises(RuntimeToolRejected) as bad_disposition:
+                    client.call_tool(
+                        "task.checkpoint",
+                        {
+                            "taskId": "task:mcp:bad-disposition",
+                            "expectedRevision": 2,
+                            "checkpoint": _checkpoint(
+                                "task:mcp:bad-disposition", "still valid checkpoint"
+                            ),
+                            "continuityDisposition": "domain-success",
+                        },
+                    )
+                self.assertEqual(
+                    bad_disposition.exception.detail.code, "INVALID_ARGUMENT"
+                )
+                self.assertEqual(
+                    bad_disposition.exception.detail.field, "continuityDisposition"
+                )
+                self.assertEqual(
+                    bad_disposition.exception.detail.commit_state, "not_committed"
+                )
 
                 request = urllib.request.Request(
                     endpoint,
@@ -330,12 +1030,15 @@ class HostMcpEndToEndTests(unittest.TestCase):
                         "taskId": loss_task,
                         "expectedRevision": 2,
                         "checkpoint": lost_update,
+                        "continuityDisposition": "complete",
                     },
                 )
                 deadline = time.monotonic() + 3
                 while True:
                     current = client.call_tool("task.resume", {"taskId": loss_task})
                     if current["projection"]["revision"] == 3:
+                        self.assertEqual(current["projection"]["state"], "completed")
+                        self.assertEqual(current["handoff"]["nextAdmissible"], [])
                         break
                     if time.monotonic() >= deadline:
                         self.fail("dropped MCP response did not leave a committed checkpoint")
@@ -346,9 +1049,35 @@ class HostMcpEndToEndTests(unittest.TestCase):
                         "taskId": loss_task,
                         "expectedRevision": 2,
                         "checkpoint": lost_update,
+                        "continuityDisposition": "complete",
                     },
                 )
                 self.assertEqual(replay_after_loss["admission"], "existing")
+                self.assertEqual(replay_after_loss["projection"]["state"], "completed")
+                active_after_complete = client.call_tool(
+                    "task.list", {"goalId": "goal:mcp:continuity", "limit": 20}
+                )
+                self.assertNotIn(
+                    loss_task,
+                    {item["projection"]["taskId"] for item in active_after_complete["tasks"]},
+                )
+                history_after_complete = client.call_tool(
+                    "task.list",
+                    {
+                        "goalId": "goal:mcp:continuity",
+                        "limit": 20,
+                        "includeTerminal": True,
+                    },
+                )
+                historical = next(
+                    item
+                    for item in history_after_complete["tasks"]
+                    if item["projection"]["taskId"] == loss_task
+                )
+                self.assertEqual(historical["projection"]["state"], "completed")
+                self.assertEqual(
+                    historical["semanticSummary"]["checkpointRevision"], 3
+                )
 
                 race_task = "task:mcp:race"
                 client.call_tool(

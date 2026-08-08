@@ -2,23 +2,25 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass
+import base64
 import hmac
 import importlib.metadata
 import ipaddress
 import json
 import os
-from pathlib import Path
 import sqlite3
 import sys
 import time
-from typing import Any
+from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 
 from mcp.server import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema
 
 from .config import load_config, read_private_token_file
 from .continuity import ExternalContinuityHost
@@ -32,7 +34,6 @@ from .journal import (
 )
 from .kernel import TaskRevisionMismatch
 from .objects import ObjectCorrupt
-from .ops import list_tasks
 from .storage import HostStorage
 
 DEFAULT_HOST_MCP_BIND = "127.0.0.1"
@@ -44,6 +45,97 @@ MIN_HOST_MCP_TOKEN_CHARACTERS = 32
 Receive = Callable[[], Awaitable[dict[str, Any]]]
 Send = Callable[[dict[str, Any]], Awaitable[None]]
 AsgiApp = Callable[[dict[str, Any], Receive, Send], Awaitable[None]]
+
+
+class ToolArgumentError(ValueError):
+    def __init__(self, field: str, message: str) -> None:
+        super().__init__(message)
+        self.field = field
+
+
+class WorkingCheckpointRuntimeInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workspaceId: str = Field(
+        min_length=1,
+        max_length=512,
+        description="Runtime Workspace navigation hint; revalidate it against Runtime before use.",
+    )
+    relevantJobIds: list[str] = Field(
+        max_length=64,
+        description="Runtime Job navigation hints relevant to this semantic checkpoint.",
+    )
+    observedHeadRevision: str | None = Field(
+        max_length=512,
+        description="Last observed source/Git revision hint; not current Git truth.",
+    )
+
+
+class WorkingCheckpointInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schemaVersion: Literal[1]
+    kind: Literal["ordivon.host-working-checkpoint"]
+    truthRole: Literal["semantic-working-claim"]
+    taskId: str = Field(
+        min_length=6,
+        max_length=4096,
+        pattern=r"^task:",
+        description="Exact Host Task identity; must equal the taskId Tool argument.",
+    )
+    objective: str = Field(min_length=1, max_length=4096)
+    frontier: str = Field(min_length=1, max_length=4096)
+    established: list[str] = Field(max_length=64)
+    unresolved: list[str] = Field(max_length=64)
+    rejected: list[str] = Field(max_length=64)
+    constraints: list[str] = Field(max_length=64)
+    nextActions: list[str] = Field(max_length=64)
+    runtime: WorkingCheckpointRuntimeInput | None = Field(
+        description=(
+            "Optional physical navigation hint. Host does not treat it as Runtime or Git truth."
+        )
+    )
+
+
+def _working_checkpoint_input_schema() -> dict[str, Any]:
+    schema = WorkingCheckpointInput.model_json_schema()
+    definitions = schema.pop("$defs", {})
+    runtime = schema["properties"]["runtime"]
+    if not isinstance(runtime, dict):
+        raise TypeError("WorkingCheckpoint runtime schema is not an object")
+    variants = runtime.get("anyOf")
+    if not isinstance(variants, list):
+        raise TypeError("WorkingCheckpoint runtime schema has no variants")
+    for index, variant in enumerate(variants):
+        if not isinstance(variant, dict):
+            continue
+        reference = variant.get("$ref")
+        if reference == "#/$defs/WorkingCheckpointRuntimeInput":
+            definition = definitions.get("WorkingCheckpointRuntimeInput")
+            if not isinstance(definition, dict):
+                raise TypeError("WorkingCheckpoint runtime definition is missing")
+            variants[index] = definition
+    return schema
+
+
+WorkingCheckpointWireInput = Annotated[
+    dict[str, Any],
+    WithJsonSchema(_working_checkpoint_input_schema()),
+]
+
+ContinuityDispositionInput = Annotated[
+    str,
+    WithJsonSchema(
+        {
+            "type": "string",
+            "enum": ["continue", "complete", "abandon"],
+            "description": (
+                "Lifecycle of Host continuity tracking only; complete/abandon do not assert "
+                "an external domain outcome."
+            ),
+        }
+    ),
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,8 +272,8 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
         title="Ordivon Host",
         description="Durable semantic continuity and Task authority for external Agents.",
         instructions=(
-            "Use task.list to discover recent Host Tasks. Use task.resume only for "
-            "ordivon.host.external-continuity.v1 Tasks. WorkingCheckpoint is a semantic "
+            "Use task.list to discover resumable external-continuity Tasks. Use task.resume "
+            "for one listed Task. WorkingCheckpoint is a semantic "
             "working claim, not Runtime, Git, or domain truth: revalidate physical/current "
             "facts at their owning authority before continuing. task.adopt and "
             "task.checkpoint are revision-safe and exact retry after response loss is allowed."
@@ -194,9 +286,11 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
         name="task.list",
         title="List Host tasks",
         description=(
-            "List recent Host Tasks, optionally scoped to one Goal. Each item includes the "
-            "current projection plus workload identity when a durable TaskDescriptor exists. "
-            "This is a projection-only read and never invokes Runtime, Harness, or a Provider."
+            "List resumable external-continuity Tasks, optionally scoped to one Goal, using "
+            "an opaque query-bound stable cursor. Each item includes the current projection, "
+            "creation time, and bounded semantic checkpoint preview. Active tracking is the "
+            "default; includeTerminal opts into history. This projection never invokes Runtime, "
+            "Harness, or a Provider."
         ),
         annotations=ToolAnnotations(
             readOnlyHint=True,
@@ -205,9 +299,20 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
             openWorldHint=False,
         ),
     )
-    async def task_list(goalId: str | None = None, limit: int = 50) -> CallToolResult:
+    async def task_list(
+        goalId: str | None = None,
+        limit: int = 50,
+        cursor: str | None = None,
+        includeTerminal: bool = False,
+    ) -> CallToolResult:
         return await _run_tool(
-            lambda: _list_host_tasks(settings.state_root, goal_id=goalId, limit=limit),
+            lambda: _list_host_tasks(
+                settings.state_root,
+                goal_id=goalId,
+                limit=limit,
+                cursor=cursor,
+                include_terminal=includeTerminal,
+            ),
             write=False,
         )
 
@@ -216,7 +321,8 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
         title="Resume external work",
         description=(
             "Read one external-continuity Task as TaskProjection + OperatorHandoffCapsule + "
-            "latest WorkingCheckpoint. expectedRevision is an optional stale-read fence. "
+            "the WorkingCheckpoint bound to that exact Task revision. expectedRevision is an "
+            "optional stale-read fence. "
             "This never validates Runtime/Git/domain truth and never invokes another system."
         ),
         annotations=ToolAnnotations(
@@ -257,7 +363,7 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
     async def task_adopt(
         taskId: str,
         goalId: str,
-        initialCheckpoint: dict[str, Any],
+        initialCheckpoint: WorkingCheckpointWireInput,
     ) -> CallToolResult:
         return await _run_tool(
             lambda: _adopt_task(
@@ -276,7 +382,8 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
             "Commit a new WorkingCheckpoint against one exact Task revision. If the original "
             "response was lost, replay the identical checkpoint with the original "
             "expectedRevision: Host returns admission=existing when that exact transition is "
-            "already current. Different or stale claims fail closed."
+            "already current. continuityDisposition may continue, complete, or abandon Host "
+            "tracking without asserting a domain outcome. Different or stale claims fail closed."
         ),
         annotations=ToolAnnotations(
             readOnlyHint=False,
@@ -288,7 +395,8 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
     async def task_checkpoint(
         taskId: str,
         expectedRevision: int,
-        checkpoint: dict[str, Any],
+        checkpoint: WorkingCheckpointWireInput,
+        continuityDisposition: ContinuityDispositionInput = "continue",
     ) -> CallToolResult:
         return await _run_tool(
             lambda: _checkpoint_task(
@@ -296,6 +404,7 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
                 task_id=taskId,
                 expected_revision=expectedRevision,
                 checkpoint_value=checkpoint,
+                disposition=continuityDisposition,
             ),
             write=True,
         )
@@ -451,31 +560,201 @@ def _settings_from_args(args: argparse.Namespace) -> HostMcpSettings:
     )
 
 
+DISCOVERY_PREVIEW_MAX_BYTES = 512
+
+
+def _discovery_preview(value: str) -> tuple[str, bool]:
+    encoded = value.encode("utf-8")
+    if len(encoded) <= DISCOVERY_PREVIEW_MAX_BYTES:
+        return value, False
+    preview = encoded[:DISCOVERY_PREVIEW_MAX_BYTES].decode("utf-8", errors="ignore")
+    return preview, True
+
+
+def _task_cursor(
+    created_at_ms: int,
+    task_id: str,
+    *,
+    goal_id: str | None,
+    include_terminal: bool,
+) -> str:
+    payload = json.dumps(
+        {
+            "v": 1,
+            "createdAtMs": created_at_ms,
+            "taskId": task_id,
+            "goalId": goal_id,
+            "includeTerminal": include_terminal,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+
+
+def _parse_task_cursor(
+    value: str | None,
+    *,
+    goal_id: str | None,
+    include_terminal: bool,
+) -> tuple[int, str] | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value or len(value) > 2048:
+        raise ToolArgumentError("cursor", "task.list cursor is invalid")
+    try:
+        padding = "=" * (-len(value) % 4)
+        decoded = base64.urlsafe_b64decode((value + padding).encode("ascii"))
+        payload = json.loads(decoded)
+    except (UnicodeEncodeError, ValueError, json.JSONDecodeError) as error:
+        raise ToolArgumentError("cursor", "task.list cursor is invalid") from error
+    if (
+        not isinstance(payload, dict)
+        or set(payload)
+        != {"v", "createdAtMs", "taskId", "goalId", "includeTerminal"}
+        or payload.get("v") != 1
+        or type(payload.get("createdAtMs")) is not int
+        or payload["createdAtMs"] < 0
+        or not isinstance(payload.get("taskId"), str)
+        or not payload["taskId"].startswith("task:")
+        or payload["taskId"] != payload["taskId"].strip()
+        or (payload.get("goalId") is not None and not isinstance(payload.get("goalId"), str))
+        or type(payload.get("includeTerminal")) is not bool
+    ):
+        raise ToolArgumentError("cursor", "task.list cursor is invalid")
+    if payload["goalId"] != goal_id or payload["includeTerminal"] is not include_terminal:
+        raise ToolArgumentError(
+            "cursor", "task.list cursor does not match the current query scope"
+        )
+    return payload["createdAtMs"], payload["taskId"]
+
+
 def _list_host_tasks(
     state_root: Path,
     *,
     goal_id: str | None,
     limit: int,
+    cursor: str | None = None,
+    include_terminal: bool = False,
 ) -> dict[str, object]:
     if type(limit) is not int or limit < 1 or limit > 100:
-        raise ValueError("task.list limit must be in [1, 100]")
+        raise ToolArgumentError("limit", "task.list limit must be in [1, 100]")
+    if goal_id is not None and (
+        not goal_id.startswith("goal:") or goal_id != goal_id.strip()
+    ):
+        raise ToolArgumentError("goalId", "Goal identity must start with goal:")
+    after = _parse_task_cursor(
+        cursor, goal_id=goal_id, include_terminal=include_terminal
+    )
+    matches: list[tuple[int, dict[str, object]]] = []
+    scan_after = after
+    scan_batch = 256
     with HostStorage(state_root) as storage:
-        tasks = list_tasks(storage, goal_id=goal_id, limit=limit)
-        items: list[dict[str, object]] = []
-        for task in tasks:
-            descriptor = storage.read_task_descriptor(task.task_id)
-            workload_id = None if descriptor is None else descriptor.workload_id
-            items.append(
-                {
-                    "projection": task.to_dict(),
-                    "workloadId": workload_id,
-                    "externalContinuity": workload_id == EXTERNAL_CONTINUITY_WORKLOAD_ID,
-                }
+        while len(matches) <= limit:
+            clauses: list[str] = []
+            params: list[object] = []
+            if goal_id is not None:
+                clauses.append("p.goal_id = ?")
+                params.append(goal_id)
+            if not include_terminal:
+                clauses.append("p.state NOT IN ('completed', 'failed', 'cancelled')")
+            if scan_after is not None:
+                created_at_ms, task_id = scan_after
+                clauses.append(
+                    "(s.created_at_ms < ? OR (s.created_at_ms = ? AND p.task_id > ?))"
+                )
+                params.extend((created_at_ms, created_at_ms, task_id))
+            where = "" if not clauses else " WHERE " + " AND ".join(clauses)
+            descriptor_filter = (
+                " EXISTS (SELECT 1 FROM events e "
+                "JOIN event_object_refs r ON r.event_id = e.event_id AND r.role = 'reference' "
+                "JOIN object_refs o ON o.digest = r.digest AND o.kind = 'task-descriptor' "
+                "WHERE e.stream_id = p.task_id AND e.stream_revision = 1)"
             )
+            where = (
+                " WHERE " + descriptor_filter
+                if not clauses
+                else where + " AND" + descriptor_filter
+            )
+            rows = storage.journal.connection.execute(
+                "SELECT p.task_id, s.created_at_ms FROM task_projection p "
+                "JOIN streams s ON s.stream_id = p.task_id"
+                + where
+                + " ORDER BY s.created_at_ms DESC, p.task_id LIMIT ?",
+                (*params, scan_batch),
+            ).fetchall()
+            if not rows:
+                break
+            for row in rows:
+                task_id = str(row["task_id"])
+                created_at_ms = int(row["created_at_ms"])
+                descriptor = storage.read_task_descriptor(task_id)
+                if (
+                    descriptor is None
+                    or descriptor.workload_id != EXTERNAL_CONTINUITY_WORKLOAD_ID
+                ):
+                    continue
+                task = storage.journal.get_task(task_id)
+                if task is None:
+                    raise RuntimeError("Task disappeared during list projection")
+                if not include_terminal and task.state.terminal:
+                    continue
+                checkpoint = ExternalContinuityHost(
+                    storage, clock_ms=_wall_clock_ms
+                ).checkpoint_at_revision(task_id, task.revision)
+                semantic_summary = None
+                if checkpoint is not None:
+                    objective_preview, objective_truncated = _discovery_preview(
+                        checkpoint.checkpoint.objective
+                    )
+                    frontier_preview, frontier_truncated = _discovery_preview(
+                        checkpoint.checkpoint.frontier
+                    )
+                    semantic_summary = {
+                        "objectivePreview": objective_preview,
+                        "objectiveTruncated": objective_truncated,
+                        "frontierPreview": frontier_preview,
+                        "frontierTruncated": frontier_truncated,
+                        "checkpointRevision": checkpoint.task_revision,
+                        "checkpointDigest": checkpoint.checkpoint_digest,
+                    }
+                matches.append(
+                    (
+                        created_at_ms,
+                        {
+                            "projection": task.to_dict(),
+                            "createdAtMs": created_at_ms,
+                            "workloadId": descriptor.workload_id,
+                            "externalContinuity": True,
+                            "semanticSummary": semantic_summary,
+                        },
+                    )
+                )
+                if len(matches) > limit:
+                    break
+            if len(matches) > limit or len(rows) < scan_batch:
+                break
+            last = rows[-1]
+            scan_after = (int(last["created_at_ms"]), str(last["task_id"]))
+
+    has_more = len(matches) > limit
+    visible = matches[:limit]
+    next_cursor = None
+    if has_more and visible:
+        created_at_ms, item = visible[-1]
+        next_cursor = _task_cursor(
+            created_at_ms,
+            str(item["projection"]["taskId"]),
+            goal_id=goal_id,
+            include_terminal=include_terminal,
+        )
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "kind": "ordivon.host-task-list",
-        "tasks": items,
+        "scope": "external-continuity",
+        "tasks": [item for _, item in visible],
+        "hasMore": has_more,
+        "nextCursor": next_cursor,
     }
 
 
@@ -485,6 +764,14 @@ def _resume_task(
     task_id: str,
     expected_revision: int | None,
 ) -> dict[str, object]:
+    if not task_id.startswith("task:") or task_id != task_id.strip():
+        raise ToolArgumentError("taskId", "Task identity must start with task:")
+    if expected_revision is not None and (
+        type(expected_revision) is not int or expected_revision < 1
+    ):
+        raise ToolArgumentError(
+            "expectedRevision", "expectedRevision must be a positive integer"
+        )
     with HostStorage(state_root) as storage:
         return ExternalContinuityHost(storage, clock_ms=_wall_clock_ms).resume(
             task_id,
@@ -499,7 +786,19 @@ def _adopt_task(
     goal_id: str,
     checkpoint_value: dict[str, Any],
 ) -> dict[str, object]:
-    checkpoint = WorkingCheckpoint.from_dict(checkpoint_value)
+    if not task_id.startswith("task:") or task_id != task_id.strip():
+        raise ToolArgumentError("taskId", "Task identity must start with task:")
+    if not goal_id.startswith("goal:") or goal_id != goal_id.strip():
+        raise ToolArgumentError("goalId", "Goal identity must start with goal:")
+    try:
+        checkpoint = WorkingCheckpoint.from_dict(checkpoint_value)
+    except (ValueError, TypeError) as error:
+        raise ToolArgumentError("initialCheckpoint", str(error)) from error
+    if checkpoint.task_id != task_id:
+        raise ToolArgumentError(
+            "initialCheckpoint.taskId",
+            "WorkingCheckpoint taskId must equal the taskId Tool argument",
+        )
     with HostStorage(state_root) as storage:
         return ExternalContinuityHost(storage, clock_ms=_wall_clock_ms).adopt(
             task_id=task_id,
@@ -514,13 +813,34 @@ def _checkpoint_task(
     task_id: str,
     expected_revision: int,
     checkpoint_value: dict[str, Any],
+    disposition: str = "continue",
 ) -> dict[str, object]:
-    checkpoint = WorkingCheckpoint.from_dict(checkpoint_value)
+    if not task_id.startswith("task:") or task_id != task_id.strip():
+        raise ToolArgumentError("taskId", "Task identity must start with task:")
+    if type(expected_revision) is not int or expected_revision < 1:
+        raise ToolArgumentError(
+            "expectedRevision", "expectedRevision must be a positive integer"
+        )
+    if disposition not in {"continue", "complete", "abandon"}:
+        raise ToolArgumentError(
+            "continuityDisposition",
+            "continuityDisposition must be continue, complete, or abandon",
+        )
+    try:
+        checkpoint = WorkingCheckpoint.from_dict(checkpoint_value)
+    except (ValueError, TypeError) as error:
+        raise ToolArgumentError("checkpoint", str(error)) from error
+    if checkpoint.task_id != task_id:
+        raise ToolArgumentError(
+            "checkpoint.taskId",
+            "WorkingCheckpoint taskId must equal the taskId Tool argument",
+        )
     with HostStorage(state_root) as storage:
         return ExternalContinuityHost(storage, clock_ms=_wall_clock_ms).checkpoint(
             task_id=task_id,
             expected_revision=expected_revision,
             checkpoint=checkpoint,
+            disposition=disposition,
         ).to_dict()
 
 
@@ -578,6 +898,12 @@ def _error_result(error: Exception, *, write: bool) -> CallToolResult:
         message = "Host storage could not complete the request"
         retryable = True
         retry_class = "resume_then_retry" if write else "retry_same_request"
+    elif isinstance(error, ToolArgumentError):
+        code = "INVALID_ARGUMENT"
+        message = _bounded_message(error)
+        field = error.field
+        retry_class = "fix_request"
+        commit_state = "not_committed"
     elif isinstance(error, (ValueError, TypeError)):
         code = "INVALID_ARGUMENT"
         message = _bounded_message(error)

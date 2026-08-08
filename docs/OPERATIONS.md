@@ -264,6 +264,12 @@ Candidate construction itself does not hold the deployment lock while resolving 
 
 H-C2 projects the same continuity authority over a small MCP endpoint. It exposes exactly four Tools: `task.list`, `task.resume`, `task.adopt`, and `task.checkpoint`. Each request opens a fresh Host storage handle and delegates to the same H-C1 APIs; the MCP server does not own a second Task store, Runtime connection, Harness Run, scheduler, or Provider session.
 
+`task.list` defaults to active `ordivon.host.external-continuity.v1` Tasks only; unrelated Host workloads cannot consume the external Agent's discovery window. Results are ordered by immutable Task creation identity and paginated with an opaque cursor bound to the exact `goalId` and `includeTerminal` query scope. Reusing a cursor under another scope fails closed. Each row includes the exact current Task projection and a bounded semantic selection summary: objective/frontier previews are independently limited to 512 UTF-8 bytes with explicit truncation flags, while checkpoint revision/digest allow the Agent to open the full revision-coherent checkpoint with `task.resume`. Terminal continuity is hidden by default and can be inspected with `includeTerminal=true`.
+
+The `task.adopt.initialCheckpoint` and `task.checkpoint.checkpoint` Tool inputs publish the complete WorkingCheckpoint JSON shape in MCP discovery, including the distinction between semantic working claim and optional physical navigation hint. That schema guides Agent generation only: the handler still receives raw JSON and the canonical `WorkingCheckpoint.from_dict` decoder remains admission authority. This avoids an MCP-SDK validation path that would otherwise bypass Host's structured error contract. Request errors that Host can attribute to one Tool field report that field together with `INVALID_ARGUMENT`, `retryClass=fix_request`, and `commitState=not_committed`.
+
+`task.checkpoint` accepts `continuityDisposition=continue|complete|abandon`, defaulting to `continue`. `complete` and `abandon` terminate only Host continuity tracking; they do not assert external domain success or failure. The final checkpoint and terminal Host projection commit in one Journal transition. Exact retry after response loss therefore converges to the same terminal state rather than requiring a separate close Tool.
+
 Bootstrap the authority once, then provision an independent Host MCP token:
 
 ```bash
@@ -289,9 +295,9 @@ The canonical deployment templates are `packaging/systemd/ordivon-host-mcp.servi
 
 Transport behavior is deliberately stateless. The preferred MCP lifecycle is `2026-07-28`; the pinned official SDK also accepts the tested `2025-11-25` initialize/initialized/tools lifecycle without turning MCP Session identity into Host state. Request bodies are bounded to 1 MiB by default, including unauthenticated requests.
 
-A dropped HTTP response does not create a second replay protocol. After uncertain `task.checkpoint`, call `task.resume`; if the intended revision committed, replaying the identical checkpoint with its original `expectedRevision` returns `admission: existing`. A competing different writer receives `TASK_BUSY` or `REVISION_CONFLICT`.
+A dropped HTTP response does not create a second replay protocol. After uncertain `task.checkpoint`, call `task.resume`; if the intended revision committed, replaying the identical checkpoint and continuity disposition with its original `expectedRevision` returns `admission: existing`. This includes a final `complete`/`abandon` transition. A competing different writer receives `TASK_BUSY` or `REVISION_CONFLICT`. `task.resume` binds its checkpoint to the exact returned Task revision, so a concurrent checkpoint cannot produce an impossible mixed-revision recovery view.
 
-Tool failures use MCP `isError=true` plus a structured error object carrying `code`, `retryable`, `retryClass`, `commitState`, and `origin=host-mcp`. Python tracebacks are not returned to the Agent.
+Tool failures use MCP `isError=true` plus a structured error object carrying `code`, `field` when attribution is exact, `retryable`, `retryClass`, `commitState`, and `origin=host-mcp`. Python tracebacks are not returned to the Agent.
 
 ## Read-only live acceptance
 
