@@ -209,6 +209,39 @@ scripts/ordivon-host-deploy rollback \
 
 Rollback verifies the previous tree against the receipt before switching `current`; it then restarts and authenticates the same MCP surface. A rollback failure attempts to recover the displaced release.
 
+### Release lifecycle and garbage collection
+
+Release lifecycle is derived from execution semantics rather than wall-clock age. `scripts/ordivon-host-deploy gc-plan` computes one exact minimal reversible frontier and never deletes anything. Collection is allowed only while deployment status is `healthy`; malformed or unresolved deployment receipts, a missing recovery candidate, a changed rollback peer, or a changed shared Python runtime blocks the plan.
+
+The retained execution frontier is direction-aware:
+
+- after a successful deployment, retain the current release, the previous release needed for one exact rollback, and the current candidate needed to re-apply that release after rollback;
+- after an explicit rollback, retain the restored current release, the displaced release, and the displaced release's candidate so the rollback can be reversed;
+- after an automatic rollback caused by a failed deployment, do not promote the failed release or candidate into the recovery frontier. When available, recover the last successful deployment authority for the restored current release instead;
+- a current-schema candidate that has never reached a terminal deployment receipt is retained as unconsumed prepared work. It is not garbage merely because it is not active;
+- obsolete-schema candidates and terminal candidates outside the reversible frontier are collectible;
+- non-current releases outside the reversible frontier are collectible even when historical receipts mention them. Receipts preserve evidence; they do not permanently pin executable bytes.
+
+Deployment receipts under `/var/lib/ordivon/host/deployments/` are evidence-retained and are never automatically removed by Host lifecycle GC. Their exact directory trees participate in the lifecycle plan digest, so receipt drift between planning and application invalidates the plan.
+
+The shared Python tree under `/usr/local/libexec/ordivon/python/` is **not Host-owned lifecycle state**. Host records exact retention claims for every production Python runtime required by the current reversible frontier, verifies those runtime trees, and reports `deletionAuthority = not_host`. Host GC never provisions, aliases, retires, or deletes those shared runtimes. A future shared execution-substrate owner must combine retention claims from all consumers before retiring one.
+
+A lifecycle plan is deterministic and digest-bound:
+
+```bash
+plan=$(scripts/ordivon-host-deploy gc-plan)
+plan_digest=$(printf '%s' "$plan" | python3 -c 'import json,sys; print(json.load(sys.stdin)["planDigest"])')
+printf '%s\n' "$plan" | python3 -m json.tool
+
+scripts/ordivon-host-deploy gc-apply \
+  --confirm-plan-digest "$plan_digest" \
+  --pretty
+```
+
+`gc-apply` acquires the same deployment lock used by activation and candidate final admission, then recomputes the plan. Any inventory or authority drift changes the digest and fails closed. The apply path first persists the exact plan under `/var/lib/ordivon/host/lifecycle/<planDigest>/`, verifies every target tree, and atomically renames each collectible object out of its canonical namespace into a plan-scoped tombstone. Only after logical retirement is receipted does it remove tombstone bytes. A crash after retirement cannot make an old release active again; a retry with the same plan digest can reconcile an existing tombstone or an already-collected object from `retire-result.json`. A completed `result.json` is replay-idempotent.
+
+Candidate construction itself does not hold the deployment lock while resolving and building dependencies. Only final candidate admission is serialized with deployment/GC, so long builds do not block Host service transitions while a candidate cannot race with lifecycle deletion at publication time.
+
 ### Host MCP service
 
 H-C2 projects the same continuity authority over a small MCP endpoint. It exposes exactly four Tools: `task.list`, `task.resume`, `task.adopt`, and `task.checkpoint`. Each request opens a fresh Host storage handle and delegates to the same H-C1 APIs; the MCP server does not own a second Task store, Runtime connection, Harness Run, scheduler, or Provider session.

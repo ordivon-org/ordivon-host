@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import importlib.machinery
 import importlib.util
 import tempfile
@@ -40,6 +41,85 @@ def make_release(
     (release / "COMMIT").write_text(commit + "\n", encoding="utf-8")
     (release / "venv" / "bin" / "python").symlink_to(python_executable)
     return release
+
+
+def release_snapshot(release: Path) -> dict[str, object]:
+    return {
+        "releaseId": release.name,
+        "commit": (release / "COMMIT").read_text(encoding="utf-8").strip(),
+        "path": str(release),
+        "content": module.tree_description(release),
+        "pythonRuntime": module.python_runtime_dependency(
+            release / "venv" / "bin" / "python"
+        ),
+    }
+
+
+def make_candidate(
+    candidate_root: Path,
+    release_id: str,
+    commit: str,
+    python_executable: Path,
+    *,
+    schema_version: int | None = None,
+) -> tuple[Path, dict[str, object]]:
+    candidate = candidate_root / release_id
+    release = make_release(candidate, "release", commit, python_executable)
+    manifest = {
+        "schemaVersion": (
+            module.SCHEMA_VERSION if schema_version is None else schema_version
+        ),
+        "kind": "ordivon.host-release-candidate",
+        "releaseId": release_id,
+        "commit": commit,
+        "content": module.tree_description(release),
+        "pythonRuntime": module.python_runtime_dependency(python_executable),
+    }
+    module.write_json_atomic(candidate / "manifest.json", manifest)
+    return candidate, manifest
+
+
+def make_deployment_receipt(
+    receipt_root: Path,
+    name: str,
+    candidate_manifest: dict[str, object],
+    previous: dict[str, object],
+    *,
+    result_status: str = "deployed",
+    rollback_result: dict[str, object] | None = None,
+) -> Path:
+    receipt = receipt_root / name
+    receipt.mkdir(parents=True)
+    module.write_json_atomic(
+        receipt / "manifest.json",
+        {
+            "schemaVersion": module.SCHEMA_VERSION,
+            "kind": "ordivon.host-deployment-receipt",
+            "releaseId": candidate_manifest["releaseId"],
+            "candidate": candidate_manifest,
+            "previous": previous,
+        },
+    )
+    module.write_json_atomic(
+        receipt / "plan.json",
+        {
+            "schemaVersion": module.SCHEMA_VERSION,
+            "candidateDir": str(
+                receipt_root.parent / "candidates" / str(candidate_manifest["releaseId"])
+            ),
+        },
+    )
+    module.write_json_atomic(
+        receipt / "result.json",
+        {
+            "schemaVersion": module.SCHEMA_VERSION,
+            "status": result_status,
+            "releaseId": candidate_manifest["releaseId"],
+        },
+    )
+    if rollback_result is not None:
+        module.write_json_atomic(receipt / "rollback-result.json", rollback_result)
+    return receipt
 
 
 class HostDeploymentOperatorTests(unittest.TestCase):
@@ -228,6 +308,409 @@ class HostDeploymentOperatorTests(unittest.TestCase):
             self.assertIn(
                 "candidate Python runtime differs from manifest binding", blockers
             )
+
+    def test_lifecycle_plan_keeps_minimal_reversible_frontier(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            release_root = base / "host"
+            candidate_root = base / "candidates"
+            receipt_root = base / "deployments"
+            runtime, executable = make_runtime(base)
+            releases = release_root / "releases"
+            old = make_release(releases, "a" * 40, "a" * 40, executable)
+            previous = make_release(releases, "b" * 40, "b" * 40, executable)
+            current_id = "c" * 40 + "-current"
+            make_release(releases, current_id, "c" * 40, executable)
+            module.switch_current(release_root, current_id)
+            _, current_candidate = make_candidate(
+                candidate_root, current_id, "c" * 40, executable
+            )
+            obsolete_id = "d" * 40 + "-obsolete"
+            make_candidate(
+                candidate_root,
+                obsolete_id,
+                "d" * 40,
+                executable,
+                schema_version=module.SCHEMA_VERSION - 1,
+            )
+            unconsumed_id = "e" * 40 + "-unconsumed"
+            make_candidate(candidate_root, unconsumed_id, "e" * 40, executable)
+            make_deployment_receipt(
+                receipt_root,
+                "001-current",
+                current_candidate,
+                release_snapshot(previous),
+            )
+            plan = module.lifecycle_plan(
+                release_root, candidate_root, receipt_root, runtime.parent
+            )
+            self.assertTrue(plan["eligible"], plan["blockers"])
+            self.assertEqual(plan["transition"]["mode"], "deployed")
+            protected_releases = {
+                item["id"] for item in plan["protected"]["releases"]
+            }
+            self.assertEqual(protected_releases, {current_id, previous.name})
+            self.assertEqual(
+                {item["id"] for item in plan["protected"]["candidates"]},
+                {current_id},
+            )
+            self.assertEqual(
+                {item["id"] for item in plan["retained"]["candidates"]},
+                {unconsumed_id},
+            )
+            self.assertEqual(
+                {item["id"] for item in plan["delete"]["releases"]},
+                {old.name},
+            )
+            self.assertEqual(
+                {item["id"] for item in plan["delete"]["candidates"]},
+                {obsolete_id},
+            )
+            external = plan["retained"]["externalDependencies"]
+            self.assertEqual(len(external), 1)
+            self.assertEqual(external[0]["runtimeRoot"], str(runtime))
+            self.assertEqual(external[0]["deletionAuthority"], "not_host")
+            self.assertEqual(
+                plan["retained"]["deploymentReceipts"][0]["policy"],
+                "evidence_retained",
+            )
+
+    def test_lifecycle_plan_reverses_protection_after_explicit_rollback(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            release_root = base / "host"
+            candidate_root = base / "candidates"
+            receipt_root = base / "deployments"
+            runtime, executable = make_runtime(base)
+            releases = release_root / "releases"
+            old = make_release(releases, "a" * 40, "a" * 40, executable)
+            previous = make_release(releases, "b" * 40, "b" * 40, executable)
+            displaced_id = "c" * 40 + "-deployed"
+            displaced = make_release(
+                releases, displaced_id, "c" * 40, executable
+            )
+            _, displaced_candidate = make_candidate(
+                candidate_root, displaced_id, "c" * 40, executable
+            )
+            receipt = make_deployment_receipt(
+                receipt_root,
+                "001-deploy-and-rollback",
+                displaced_candidate,
+                release_snapshot(previous),
+            )
+            module.write_json_atomic(
+                receipt / "rollback-result.json",
+                {
+                    "schemaVersion": module.SCHEMA_VERSION,
+                    "status": "restored_previous",
+                    "releaseId": previous.name,
+                    "displaced": release_snapshot(displaced),
+                },
+            )
+            module.switch_current(release_root, previous.name)
+            plan = module.lifecycle_plan(
+                release_root, candidate_root, receipt_root, runtime.parent
+            )
+            self.assertTrue(plan["eligible"], plan["blockers"])
+            self.assertEqual(plan["transition"]["mode"], "explicit_rollback")
+            self.assertEqual(
+                {item["id"] for item in plan["protected"]["releases"]},
+                {previous.name, displaced_id},
+            )
+            self.assertEqual(
+                {item["id"] for item in plan["protected"]["candidates"]},
+                {displaced_id},
+            )
+            self.assertEqual(
+                {item["id"] for item in plan["delete"]["releases"]},
+                {old.name},
+            )
+
+    def test_lifecycle_plan_blocks_when_recovery_candidate_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            release_root = base / "host"
+            candidate_root = base / "candidates"
+            receipt_root = base / "deployments"
+            runtime, executable = make_runtime(base)
+            releases = release_root / "releases"
+            previous = make_release(releases, "b" * 40, "b" * 40, executable)
+            current_id = "c" * 40 + "-current"
+            make_release(releases, current_id, "c" * 40, executable)
+            module.switch_current(release_root, current_id)
+            candidate_path, candidate_manifest = make_candidate(
+                candidate_root, current_id, "c" * 40, executable
+            )
+            make_deployment_receipt(
+                receipt_root,
+                "001-current",
+                candidate_manifest,
+                release_snapshot(previous),
+            )
+            import shutil
+
+            shutil.rmtree(candidate_path)
+            plan = module.lifecycle_plan(
+                release_root, candidate_root, receipt_root, runtime.parent
+            )
+            self.assertFalse(plan["eligible"])
+            self.assertTrue(
+                any("recovery candidate is unreadable" in item for item in plan["blockers"])
+            )
+
+    def test_lifecycle_apply_retires_collects_and_replays(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            release_root = base / "host"
+            candidate_root = base / "candidates"
+            receipt_root = base / "deployments"
+            lifecycle_root = base / "lifecycle"
+            runtime, executable = make_runtime(base)
+            releases = release_root / "releases"
+            old = make_release(releases, "a" * 40, "a" * 40, executable)
+            previous = make_release(releases, "b" * 40, "b" * 40, executable)
+            current_id = "c" * 40 + "-current"
+            make_release(releases, current_id, "c" * 40, executable)
+            module.switch_current(release_root, current_id)
+            _, current_candidate = make_candidate(
+                candidate_root, current_id, "c" * 40, executable
+            )
+            obsolete_id = "d" * 40 + "-obsolete"
+            obsolete, _ = make_candidate(
+                candidate_root,
+                obsolete_id,
+                "d" * 40,
+                executable,
+                schema_version=module.SCHEMA_VERSION - 1,
+            )
+            deployment_receipt = make_deployment_receipt(
+                receipt_root,
+                "001-current",
+                current_candidate,
+                release_snapshot(previous),
+            )
+            plan = module.lifecycle_plan(
+                release_root, candidate_root, receipt_root, runtime.parent
+            )
+            args = argparse.Namespace(
+                release_root=release_root,
+                candidate_root=candidate_root,
+                receipt_root=receipt_root,
+                python_runtime_root=runtime.parent,
+                lifecycle_root=lifecycle_root,
+                confirm_plan_digest=plan["planDigest"],
+                lock_file=base / "deploy.lock",
+            )
+            result = module.apply_lifecycle_plan(args)
+            self.assertEqual(result["status"], "pruned")
+            self.assertFalse(old.exists())
+            self.assertFalse(obsolete.exists())
+            self.assertTrue((releases / current_id).is_dir())
+            self.assertTrue((releases / previous.name).is_dir())
+            self.assertTrue((candidate_root / current_id).is_dir())
+            self.assertTrue(runtime.is_dir())
+            self.assertTrue(deployment_receipt.is_dir())
+            replay = module.apply_lifecycle_plan(args)
+            self.assertEqual(replay["admission"], "existing")
+            self.assertEqual(replay["planDigest"], plan["planDigest"])
+
+    def test_lifecycle_plan_ignores_failed_candidate_after_automatic_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            release_root = base / "host"
+            candidate_root = base / "candidates"
+            receipt_root = base / "deployments"
+            runtime, executable = make_runtime(base)
+            releases = release_root / "releases"
+            old = make_release(releases, "a" * 40, "a" * 40, executable)
+            current_id = "b" * 40 + "-current"
+            current = make_release(releases, current_id, "b" * 40, executable)
+            failed_id = "d" * 40 + "-failed"
+            failed = make_release(releases, failed_id, "d" * 40, executable)
+            _, current_candidate = make_candidate(
+                candidate_root, current_id, "b" * 40, executable
+            )
+            _, failed_candidate = make_candidate(
+                candidate_root, failed_id, "d" * 40, executable
+            )
+            prior = make_deployment_receipt(
+                receipt_root,
+                "001-current-deployed",
+                current_candidate,
+                release_snapshot(old),
+            )
+            failed_receipt = make_deployment_receipt(
+                receipt_root,
+                "002-failed-deploy",
+                failed_candidate,
+                release_snapshot(current),
+                result_status="rolled_back",
+            )
+            module.write_json_atomic(
+                failed_receipt / "rollback-result.json",
+                {
+                    "schemaVersion": module.SCHEMA_VERSION,
+                    "status": "restored_previous",
+                    "releaseId": current_id,
+                    "automatic": True,
+                    "cause": "deployment_probe_or_activation_failure",
+                },
+            )
+            module.switch_current(release_root, current_id)
+            plan = module.lifecycle_plan(
+                release_root, candidate_root, receipt_root, runtime.parent
+            )
+            self.assertTrue(plan["eligible"], plan["blockers"])
+            self.assertEqual(plan["transition"]["mode"], "automatic_recovery")
+            self.assertEqual(plan["transition"]["authorityReceipt"], str(prior))
+            self.assertEqual(
+                {item["id"] for item in plan["protected"]["releases"]},
+                {old.name, current_id},
+            )
+            self.assertEqual(
+                {item["id"] for item in plan["protected"]["candidates"]},
+                {current_id},
+            )
+            self.assertEqual(
+                {item["id"] for item in plan["delete"]["releases"]},
+                {failed.name},
+            )
+            self.assertEqual(
+                {item["id"] for item in plan["delete"]["candidates"]},
+                {failed_id},
+            )
+
+    def test_lifecycle_apply_recovers_after_collected_tombstone_before_result(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            import shutil
+
+            base = Path(directory)
+            release_root = base / "host"
+            candidate_root = base / "candidates"
+            receipt_root = base / "deployments"
+            lifecycle_root = base / "lifecycle"
+            runtime, executable = make_runtime(base)
+            releases = release_root / "releases"
+            old = make_release(releases, "a" * 40, "a" * 40, executable)
+            previous = make_release(releases, "b" * 40, "b" * 40, executable)
+            current_id = "c" * 40 + "-current"
+            make_release(releases, current_id, "c" * 40, executable)
+            module.switch_current(release_root, current_id)
+            _, current_candidate = make_candidate(
+                candidate_root, current_id, "c" * 40, executable
+            )
+            obsolete_id = "d" * 40 + "-obsolete"
+            make_candidate(
+                candidate_root,
+                obsolete_id,
+                "d" * 40,
+                executable,
+                schema_version=module.SCHEMA_VERSION - 1,
+            )
+            make_deployment_receipt(
+                receipt_root,
+                "001-current",
+                current_candidate,
+                release_snapshot(previous),
+            )
+            plan = module.lifecycle_plan(
+                release_root, candidate_root, receipt_root, runtime.parent
+            )
+            receipt = module.lifecycle_receipt_path(
+                lifecycle_root, plan["planDigest"]
+            )
+            receipt.mkdir(parents=True)
+            module.write_json_atomic(receipt / "plan.json", plan)
+            first = plan["delete"]["releases"][0]
+            tombstone = module.lifecycle_tombstone(
+                first, release_root, candidate_root, plan["planDigest"]
+            )
+            tombstone.parent.mkdir(parents=True)
+            Path(first["path"]).rename(tombstone)
+            retired_item = {
+                "kind": first["kind"],
+                "id": first["id"],
+                "tree": first["tree"],
+                "tombstone": str(tombstone),
+            }
+            module.write_json_atomic(
+                receipt / "retire-result.json",
+                {
+                    "schemaVersion": module.LIFECYCLE_SCHEMA_VERSION,
+                    "kind": "ordivon.host-release-lifecycle-retirement",
+                    "status": "retired",
+                    "planDigest": plan["planDigest"],
+                    "retired": [retired_item],
+                    "retiredAtMs": 1,
+                },
+            )
+            shutil.rmtree(tombstone)
+            args = argparse.Namespace(
+                release_root=release_root,
+                candidate_root=candidate_root,
+                receipt_root=receipt_root,
+                python_runtime_root=runtime.parent,
+                lifecycle_root=lifecycle_root,
+                confirm_plan_digest=plan["planDigest"],
+                lock_file=base / "deploy.lock",
+            )
+            result = module.apply_lifecycle_plan(args)
+            self.assertEqual(result["status"], "pruned")
+            self.assertFalse(old.exists())
+            self.assertFalse((candidate_root / obsolete_id).exists())
+            retire = module.read_json_object(receipt / "retire-result.json")
+            self.assertEqual(
+                {(item["kind"], item["id"]) for item in retire["retired"]},
+                {
+                    (item["kind"], item["id"])
+                    for group in plan["delete"].values()
+                    for item in group
+                },
+            )
+            self.assertEqual(retire["retiredAtMs"], 1)
+
+    def test_lifecycle_apply_rejects_inventory_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            release_root = base / "host"
+            candidate_root = base / "candidates"
+            receipt_root = base / "deployments"
+            lifecycle_root = base / "lifecycle"
+            runtime, executable = make_runtime(base)
+            releases = release_root / "releases"
+            previous = make_release(releases, "b" * 40, "b" * 40, executable)
+            current_id = "c" * 40 + "-current"
+            make_release(releases, current_id, "c" * 40, executable)
+            module.switch_current(release_root, current_id)
+            _, current_candidate = make_candidate(
+                candidate_root, current_id, "c" * 40, executable
+            )
+            make_deployment_receipt(
+                receipt_root,
+                "001-current",
+                current_candidate,
+                release_snapshot(previous),
+            )
+            plan = module.lifecycle_plan(
+                release_root, candidate_root, receipt_root, runtime.parent
+            )
+            make_candidate(
+                candidate_root,
+                "e" * 40 + "-new-unconsumed",
+                "e" * 40,
+                executable,
+            )
+            args = argparse.Namespace(
+                release_root=release_root,
+                candidate_root=candidate_root,
+                receipt_root=receipt_root,
+                python_runtime_root=runtime.parent,
+                lifecycle_root=lifecycle_root,
+                confirm_plan_digest=plan["planDigest"],
+                lock_file=base / "deploy.lock",
+            )
+            with self.assertRaisesRegex(RuntimeError, "confirm-plan-digest"):
+                module.apply_lifecycle_plan(args)
 
 
 if __name__ == "__main__":

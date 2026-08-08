@@ -18,6 +18,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 SCHEMA_VERSION = 2
+LIFECYCLE_SCHEMA_VERSION = 1
 MODERN_PROTOCOL_VERSION = "2026-07-28"
 REQUIRED_TOOLS = ("task.list", "task.resume", "task.adopt", "task.checkpoint")
 DEFAULT_RELEASE_ROOT = Path("/usr/local/libexec/ordivon/host")
@@ -30,6 +31,7 @@ DEFAULT_GIT = Path("/usr/bin/git")
 DEFAULT_UV = Path("/usr/bin/uv")
 DEFAULT_SYSTEMCTL = Path("/usr/bin/systemctl")
 DEFAULT_PYTHON_RUNTIME_ROOT = Path("/usr/local/libexec/ordivon/python")
+DEFAULT_LIFECYCLE_ROOT = Path("/var/lib/ordivon/host/lifecycle")
 COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
 
 
@@ -56,6 +58,7 @@ def parser() -> argparse.ArgumentParser:
     )
     prepare.add_argument("--uv", type=absolute_path, default=DEFAULT_UV)
     prepare.add_argument("--git", type=absolute_path, default=DEFAULT_GIT)
+    prepare.add_argument("--lock-file", type=absolute_path, default=DEFAULT_LOCK_FILE)
     prepare.add_argument("--pretty", action="store_true")
 
     for name in ("plan", "apply"):
@@ -96,6 +99,28 @@ def parser() -> argparse.ArgumentParser:
     rollback.add_argument("--lock-file", type=absolute_path, default=DEFAULT_LOCK_FILE)
     rollback.add_argument("--confirm-release-id", required=True)
     rollback.add_argument("--pretty", action="store_true")
+
+    for name in ("gc-plan", "gc-apply"):
+        command = sub.add_parser(
+            name,
+            help=(
+                "derive the exact Host-owned release/candidate prune frontier"
+                if name == "gc-plan"
+                else "retire and collect exactly one confirmed lifecycle plan"
+            ),
+        )
+        command.add_argument("--release-root", type=absolute_path, default=DEFAULT_RELEASE_ROOT)
+        command.add_argument("--candidate-root", type=absolute_path, default=DEFAULT_CANDIDATE_ROOT)
+        command.add_argument("--receipt-root", type=absolute_path, default=DEFAULT_RECEIPT_ROOT)
+        command.add_argument(
+            "--python-runtime-root",
+            type=absolute_path,
+            default=DEFAULT_PYTHON_RUNTIME_ROOT,
+        )
+        command.add_argument("--lifecycle-root", type=absolute_path, default=DEFAULT_LIFECYCLE_ROOT)
+        command.add_argument("--pretty", action="store_true")
+    sub.choices["gc-apply"].add_argument("--confirm-plan-digest", required=True)
+    sub.choices["gc-apply"].add_argument("--lock-file", type=absolute_path, default=DEFAULT_LOCK_FILE)
     return root
 
 
@@ -392,23 +417,24 @@ def prepare_candidate(args: argparse.Namespace) -> dict[str, object]:
                 "effectiveDigest": effective_digest,
                 "builtAtMs": int(time.time() * 1000),
             }
-            if candidate.exists():
-                existing = load_candidate(candidate)
-                if (
-                    existing.get("content") != content
-                    or existing.get("pythonRuntime") != python_runtime
-                    or existing.get("effectiveDigest") != effective_digest
-                    or existing.get("commit") != args.commit
-                ):
-                    raise RuntimeError(f"candidate identity collision: {candidate}")
-                shutil.rmtree(build_root)
-                completed = True
-                return {**existing, "candidateDir": str(candidate), "admission": "existing"}
             write_json_atomic(build_root / "manifest.json", manifest)
-            os.rename(build_root, candidate)
-            fsync_dir(args.candidate_root)
-            completed = True
-            return {**manifest, "candidateDir": str(candidate), "admission": "created"}
+            with exclusive_lock(args.lock_file):
+                if candidate.exists():
+                    existing = load_candidate(candidate)
+                    if (
+                        existing.get("content") != content
+                        or existing.get("pythonRuntime") != python_runtime
+                        or existing.get("effectiveDigest") != effective_digest
+                        or existing.get("commit") != args.commit
+                    ):
+                        raise RuntimeError(f"candidate identity collision: {candidate}")
+                    shutil.rmtree(build_root)
+                    completed = True
+                    return {**existing, "candidateDir": str(candidate), "admission": "existing"}
+                os.rename(build_root, candidate)
+                fsync_dir(args.candidate_root)
+                completed = True
+                return {**manifest, "candidateDir": str(candidate), "admission": "created"}
         finally:
             if not completed:
                 shutil.rmtree(build_root, ignore_errors=True)
@@ -890,6 +916,600 @@ def deployment_status(release_root: Path, receipt_root: Path) -> dict[str, objec
     }
 
 
+def read_json_object(path: Path) -> dict[str, object]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise TypeError(f"JSON object expected: {path}")
+    return value
+
+
+def deployment_receipt_records(
+    receipt_root: Path,
+) -> tuple[list[dict[str, object]], list[str]]:
+    records: list[dict[str, object]] = []
+    blockers: list[str] = []
+    if not receipt_root.is_dir():
+        return records, [f"deployment receipt root is missing: {receipt_root}"]
+    for receipt in sorted(receipt_root.iterdir()):
+        if not receipt.is_dir() or receipt.is_symlink():
+            blockers.append(f"deployment receipt entry is not a directory: {receipt}")
+            continue
+        try:
+            manifest = read_json_object(receipt / "manifest.json")
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
+            blockers.append(f"deployment receipt manifest is unreadable: {receipt}: {error}")
+            continue
+        result_path = receipt / "result.json"
+        if not result_path.is_file():
+            blockers.append(f"deployment receipt has unresolved result: {receipt}")
+            result = None
+        else:
+            try:
+                result = read_json_object(result_path)
+            except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
+                blockers.append(f"deployment receipt result is unreadable: {receipt}: {error}")
+                result = None
+        rollback_path = receipt / "rollback-result.json"
+        rollback_result: dict[str, object] | None = None
+        if rollback_path.is_file():
+            try:
+                rollback_result = read_json_object(rollback_path)
+            except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
+                blockers.append(f"deployment rollback result is unreadable: {receipt}: {error}")
+        plan_path = receipt / "plan.json"
+        plan: dict[str, object] | None = None
+        if plan_path.is_file():
+            try:
+                plan = read_json_object(plan_path)
+            except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
+                blockers.append(f"deployment receipt plan is unreadable: {receipt}: {error}")
+        records.append(
+            {
+                "path": str(receipt),
+                "name": receipt.name,
+                "tree": tree_description(receipt),
+                "manifest": manifest,
+                "result": result,
+                "rollbackResult": rollback_result,
+                "plan": plan,
+            }
+        )
+    return records, blockers
+
+
+def release_snapshot_matches(path: Path, snapshot: dict[str, object]) -> bool:
+    return (
+        tree_description(path) == snapshot.get("content")
+        and python_runtime_dependency(path / "venv" / "bin" / "python")
+        == snapshot.get("pythonRuntime")
+    )
+
+
+def lifecycle_tree_object(
+    path: Path, object_kind: str, object_id: str, reasons: list[str]
+) -> dict[str, object]:
+    if path.name != object_id or not path.is_dir() or path.is_symlink():
+        raise RuntimeError(f"unsafe {object_kind} lifecycle object: {path}")
+    return {
+        "kind": object_kind,
+        "id": object_id,
+        "path": str(path),
+        "tree": tree_description(path),
+        "reasons": sorted(reasons),
+    }
+
+
+def latest_deployed_record_for_release(
+    records: list[dict[str, object]], release_id: str
+) -> dict[str, object] | None:
+    matches: list[dict[str, object]] = []
+    for record in records:
+        manifest = record.get("manifest")
+        result = record.get("result")
+        if not isinstance(manifest, dict) or manifest.get("schemaVersion") != SCHEMA_VERSION:
+            continue
+        if not isinstance(result, dict):
+            continue
+        if result.get("status") == "deployed" and result.get("releaseId") == release_id:
+            matches.append(record)
+    return matches[-1] if matches else None
+
+
+def active_lifecycle_transition(
+    release_root: Path,
+    receipt_root: Path,
+    records: list[dict[str, object]],
+) -> tuple[dict[str, object] | None, list[str]]:
+    blockers: list[str] = []
+    status = deployment_status(release_root, receipt_root)
+    if status.get("status") != "healthy":
+        return None, [
+            f"deployment status must be healthy before lifecycle collection: {status.get('status')}"
+        ]
+    current = status.get("current")
+    receipt_ref = status.get("receipt")
+    if not isinstance(current, dict) or not isinstance(receipt_ref, dict):
+        return None, ["healthy deployment status omitted current receipt authority"]
+    receipt_path = Path(str(receipt_ref.get("path"))).resolve(strict=True)
+    record = next(
+        (item for item in records if Path(str(item["path"])).resolve() == receipt_path),
+        None,
+    )
+    if record is None:
+        return None, ["active deployment receipt was not present in lifecycle inventory"]
+    manifest = record.get("manifest")
+    if not isinstance(manifest, dict) or manifest.get("schemaVersion") != SCHEMA_VERSION:
+        return None, ["active deployment receipt schema is not canonical"]
+    event = str(receipt_ref.get("event"))
+    mode: str
+    peer: dict[str, object] | None = None
+    candidate: dict[str, object] | None = None
+    authority_record = record
+    if event == "result.json":
+        mode = "deployed"
+        previous = manifest.get("previous")
+        peer = previous if isinstance(previous, dict) else None
+        manifest_candidate = manifest.get("candidate")
+        candidate = manifest_candidate if isinstance(manifest_candidate, dict) else None
+    elif event == "rollback-result.json":
+        rollback_result = record.get("rollbackResult")
+        if not isinstance(rollback_result, dict):
+            return None, ["active rollback event has no rollback-result object"]
+        if rollback_result.get("automatic") is True:
+            mode = "automatic_recovery"
+            prior = latest_deployed_record_for_release(
+                records, str(current.get("releaseId"))
+            )
+            if prior is not None:
+                authority_record = prior
+                prior_manifest = prior.get("manifest")
+                if isinstance(prior_manifest, dict):
+                    previous = prior_manifest.get("previous")
+                    peer = previous if isinstance(previous, dict) else None
+                    prior_candidate = prior_manifest.get("candidate")
+                    candidate = (
+                        prior_candidate if isinstance(prior_candidate, dict) else None
+                    )
+        else:
+            mode = "explicit_rollback"
+            displaced = rollback_result.get("displaced")
+            peer = displaced if isinstance(displaced, dict) else None
+            manifest_candidate = manifest.get("candidate")
+            candidate = manifest_candidate if isinstance(manifest_candidate, dict) else None
+    else:
+        return None, [f"unsupported active deployment event: {event}"]
+    current_id = str(current.get("releaseId"))
+    peer_id = str(peer.get("releaseId")) if isinstance(peer, dict) else None
+    candidate_id = (
+        str(candidate.get("releaseId")) if isinstance(candidate, dict) else None
+    )
+    if mode == "deployed" and candidate_id != current_id:
+        blockers.append("active deployed candidate does not identify current release")
+    if mode == "explicit_rollback" and peer_id is not None and candidate_id != peer_id:
+        blockers.append("explicit rollback recovery candidate differs from displaced release")
+    return (
+        {
+            "mode": mode,
+            "current": current,
+            "activeReceipt": str(receipt_path),
+            "activeEvent": event,
+            "authorityReceipt": str(authority_record["path"]),
+            "peer": peer,
+            "candidate": candidate,
+        },
+        blockers,
+    )
+
+
+def lifecycle_plan(
+    release_root: Path,
+    candidate_root: Path,
+    receipt_root: Path,
+    python_runtime_root: Path,
+) -> dict[str, object]:
+    blockers: list[str] = []
+    records, receipt_blockers = deployment_receipt_records(receipt_root)
+    blockers.extend(receipt_blockers)
+    transition: dict[str, object] | None = None
+    if not blockers:
+        try:
+            transition, transition_blockers = active_lifecycle_transition(
+                release_root, receipt_root, records
+            )
+            blockers.extend(transition_blockers)
+        except (OSError, ValueError, TypeError, RuntimeError, json.JSONDecodeError) as error:
+            blockers.append(f"cannot derive active lifecycle transition: {error}")
+    protected_release_reasons: dict[str, list[str]] = {}
+    protected_candidate_reasons: dict[str, list[str]] = {}
+    external_runtime_claims: dict[str, dict[str, object]] = {}
+    current: dict[str, object] | None = None
+    if transition is not None:
+        current_value = transition.get("current")
+        if isinstance(current_value, dict):
+            current = current_value
+            current_id = str(current.get("releaseId"))
+            protected_release_reasons.setdefault(current_id, []).append("current")
+            runtime = current.get("pythonRuntime")
+            if isinstance(runtime, dict):
+                external_runtime_claims[str(runtime.get("runtimeRoot"))] = {
+                    "binding": runtime,
+                    "reasons": ["current_release"],
+                }
+        peer = transition.get("peer")
+        if isinstance(peer, dict):
+            peer_id = str(peer.get("releaseId"))
+            protected_release_reasons.setdefault(peer_id, []).append(
+                "reversible_transition_peer"
+            )
+            peer_path = release_root / "releases" / peer_id
+            try:
+                if not release_snapshot_matches(peer_path, peer):
+                    blockers.append(
+                        f"reversible transition peer differs from receipt: {peer_id}"
+                    )
+            except (OSError, ValueError, TypeError, RuntimeError) as error:
+                blockers.append(
+                    f"reversible transition peer is unreadable: {peer_id}: {error}"
+                )
+            runtime = peer.get("pythonRuntime")
+            if isinstance(runtime, dict):
+                root = str(runtime.get("runtimeRoot"))
+                claim = external_runtime_claims.setdefault(
+                    root, {"binding": runtime, "reasons": []}
+                )
+                claim["reasons"] = sorted(
+                    {*claim.get("reasons", []), "reversible_transition_peer"}
+                )
+        candidate = transition.get("candidate")
+        if isinstance(candidate, dict):
+            candidate_id = str(candidate.get("releaseId"))
+            protected_candidate_reasons.setdefault(candidate_id, []).append(
+                "reversible_transition_candidate"
+            )
+            candidate_path = candidate_root / candidate_id
+            try:
+                physical_manifest = load_candidate(candidate_path)
+                if physical_manifest != candidate:
+                    blockers.append(
+                        f"recovery candidate manifest differs from receipt: {candidate_id}"
+                    )
+                observed_content = tree_description(candidate_path / "release")
+                observed_runtime = python_runtime_dependency(
+                    candidate_path / "release" / "venv" / "bin" / "python"
+                )
+                if observed_content != candidate.get("content"):
+                    blockers.append(
+                        f"recovery candidate release bytes differ from receipt: {candidate_id}"
+                    )
+                if observed_runtime != candidate.get("pythonRuntime"):
+                    blockers.append(
+                        f"recovery candidate Python runtime differs from receipt: {candidate_id}"
+                    )
+            except (OSError, ValueError, TypeError, RuntimeError) as error:
+                blockers.append(
+                    f"recovery candidate is unreadable: {candidate_id}: {error}"
+                )
+            runtime = candidate.get("pythonRuntime")
+            if isinstance(runtime, dict):
+                root = str(runtime.get("runtimeRoot"))
+                claim = external_runtime_claims.setdefault(
+                    root, {"binding": runtime, "reasons": []}
+                )
+                claim["reasons"] = sorted(
+                    {*claim.get("reasons", []), "recovery_candidate"}
+                )
+    for runtime_root, claim in external_runtime_claims.items():
+        try:
+            root = Path(runtime_root).resolve(strict=True)
+            allowed = python_runtime_root.resolve(strict=True)
+            if root.parent != allowed:
+                blockers.append(
+                    f"retained Python runtime escapes shared runtime root: {runtime_root}"
+                )
+            binding = claim.get("binding")
+            if not isinstance(binding, dict) or tree_description(root) != binding.get("content"):
+                blockers.append(
+                    f"retained Python runtime differs from receipt binding: {runtime_root}"
+                )
+        except (OSError, ValueError, TypeError, RuntimeError) as error:
+            blockers.append(f"retained Python runtime is unreadable: {runtime_root}: {error}")
+    terminal_candidate_ids: set[str] = set()
+    receipt_inventory: list[dict[str, object]] = []
+    for record in records:
+        manifest = record.get("manifest")
+        result = record.get("result")
+        if isinstance(result, dict):
+            candidate = manifest.get("candidate") if isinstance(manifest, dict) else None
+            if isinstance(candidate, dict) and isinstance(candidate.get("releaseId"), str):
+                terminal_candidate_ids.add(str(candidate["releaseId"]))
+        receipt_inventory.append(
+            {
+                "name": record["name"],
+                "path": record["path"],
+                "tree": record["tree"],
+                "policy": "evidence_retained",
+            }
+        )
+    protected_releases: list[dict[str, object]] = []
+    delete_releases: list[dict[str, object]] = []
+    releases_dir = release_root / "releases"
+    if not releases_dir.is_dir():
+        blockers.append(f"release directory is missing: {releases_dir}")
+    else:
+        for path in sorted(releases_dir.iterdir()):
+            if path.name.startswith("."):
+                continue
+            if not path.is_dir() or path.is_symlink():
+                blockers.append(f"release namespace contains unsafe entry: {path}")
+                continue
+            reasons = protected_release_reasons.get(path.name)
+            try:
+                item = lifecycle_tree_object(path, "release", path.name, reasons or [])
+            except (OSError, ValueError, TypeError, RuntimeError) as error:
+                blockers.append(f"release lifecycle object is unreadable: {path}: {error}")
+                continue
+            if reasons:
+                protected_releases.append(item)
+            else:
+                item["reasons"] = ["outside_minimal_reversible_frontier"]
+                delete_releases.append(item)
+    protected_candidates: list[dict[str, object]] = []
+    retained_candidates: list[dict[str, object]] = []
+    delete_candidates: list[dict[str, object]] = []
+    if not candidate_root.is_dir():
+        blockers.append(f"candidate directory is missing: {candidate_root}")
+    else:
+        for path in sorted(candidate_root.iterdir()):
+            if path.name.startswith("."):
+                continue
+            if not path.is_dir() or path.is_symlink():
+                blockers.append(f"candidate namespace contains unsafe entry: {path}")
+                continue
+            reasons = protected_candidate_reasons.get(path.name)
+            try:
+                item = lifecycle_tree_object(path, "candidate", path.name, reasons or [])
+                manifest = read_json_object(path / "manifest.json")
+            except (OSError, ValueError, TypeError, RuntimeError, json.JSONDecodeError) as error:
+                blockers.append(f"candidate lifecycle object is unreadable: {path}: {error}")
+                continue
+            if reasons:
+                protected_candidates.append(item)
+                continue
+            schema = manifest.get("schemaVersion")
+            if schema != SCHEMA_VERSION:
+                item["reasons"] = ["obsolete_candidate_schema"]
+                delete_candidates.append(item)
+            elif path.name in terminal_candidate_ids:
+                item["reasons"] = ["terminal_candidate_outside_reversible_frontier"]
+                delete_candidates.append(item)
+            else:
+                item["reasons"] = ["unconsumed_current_schema_candidate"]
+                retained_candidates.append(item)
+    external_claims = []
+    for runtime_root, claim in sorted(external_runtime_claims.items()):
+        external_claims.append(
+            {
+                "kind": "python_runtime",
+                "runtimeRoot": runtime_root,
+                "binding": claim["binding"],
+                "reasons": sorted(set(claim.get("reasons", []))),
+                "ownership": "external_shared_substrate",
+                "deletionAuthority": "not_host",
+            }
+        )
+    base_plan: dict[str, object] = {
+        "schemaVersion": LIFECYCLE_SCHEMA_VERSION,
+        "kind": "ordivon.host-release-lifecycle-plan",
+        "deploymentSchemaVersion": SCHEMA_VERSION,
+        "current": current,
+        "transition": transition,
+        "protected": {
+            "releases": sorted(protected_releases, key=lambda item: str(item["id"])),
+            "candidates": sorted(protected_candidates, key=lambda item: str(item["id"])),
+        },
+        "retained": {
+            "candidates": sorted(retained_candidates, key=lambda item: str(item["id"])),
+            "deploymentReceipts": receipt_inventory,
+            "externalDependencies": external_claims,
+        },
+        "delete": {
+            "releases": sorted(delete_releases, key=lambda item: str(item["id"])),
+            "candidates": sorted(delete_candidates, key=lambda item: str(item["id"])),
+        },
+        "reclaimableContentBytes": sum(
+            int(item["tree"]["bytes"])
+            for item in [*delete_releases, *delete_candidates]
+        ),
+        "blockers": sorted(set(blockers)),
+    }
+    base_plan["eligible"] = not base_plan["blockers"]
+    base_plan["planDigest"] = canonical_digest(base_plan)
+    return base_plan
+
+
+def lifecycle_receipt_path(root: Path, plan_digest: str) -> Path:
+    if not plan_digest.startswith("sha256:"):
+        raise RuntimeError("lifecycle plan digest must use sha256 identity")
+    return root / plan_digest[7:]
+
+
+def validate_lifecycle_target(item: dict[str, object]) -> Path:
+    path = Path(str(item.get("path", "")))
+    object_id = str(item.get("id", ""))
+    if not object_id or path.name != object_id:
+        raise RuntimeError("lifecycle target identity/path mismatch")
+    expected = item.get("tree")
+    if not isinstance(expected, dict):
+        raise TypeError("lifecycle target omitted tree identity")
+    if tree_description(path) != expected:
+        raise RuntimeError(f"lifecycle target changed after planning: {path}")
+    return path
+
+
+def lifecycle_tombstone(
+    item: dict[str, object], release_root: Path, candidate_root: Path, plan_digest: str
+) -> Path:
+    suffix = plan_digest[7:]
+    object_id = str(item["id"])
+    if item.get("kind") == "release":
+        return release_root / "retired" / suffix / object_id
+    if item.get("kind") == "candidate":
+        return candidate_root / ".retired" / suffix / object_id
+    raise RuntimeError(f"unsupported lifecycle object kind: {item.get('kind')}")
+
+
+def validate_lifecycle_guard(
+    plan: dict[str, object], release_root: Path, receipt_root: Path
+) -> None:
+    current = inspect_current(release_root)
+    expected_current = plan.get("current")
+    if current != expected_current:
+        raise RuntimeError("current effective release changed after lifecycle planning")
+    status = deployment_status(release_root, receipt_root)
+    transition = plan.get("transition")
+    if not isinstance(transition, dict):
+        raise TypeError("lifecycle plan omitted transition guard")
+    receipt = status.get("receipt")
+    if status.get("status") != "healthy" or not isinstance(receipt, dict):
+        raise RuntimeError("deployment status is no longer healthy")
+    if (
+        receipt.get("path") != transition.get("activeReceipt")
+        or receipt.get("event") != transition.get("activeEvent")
+    ):
+        raise RuntimeError("active deployment transition changed after lifecycle planning")
+
+
+def apply_lifecycle_plan(args: argparse.Namespace) -> dict[str, object]:
+    with exclusive_lock(args.lock_file):
+        receipt = lifecycle_receipt_path(args.lifecycle_root, args.confirm_plan_digest)
+        result_path = receipt / "result.json"
+        existing_result: dict[str, object] | None = None
+        if result_path.is_file():
+            existing_result = read_json_object(result_path)
+            if existing_result.get("planDigest") != args.confirm_plan_digest:
+                raise RuntimeError("existing lifecycle result belongs to a different plan")
+            if existing_result.get("status") == "pruned":
+                return {**existing_result, "admission": "existing"}
+        if receipt.is_dir():
+            plan = read_json_object(receipt / "plan.json")
+            if plan.get("planDigest") != args.confirm_plan_digest:
+                raise RuntimeError("existing lifecycle receipt belongs to a different plan")
+        else:
+            plan = lifecycle_plan(
+                args.release_root,
+                args.candidate_root,
+                args.receipt_root,
+                args.python_runtime_root,
+            )
+            if plan.get("planDigest") != args.confirm_plan_digest:
+                raise RuntimeError(
+                    "confirm-plan-digest differs from the current lifecycle plan"
+                )
+            if not plan.get("eligible"):
+                raise RuntimeError(
+                    "lifecycle plan is blocked: " + "; ".join(plan.get("blockers", []))
+                )
+            receipt.mkdir(parents=True, mode=0o700)
+            write_json_atomic(receipt / "plan.json", plan)
+        if not plan.get("eligible"):
+            raise RuntimeError("persisted lifecycle plan is not eligible")
+        validate_lifecycle_guard(plan, args.release_root, args.receipt_root)
+        delete = plan.get("delete")
+        if not isinstance(delete, dict):
+            raise TypeError("lifecycle plan omitted delete set")
+        targets = [
+            *delete.get("releases", []),
+            *delete.get("candidates", []),
+        ]
+        if not all(isinstance(item, dict) for item in targets):
+            raise TypeError("lifecycle delete set contains invalid object")
+        retire_path = receipt / "retire-result.json"
+        existing_retire: dict[str, object] | None = None
+        previously_retired: dict[tuple[str, str], dict[str, object]] = {}
+        if retire_path.is_file():
+            existing_retire = read_json_object(retire_path)
+            if existing_retire.get("planDigest") != args.confirm_plan_digest:
+                raise RuntimeError("existing retirement receipt belongs to a different plan")
+            for retired_item in existing_retire.get("retired", []):
+                if isinstance(retired_item, dict):
+                    previously_retired[(str(retired_item.get("kind")), str(retired_item.get("id")))] = retired_item
+        retired: list[dict[str, object]] = []
+        for item in targets:
+            source = Path(str(item["path"]))
+            tombstone = lifecycle_tombstone(
+                item, args.release_root, args.candidate_root, args.confirm_plan_digest
+            )
+            key = (str(item["kind"]), str(item["id"]))
+            if source.exists():
+                validate_lifecycle_target(item)
+                tombstone.parent.mkdir(parents=True, exist_ok=True)
+                if tombstone.exists():
+                    raise RuntimeError(f"lifecycle tombstone collision: {tombstone}")
+                os.rename(source, tombstone)
+                fsync_dir(source.parent)
+                fsync_dir(tombstone.parent)
+            elif tombstone.exists():
+                if tree_description(tombstone) != item.get("tree"):
+                    raise RuntimeError(f"lifecycle tombstone changed: {tombstone}")
+            elif key not in previously_retired:
+                raise RuntimeError(
+                    f"lifecycle target is missing from both active and retired namespaces: {source}"
+                )
+            elif previously_retired[key].get("tree") != item.get("tree"):
+                raise RuntimeError(
+                    f"previous retirement evidence differs from lifecycle plan: {source}"
+                )
+            retired.append(
+                {
+                    "kind": item["kind"],
+                    "id": item["id"],
+                    "tree": item["tree"],
+                    "tombstone": str(tombstone),
+                }
+            )
+        retire_result = {
+            "schemaVersion": LIFECYCLE_SCHEMA_VERSION,
+            "kind": "ordivon.host-release-lifecycle-retirement",
+            "status": "retired",
+            "planDigest": args.confirm_plan_digest,
+            "retired": retired,
+            "retiredAtMs": (
+                existing_retire.get("retiredAtMs")
+                if isinstance(existing_retire, dict)
+                and isinstance(existing_retire.get("retiredAtMs"), int)
+                else int(time.time() * 1000)
+            ),
+        }
+        write_json_atomic(retire_path, retire_result)
+        cleanup_errors: list[str] = []
+        for item in retired:
+            tombstone = Path(str(item["tombstone"]))
+            try:
+                if tombstone.exists():
+                    if tree_description(tombstone) != item["tree"]:
+                        raise RuntimeError(f"retired lifecycle object changed: {tombstone}")
+                    shutil.rmtree(tombstone)
+                    fsync_dir(tombstone.parent)
+            except (OSError, ValueError, TypeError, RuntimeError) as error:
+                cleanup_errors.append(f"{tombstone}: {error}")
+        result = {
+            "schemaVersion": LIFECYCLE_SCHEMA_VERSION,
+            "kind": "ordivon.host-release-lifecycle-result",
+            "status": "pruned" if not cleanup_errors else "retired_cleanup_incomplete",
+            "planDigest": args.confirm_plan_digest,
+            "removed": [
+                {"kind": item["kind"], "id": item["id"], "tree": item["tree"]}
+                for item in retired
+            ],
+            "reclaimedContentBytes": plan.get("reclaimableContentBytes", 0),
+            "cleanupErrors": cleanup_errors,
+            "finishedAtMs": int(time.time() * 1000),
+            "receipt": str(receipt),
+        }
+        write_json_atomic(result_path, result)
+        return result
+
+
 def rollback_deployment(args: argparse.Namespace) -> dict[str, object]:
     with exclusive_lock(args.lock_file):
         receipt = args.receipt.resolve(strict=True)
@@ -994,11 +1614,22 @@ def main() -> int:
             return 0 if result["status"] in {"healthy", "unreceipted"} else 2
         elif args.command == "rollback":
             result = rollback_deployment(args)
+        elif args.command == "gc-plan":
+            result = lifecycle_plan(
+                args.release_root,
+                args.candidate_root,
+                args.receipt_root,
+                args.python_runtime_root,
+            )
+            emit(result, args.pretty)
+            return 0 if result["eligible"] else 2
+        elif args.command == "gc-apply":
+            result = apply_lifecycle_plan(args)
         else:
             raise RuntimeError(f"unsupported command: {args.command}")
         emit(result, getattr(args, "pretty", False))
         return 0
-    except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as error:
+    except (OSError, ValueError, TypeError, RuntimeError, json.JSONDecodeError) as error:
         print(f"ordivon-host-deploy: {error}", file=os.sys.stderr)
         return 1
 
