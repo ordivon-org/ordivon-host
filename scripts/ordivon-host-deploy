@@ -254,7 +254,7 @@ def install_no_bytecode_policy(venv_python: Path) -> Path:
     )
     if not purelib.is_absolute() or not purelib.is_dir():
         raise RuntimeError("virtual environment purelib path is invalid")
-    policy = purelib / "ordivon_release_no_bytecode.pth"
+    policy = purelib / "00_ordivon_release_no_bytecode.pth"
     policy.write_text("import sys; sys.dont_write_bytecode = True\n", encoding="utf-8")
     os.chmod(policy, 0o644)
     return policy
