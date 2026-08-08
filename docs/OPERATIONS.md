@@ -163,14 +163,14 @@ On a lost checkpoint response, retry the same checkpoint with the original expec
 
 `scripts/ordivon-host-deploy` owns the canonical local release transition. Deployment state is not stored in the Host Journal: immutable release directories and private deployment receipts are an operational authority separate from Task semantics. The source tree must contain an up-to-date `uv.lock`; the build backend is exactly pinned; `prepare` verifies that lock offline, materializes the requested Git Commit in a clean detached checkout, records exact Python and uv executable digests, builds the Host wheel, and constructs a `uv --relocatable` virtual environment from the frozen dependency graph. It removes transient bytecode and build-path metadata, installs a release-local Python site policy that prevents future bytecode writes, and then hashes the complete release tree. This keeps direct CLI execution and service startup from mutating receipted release bytes.
 
-The physical identity is `releaseId = <sourceCommit>-<releaseTreeDigestPrefix>`. The complete tree digest binds file bytes, modes, directory modes, and symlink targets. `plan` independently re-reads `uv.lock` from the requested Git Commit, requires the configured releasable Git ref to resolve to that Commit, validates the candidate tree against its manifest, requires the current Host release to provide an exact rollback target, and requires the Host MCP service to be active.
+The physical identity is `releaseId = <sourceCommit>-<effectiveDigestPrefix>`, where `effectiveDigest` commits to both the complete release tree and the complete production Python runtime tree reached by `venv/bin/python`. The release-tree digest binds file bytes, modes, directory modes, and symlink targets. The shared production Python runtime must be one immutable child of `/usr/local/libexec/ordivon/python/`; its executable bytes and entire runtime tree are independently bound in the candidate and receipt. A development interpreter under `/root` is therefore not a valid production dependency even when it has the same Python version string. `plan` independently re-reads `uv.lock` from the requested Git Commit, requires the configured releasable Git ref to resolve to that Commit, validates both the candidate tree and the resolved production Python runtime tree against the manifest, requires the current Host release (including its Python runtime binding) to provide an exact rollback target, and requires the Host MCP service to be active.
 
 A normal local deployment is:
 
 ```bash
 repo=/root/projects/ordivon-host
 commit=$(git -C "$repo" rev-parse HEAD)
-python=/root/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/bin/python3.12
+python=/usr/local/libexec/ordivon/python/cpython-3.12.13-linux-x86_64-gnu/bin/python3.12
 
 prepare=$(scripts/ordivon-host-deploy prepare \
   --source-repo "$repo" \

@@ -17,7 +17,7 @@ import urllib.request
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 MODERN_PROTOCOL_VERSION = "2026-07-28"
 REQUIRED_TOOLS = ("task.list", "task.resume", "task.adopt", "task.checkpoint")
 DEFAULT_RELEASE_ROOT = Path("/usr/local/libexec/ordivon/host")
@@ -29,6 +29,7 @@ DEFAULT_SERVICE = "ordivon-host-mcp.service"
 DEFAULT_GIT = Path("/usr/bin/git")
 DEFAULT_UV = Path("/usr/bin/uv")
 DEFAULT_SYSTEMCTL = Path("/usr/bin/systemctl")
+DEFAULT_PYTHON_RUNTIME_ROOT = Path("/usr/local/libexec/ordivon/python")
 COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
 
 
@@ -48,6 +49,11 @@ def parser() -> argparse.ArgumentParser:
     prepare.add_argument("--commit", required=True)
     prepare.add_argument("--candidate-root", type=absolute_path, default=DEFAULT_CANDIDATE_ROOT)
     prepare.add_argument("--python", type=absolute_path, required=True)
+    prepare.add_argument(
+        "--python-runtime-root",
+        type=absolute_path,
+        default=DEFAULT_PYTHON_RUNTIME_ROOT,
+    )
     prepare.add_argument("--uv", type=absolute_path, default=DEFAULT_UV)
     prepare.add_argument("--git", type=absolute_path, default=DEFAULT_GIT)
     prepare.add_argument("--pretty", action="store_true")
@@ -63,6 +69,11 @@ def parser() -> argparse.ArgumentParser:
         command.add_argument("--service", default=DEFAULT_SERVICE)
         command.add_argument("--systemctl", type=absolute_path, default=DEFAULT_SYSTEMCTL)
         command.add_argument("--git", type=absolute_path, default=DEFAULT_GIT)
+        command.add_argument(
+            "--python-runtime-root",
+            type=absolute_path,
+            default=DEFAULT_PYTHON_RUNTIME_ROOT,
+        )
         command.add_argument("--require-ref", default="refs/heads/main")
         command.add_argument("--wait-seconds", type=float, default=20.0)
         command.add_argument("--pretty", action="store_true")
@@ -188,7 +199,12 @@ def python_identity(path: Path) -> dict[str, object]:
     if not stat.S_ISREG(metadata.st_mode) or not os.access(resolved, os.X_OK):
         raise RuntimeError(f"Python executable is not usable: {path}")
     code = "import json,platform,sys; print(json.dumps({'version':sys.version,'implementation':platform.python_implementation(),'cacheTag':sys.implementation.cache_tag,'executable':sys.executable},sort_keys=True))"
-    detail = json.loads(run([str(path), "-c", code]).stdout)
+    detail = json.loads(
+        run(
+            [str(path), "-c", code],
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        ).stdout
+    )
     return {
         "path": str(path),
         "resolvedPath": str(resolved),
@@ -230,6 +246,38 @@ def tree_description(root: Path) -> dict[str, object]:
     }
 
 
+def python_runtime_dependency(python: Path) -> dict[str, object]:
+    resolved = python.resolve(strict=True)
+    metadata = resolved.stat()
+    if not stat.S_ISREG(metadata.st_mode) or not os.access(resolved, os.X_OK):
+        raise RuntimeError(f"Python runtime executable is not usable: {python}")
+    runtime_root = resolved.parent.parent.resolve(strict=True)
+    return {
+        "kind": "cpython-runtime-tree",
+        "runtimeRoot": str(runtime_root),
+        "executable": str(resolved),
+        "executableDigest": sha256_file(resolved),
+        "content": tree_description(runtime_root),
+    }
+
+
+def validate_python_runtime_root(runtime: dict[str, object], allowed_root: Path) -> None:
+    runtime_root = Path(str(runtime.get("runtimeRoot", ""))).resolve(strict=True)
+    allowed = allowed_root.resolve(strict=True)
+    if runtime_root.parent != allowed:
+        raise RuntimeError(
+            f"Python runtime must be one immutable child of {allowed}, observed {runtime_root}"
+        )
+
+
+def effective_release_digest(
+    content: dict[str, object], python_runtime: dict[str, object]
+) -> str:
+    return canonical_digest(
+        {"releaseContent": content, "pythonRuntime": python_runtime}
+    )
+
+
 def dependency_inventory(python: Path) -> dict[str, object]:
     code = "import importlib.metadata as m,json; print(json.dumps(sorted((d.metadata['Name'],d.version) for d in m.distributions() if d.metadata.get('Name'))))"
     items = json.loads(run([str(python), "-c", code], env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}).stdout)
@@ -268,6 +316,8 @@ def prepare_candidate(args: argparse.Namespace) -> dict[str, object]:
         "python": python_identity(args.python),
         "uv": executable_identity(args.uv, ["--version"]),
     }
+    requested_python_runtime = python_runtime_dependency(args.python)
+    validate_python_runtime_root(requested_python_runtime, args.python_runtime_root)
     with exact_source_checkout(source_repo, args.commit, args.git) as source:
         lock = source / "uv.lock"
         if not lock.is_file():
@@ -317,7 +367,14 @@ def prepare_candidate(args: argparse.Namespace) -> dict[str, object]:
             run([str(venv / "bin/ordivon-host-mcp"), "--check"], env=check_env)
             dependencies = dependency_inventory(venv / "bin/python")
             content = tree_description(release)
-            release_id = f"{args.commit}-{str(content['digest'])[7:19]}"
+            python_runtime = python_runtime_dependency(venv / "bin/python")
+            validate_python_runtime_root(python_runtime, args.python_runtime_root)
+            if python_runtime != requested_python_runtime:
+                raise RuntimeError(
+                    "constructed virtual environment does not use the requested Python runtime"
+                )
+            effective_digest = effective_release_digest(content, python_runtime)
+            release_id = f"{args.commit}-{effective_digest[7:19]}"
             candidate = args.candidate_root / release_id
             manifest = {
                 "schemaVersion": SCHEMA_VERSION,
@@ -329,13 +386,20 @@ def prepare_candidate(args: argparse.Namespace) -> dict[str, object]:
                 "lockDigest": lock_digest,
                 "wheelDigest": wheel_digest,
                 "toolchain": toolchain,
+                "pythonRuntime": python_runtime,
                 "dependencies": dependencies,
                 "content": content,
+                "effectiveDigest": effective_digest,
                 "builtAtMs": int(time.time() * 1000),
             }
             if candidate.exists():
                 existing = load_candidate(candidate)
-                if existing.get("content") != content or existing.get("commit") != args.commit:
+                if (
+                    existing.get("content") != content
+                    or existing.get("pythonRuntime") != python_runtime
+                    or existing.get("effectiveDigest") != effective_digest
+                    or existing.get("commit") != args.commit
+                ):
                     raise RuntimeError(f"candidate identity collision: {candidate}")
                 shutil.rmtree(build_root)
                 completed = True
@@ -358,7 +422,12 @@ def load_candidate(candidate_dir: Path) -> dict[str, object]:
     return value
 
 
-def validate_candidate(candidate_dir: Path, commit: str, source_repo: Path) -> tuple[dict[str, object], list[str]]:
+def validate_candidate(
+    candidate_dir: Path,
+    commit: str,
+    source_repo: Path,
+    python_runtime_root: Path = DEFAULT_PYTHON_RUNTIME_ROOT,
+) -> tuple[dict[str, object], list[str]]:
     blockers: list[str] = []
     try:
         manifest = load_candidate(candidate_dir)
@@ -380,6 +449,26 @@ def validate_candidate(candidate_dir: Path, commit: str, source_repo: Path) -> t
         observed = None
     if observed is not None and manifest.get("content") != observed:
         blockers.append("candidate release tree does not match manifest content digest")
+    try:
+        observed_python_runtime = python_runtime_dependency(
+            candidate_dir / "release" / "venv" / "bin" / "python"
+        )
+        validate_python_runtime_root(observed_python_runtime, python_runtime_root)
+    except (OSError, ValueError, TypeError, RuntimeError) as error:
+        blockers.append(f"candidate Python runtime is invalid: {error}")
+        observed_python_runtime = None
+    if (
+        observed_python_runtime is not None
+        and manifest.get("pythonRuntime") != observed_python_runtime
+    ):
+        blockers.append("candidate Python runtime differs from manifest binding")
+    if observed is not None and observed_python_runtime is not None:
+        observed_effective = effective_release_digest(observed, observed_python_runtime)
+        if manifest.get("effectiveDigest") != observed_effective:
+            blockers.append("candidate effectiveDigest differs from effective release bytes")
+        expected_release_id = f"{commit}-{observed_effective[7:19]}"
+        if release_id != expected_release_id:
+            blockers.append("candidate releaseId differs from effective release digest")
     return manifest, blockers
 
 
@@ -514,13 +603,16 @@ def inspect_current(release_root: Path) -> dict[str, object] | None:
         "commit": commit,
         "path": str(release),
         "content": tree_description(release),
+        "pythonRuntime": python_runtime_dependency(release / "venv" / "bin" / "python"),
     }
 
 
 def deployment_plan(args: argparse.Namespace) -> dict[str, object]:
     validate_commit(args.commit)
     source_repo = args.source_repo.resolve(strict=True)
-    manifest, blockers = validate_candidate(args.candidate_dir, args.commit, source_repo)
+    manifest, blockers = validate_candidate(
+        args.candidate_dir, args.commit, source_repo, args.python_runtime_root
+    )
     try:
         source_lock_digest = git_blob_digest(args.git, source_repo, args.commit, "uv.lock")
     except RuntimeError as error:
@@ -614,8 +706,12 @@ def apply_deployment(args: argparse.Namespace) -> dict[str, object]:
         if args.confirm_release_id != release_id:
             raise RuntimeError("confirm-release-id must exactly equal candidate releaseId")
         candidate = plan["candidate"]
-        if not isinstance(candidate, dict) or not isinstance(candidate.get("content"), dict):
-            raise TypeError("candidate manifest lacks content identity")
+        if (
+            not isinstance(candidate, dict)
+            or not isinstance(candidate.get("content"), dict)
+            or not isinstance(candidate.get("pythonRuntime"), dict)
+        ):
+            raise TypeError("candidate manifest lacks effective content identity")
         previous = plan.get("current")
         receipt = receipt_directory(args.receipt_root, release_id)
         manifest = {
@@ -641,8 +737,15 @@ def apply_deployment(args: argparse.Namespace) -> dict[str, object]:
             wait_service_active(args.systemctl, args.service, args.wait_seconds)
             probe = probe_host_mcp(args.env_file, args.wait_seconds)
             observed = inspect_current(args.release_root)
-            if observed is None or observed["releaseId"] != release_id or observed["content"] != candidate["content"]:
-                raise RuntimeError("current release does not match deployed candidate after restart")
+            if (
+                observed is None
+                or observed["releaseId"] != release_id
+                or observed["content"] != candidate["content"]
+                or observed["pythonRuntime"] != candidate["pythonRuntime"]
+            ):
+                raise RuntimeError(
+                    "current release does not match deployed candidate effective bytes after restart"
+                )
             result = {
                 "schemaVersion": SCHEMA_VERSION,
                 "status": "deployed",
@@ -665,6 +768,16 @@ def apply_deployment(args: argparse.Namespace) -> dict[str, object]:
                     run([str(args.systemctl), "restart", args.service])
                     wait_service_active(args.systemctl, args.service, args.wait_seconds)
                     rollback_probe = probe_host_mcp(args.env_file, args.wait_seconds)
+                    restored = inspect_current(args.release_root)
+                    if (
+                        restored is None
+                        or restored["releaseId"] != previous["releaseId"]
+                        or restored["content"] != previous["content"]
+                        or restored["pythonRuntime"] != previous["pythonRuntime"]
+                    ):
+                        raise RuntimeError(
+                            "automatic rollback did not restore previous effective release bytes"
+                        )
                     rollback_result = {"serviceActive": True, "probe": rollback_probe}
                 except (OSError, ValueError, TypeError, RuntimeError) as error:
                     rollback_error = error
@@ -711,6 +824,12 @@ def successful_release_events(receipt_root: Path) -> list[dict[str, object]]:
     for receipt in sorted(receipt_root.iterdir()):
         if not receipt.is_dir():
             continue
+        manifest_path = receipt / "manifest.json"
+        if not manifest_path.is_file():
+            continue
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if not isinstance(manifest, dict) or manifest.get("schemaVersion") != SCHEMA_VERSION:
+            continue
         for name in ("result.json", "rollback-result.json"):
             path = receipt / name
             if not path.is_file():
@@ -748,17 +867,26 @@ def deployment_status(release_root: Path, receipt_root: Path) -> dict[str, objec
         }
     if event["event"] == "rollback-result.json" and event["status"] == "restored_previous":
         previous = manifest.get("previous")
-        expected = previous.get("content") if isinstance(previous, dict) else None
+        expected_content = previous.get("content") if isinstance(previous, dict) else None
+        expected_python_runtime = (
+            previous.get("pythonRuntime") if isinstance(previous, dict) else None
+        )
     else:
         candidate = manifest.get("candidate")
-        expected = candidate.get("content") if isinstance(candidate, dict) else None
-    matches = expected == current["content"]
+        expected_content = candidate.get("content") if isinstance(candidate, dict) else None
+        expected_python_runtime = (
+            candidate.get("pythonRuntime") if isinstance(candidate, dict) else None
+        )
+    content_matches = expected_content == current["content"]
+    runtime_matches = expected_python_runtime == current["pythonRuntime"]
+    matches = content_matches and runtime_matches
     return {
         "schemaVersion": SCHEMA_VERSION,
         "status": "healthy" if matches else "mismatch",
         "current": current,
         "receipt": {"path": event["receipt"], "event": event["event"], "status": event["status"]},
-        "contentMatchesReceipt": matches,
+        "contentMatchesReceipt": content_matches,
+        "pythonRuntimeMatchesReceipt": runtime_matches,
     }
 
 
@@ -783,6 +911,13 @@ def rollback_deployment(args: argparse.Namespace) -> dict[str, object]:
         previous_path = args.release_root / "releases" / previous_id
         if tree_description(previous_path) != previous.get("content"):
             raise RuntimeError("previous release bytes no longer match deployment receipt")
+        observed_previous_runtime = python_runtime_dependency(
+            previous_path / "venv" / "bin" / "python"
+        )
+        if observed_previous_runtime != previous.get("pythonRuntime"):
+            raise RuntimeError(
+                "previous Python runtime no longer matches deployment receipt"
+            )
         displaced = inspect_current(args.release_root)
         if displaced is None:
             raise RuntimeError("current release is missing before rollback")
@@ -794,8 +929,15 @@ def rollback_deployment(args: argparse.Namespace) -> dict[str, object]:
             wait_service_active(args.systemctl, args.service, args.wait_seconds)
             probe = probe_host_mcp(args.env_file, args.wait_seconds)
             current = inspect_current(args.release_root)
-            if current is None or current["releaseId"] != previous_id or current["content"] != previous.get("content"):
-                raise RuntimeError("rollback current release does not match previous receipt release")
+            if (
+                current is None
+                or current["releaseId"] != previous_id
+                or current["content"] != previous.get("content")
+                or current["pythonRuntime"] != previous.get("pythonRuntime")
+            ):
+                raise RuntimeError(
+                    "rollback current release does not match previous receipt effective bytes"
+                )
             result = {
                 "schemaVersion": SCHEMA_VERSION,
                 "status": "restored_previous",

@@ -115,6 +115,6 @@ The `2025-06-18` Session transport remains a compatibility decoder under this ru
 
 ## Local deployment and publication
 
-Local production activation uses the receipt-bound `scripts/ordivon-host-deploy` contract described in [`OPERATIONS.md`](OPERATIONS.md). Source revision and physical `releaseId` remain distinct: the latter binds the frozen dependency graph, exact build toolchain evidence, and complete installed release tree. Activation is an atomic `current` symlink transition followed by an authenticated modern Host MCP probe, with exact previous-release rollback evidence.
+Local production activation uses the receipt-bound `scripts/ordivon-host-deploy` contract described in [`OPERATIONS.md`](OPERATIONS.md). Source revision and physical `releaseId` remain distinct: the latter binds the frozen dependency graph, exact build toolchain evidence, complete installed release tree, and the complete shared production Python runtime tree reached by the release virtual environment. Activation is an atomic `current` symlink transition followed by an authenticated modern Host MCP probe, with exact previous-release rollback evidence.
 
 This local deployment authority does not imply a public publication channel. A public package-index release, hosted service image, signed artifact channel, or remote automatic deployment pipeline still requires a separate publication and provenance contract.
