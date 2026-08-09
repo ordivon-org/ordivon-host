@@ -7,6 +7,7 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 ### Added
 
 - schema-v5 `task_extension_state` durability: each Task × extension namespace can retain one opaque content-addressed owner state independently of the current Task Event head, with `HostExtensionPort.load_namespace()` preserving the current Task projection without importing owner schemas;
+- revision-fenced `extensionNamespaces` on external-continuity resume, exposing only which durable extension-owner namespaces had appeared by that exact Task revision; owner fields remain private and namespace presence does not imply availability, currentness, outstanding work, reachability, success, or authority;
 - Host MCP can explicitly trust Cloudflare Access assertions behind its loopback-only Tunnel deployment while retaining the independent local Bearer path, matching the proven Runtime remote-auth pattern;
 - authenticated loopback `ordivon-host-mcp` using the pinned official MCP Python SDK, with a separate private bearer token, stateless HTTP transport, four-Tool surface for bounded Task discovery plus external-continuity resume/adopt/checkpoint, systemd templates, structured Tool errors, and real response-loss/concurrency acceptance;
 - `ordivon.host.external-continuity.v1`, bounded `WorkingCheckpoint` CAS objects, `task.context-checkpointed`, revision-safe adoption/checkpoint/resume APIs, and local CLI commands for cross-session semantic continuity without Runtime or Provider execution;

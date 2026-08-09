@@ -236,6 +236,7 @@ class ExternalContinuityResume:
     projection: TaskProjection
     handoff: OperatorHandoffCapsule
     checkpoint: WorkingCheckpointRecord | None
+    extension_namespaces: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, JsonValue]:
         return {
@@ -247,4 +248,5 @@ class ExternalContinuityResume:
             "checkpoint": (
                 None if self.checkpoint is None else self.checkpoint.to_dict()
             ),
+            "extensionNamespaces": list(self.extension_namespaces),
         }

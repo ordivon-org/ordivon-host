@@ -172,6 +172,13 @@ class ExtensionPortTests(unittest.TestCase):
                     kind=EventKind("external.run-bound"),
                     updates={"externalBinding": "binding:one"},
                 )
+                custom = port.append_preserving(
+                    task_id=checkpoint.task_id,
+                    expected_revision=external.projection.revision,
+                    event_id="event:extension-continuity:custom",
+                    kind=EventKind("custom-owner.observed"),
+                    updates={"privateCustomState": "must-not-route"},
+                )
                 world_at_external_head = port.load_namespace(
                     checkpoint.task_id, "world"
                 )
@@ -197,11 +204,30 @@ class ExtensionPortTests(unittest.TestCase):
                 )
                 committed = host.checkpoint(
                     task_id=checkpoint.task_id,
-                    expected_revision=external.projection.revision,
+                    expected_revision=custom.projection.revision,
                     checkpoint=later,
                     disposition="continue",
                 )
             with HostStorage(directory) as reopened:
+                resumed = ExternalContinuityHost(
+                    reopened,
+                    clock_ms=itertools.count(3_900).__next__,
+                    owner_id="host:test-extension-routing-reopened",
+                ).resume(checkpoint.task_id, expected_revision=committed.projection.revision)
+                self.assertEqual(
+                    resumed.extension_namespaces,
+                    ("custom-owner", "external", "world"),
+                )
+                routed = resumed.to_dict()
+                self.assertEqual(
+                    routed["extensionNamespaces"],
+                    ["custom-owner", "external", "world"],
+                )
+                routed_text = str(routed)
+                self.assertNotIn("worldOutcomeState", routed_text)
+                self.assertNotIn("externalBinding", routed_text)
+                self.assertNotIn("privateCustomState", routed_text)
+
                 port = HostExtensionPort(
                     reopened,
                     HostKernel(
@@ -286,6 +312,22 @@ class ExtensionPortTests(unittest.TestCase):
                 assert pointer is not None
                 self.assertTrue(pointer.legacy)
                 self.assertEqual(retained.payload_digest, pointer.state_digest)
+                self.assertEqual(
+                    reopened.task_extension_namespaces(
+                        created.task_id, at_revision=core.projection.revision
+                    ),
+                    ("world",),
+                )
+                self.assertEqual(
+                    reopened.task_extension_namespaces(
+                        created.task_id, at_revision=created.revision
+                    ),
+                    (),
+                )
+                with self.assertRaisesRegex(ValueError, "exceeds current Task revision"):
+                    reopened.task_extension_namespaces(
+                        created.task_id, at_revision=core.projection.revision + 1
+                    )
                 with self.assertRaises(HostExtensionLegacyStateUnknown):
                     port.append_preserving(
                         task_id=created.task_id,

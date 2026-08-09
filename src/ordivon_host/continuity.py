@@ -228,6 +228,9 @@ class ExternalContinuityHost:
             projection=projection,
             handoff=handoff,
             checkpoint=self._checkpoint_at_revision(task_id, projection.revision),
+            extension_namespaces=self.storage.task_extension_namespaces(
+                task_id, at_revision=projection.revision
+            ),
         )
 
     def checkpoint_at_revision(

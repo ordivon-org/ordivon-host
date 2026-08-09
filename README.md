@@ -78,7 +78,7 @@ Current proven slices include:
 - generic extension event/CAS admission plus opaque namespaced extension-state retention, so later Host core Events or another extension namespace cannot erase an owner's durable state;
 - recovery across fresh Host processes and local Runtime control-plane restarts;
 - modern stateless Runtime MCP transport with explicit retained legacy decoding;
-- authenticated loopback Host MCP exposing paginated, semantically bounded external-continuity discovery plus revision-coherent resume/adopt/checkpoint operations, including terminal continuity tracking, without making MCP transport state durable.
+- authenticated loopback Host MCP exposing paginated, semantically bounded external-continuity discovery plus revision-coherent resume/adopt/checkpoint operations; `task.resume` also returns revision-fenced durable extension-owner namespace identities without exposing owner state, availability, currentness, outstanding work, or authority.
 
 These are bounded vertical slices, not a general workflow engine, policy platform, or multi-Agent scheduler.
 

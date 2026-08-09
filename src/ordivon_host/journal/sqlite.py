@@ -638,6 +638,64 @@ class HostJournal:
         except (TypeError, ValueError) as error:
             raise JournalCorruption("Task extension state pointer is invalid") from error
 
+    def task_extension_namespaces(
+        self, task_id: str, *, at_revision: int
+    ) -> tuple[str, ...]:
+        if type(at_revision) is not int or at_revision < 1:
+            raise ValueError("Task extension namespace revision must be positive")
+        projection = self.connection.execute(
+            "SELECT revision FROM task_projection WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()
+        if projection is None:
+            raise KeyError(f"unknown Task: {task_id}")
+        current_revision = int(projection["revision"])
+        if at_revision > current_revision:
+            raise ValueError(
+                f"Task extension namespace revision {at_revision} exceeds current Task revision {current_revision}"
+            )
+        rows = self.connection.execute(
+            "SELECT s.namespace, e.event_kind FROM task_extension_state s "
+            "JOIN events e ON e.event_id = s.event_id "
+            "WHERE s.task_id = ? ORDER BY s.namespace",
+            (task_id,),
+        ).fetchall()
+        durable: set[str] = set()
+        for row in rows:
+            namespace = row["namespace"]
+            try:
+                kind = EventKind(str(row["event_kind"]))
+            except ValueError as error:
+                raise JournalCorruption(
+                    "Task extension state Event kind is invalid"
+                ) from error
+            if (
+                not isinstance(namespace, str)
+                or not namespace
+                or "." in namespace
+                or namespace != namespace.strip()
+                or kind.name != "EXTENSION"
+                or kind.namespace != namespace
+            ):
+                raise JournalCorruption("Task extension namespace is invalid")
+            durable.add(namespace)
+
+        history = self.connection.execute(
+            "SELECT event_kind FROM events "
+            "WHERE stream_id = ? AND stream_revision <= ? "
+            "ORDER BY stream_revision",
+            (task_id, at_revision),
+        ).fetchall()
+        visible: set[str] = set()
+        for row in history:
+            try:
+                kind = EventKind(str(row["event_kind"]))
+            except ValueError as error:
+                raise JournalCorruption("Task Event kind is invalid") from error
+            if kind.name == "EXTENSION" and kind.namespace in durable:
+                visible.add(kind.namespace)
+        return tuple(sorted(visible))
+
     def get_task_head(self, task_id: str) -> TaskHead | None:
         row = self.connection.execute(
             "SELECT e.stream_id, e.event_kind, e.payload_digest, e.stream_revision "

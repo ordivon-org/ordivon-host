@@ -66,7 +66,7 @@ Python 3.13+, hostile multi-tenancy, remote distributed consensus, a general sch
 | Goal-scoped Task revision coordination | operational narrow slice |
 | generic extension event/CAS admission with schema-blind per-Task/per-namespace durable owner state across later Host core Events | operational boundary |
 | external executor request, foreign Run binding, recovery and completion collection | operational P0 boundary; Task acceptance remains Host-owned |
-| external-continuity adoption with crash-safe initial semantic seed, bounded WorkingCheckpoint, revision-coherent discovery/resume, terminal tracking disposition, and exact response-loss replay | operational local authority |
+| external-continuity adoption with crash-safe initial semantic seed, bounded WorkingCheckpoint, revision-coherent discovery/resume, revision-fenced `extensionNamespaces` owner routing identity, terminal tracking disposition, and exact response-loss replay | operational local authority |
 | authenticated loopback Host MCP with Host/task observability, paginated external-continuity discovery, self-describing resume/adopt/checkpoint inputs, and exact-revision checkpoint patching | operational transport boundary |
 | general workflow engine or multi-Agent scheduler | not provided |
 | domain-world truth and semantic verification | domain-owned |

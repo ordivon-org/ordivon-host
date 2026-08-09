@@ -212,6 +212,13 @@ class HostStorage:
         pointer = self.journal.latest_task_event_of_kind(task_id, kind)
         return None if pointer is None else self._read_task_event_pointer(pointer)
 
+    def task_extension_namespaces(
+        self, task_id: str, *, at_revision: int
+    ) -> tuple[str, ...]:
+        return self.journal.task_extension_namespaces(
+            task_id, at_revision=at_revision
+        )
+
     def read_task_extension_state(
         self, task_id: str, namespace: str
     ) -> tuple[TaskExtensionStatePointer, dict[str, JsonValue]] | None:

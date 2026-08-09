@@ -89,6 +89,8 @@ class ExternalContinuityTests(unittest.TestCase):
                     EXTERNAL_CONTINUITY_WORKLOAD_ID,
                 )
                 self.assertEqual(storage.journal.event_count(task_id), 2)
+                self.assertEqual(resumed.extension_namespaces, ())
+                self.assertEqual(resumed.to_dict()["extensionNamespaces"], [])
                 head = storage.read_task_event(task_id)
                 self.assertEqual(head.event_kind, EventKind.TASK_CONTEXT_CHECKPOINTED)
                 pointer = storage.journal.task_event_at_revision(task_id, 2)
@@ -176,6 +178,142 @@ class ExternalContinuityTests(unittest.TestCase):
                 self.assertEqual(current.projection.revision, 3)
                 assert current.checkpoint is not None
                 self.assertEqual(current.checkpoint.task_revision, 3)
+
+    def test_resume_extension_namespaces_are_revision_fenced_under_race(self) -> None:
+        from ordivon_host import HostExtensionPort
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "state"
+            task_id = "task:external-continuity:routing-race"
+            clock = FixedClock()
+            with HostStorage(root) as storage:
+                host = ExternalContinuityHost(storage, clock_ms=clock)
+                host.adopt(
+                    task_id=task_id,
+                    goal_id="goal:external-continuity",
+                    initial_checkpoint=checkpoint(task_id, "routing-race"),
+                )
+                original_handoff = continuity_module.operator_handoff
+                raced = [False]
+
+                def racing_handoff(
+                    handoff_storage: HostStorage,
+                    handoff_task_id: str,
+                    *,
+                    expected_revision: int | None = None,
+                ):
+                    capsule = original_handoff(
+                        handoff_storage,
+                        handoff_task_id,
+                        expected_revision=expected_revision,
+                    )
+                    if not raced[0]:
+                        raced[0] = True
+                        with HostStorage(root) as other_storage:
+                            port = HostExtensionPort(
+                                other_storage,
+                                HostKernel(
+                                    other_storage,
+                                    clock_ms=clock,
+                                    owner_id="host:routing-race:world",
+                                ),
+                            )
+                            port.append_preserving(
+                                task_id=task_id,
+                                expected_revision=2,
+                                event_id="event:routing-race:world",
+                                kind=EventKind("world.outcome-unknown"),
+                                updates={"worldOutcomeState": "unknown"},
+                            )
+                    return capsule
+
+                with mock.patch.object(
+                    continuity_module, "operator_handoff", racing_handoff
+                ):
+                    resumed = host.resume(task_id, expected_revision=2)
+
+                self.assertEqual(resumed.projection.revision, 2)
+                self.assertEqual(resumed.handoff.task_revision, 2)
+                self.assertEqual(resumed.extension_namespaces, ())
+
+                current = host.resume(task_id)
+                self.assertEqual(current.projection.revision, 3)
+                self.assertEqual(current.extension_namespaces, ("world",))
+
+    def test_resume_keeps_namespace_visible_when_owner_updates_after_target_revision(self) -> None:
+        from ordivon_host import HostExtensionPort
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "state"
+            task_id = "task:external-continuity:routing-owner-update"
+            clock = FixedClock()
+            with HostStorage(root) as storage:
+                host = ExternalContinuityHost(storage, clock_ms=clock)
+                host.adopt(
+                    task_id=task_id,
+                    goal_id="goal:external-continuity",
+                    initial_checkpoint=checkpoint(task_id, "routing-owner-update"),
+                )
+                port = HostExtensionPort(
+                    storage,
+                    HostKernel(
+                        storage,
+                        clock_ms=clock,
+                        owner_id="host:routing-owner-update:first",
+                    ),
+                )
+                first = port.append_preserving(
+                    task_id=task_id,
+                    expected_revision=2,
+                    event_id="event:routing-owner-update:world:r3",
+                    kind=EventKind("world.outcome-unknown"),
+                    updates={"worldOutcomeState": "unknown"},
+                )
+                self.assertEqual(first.projection.revision, 3)
+                original_handoff = continuity_module.operator_handoff
+                raced = [False]
+
+                def racing_handoff(
+                    handoff_storage: HostStorage,
+                    handoff_task_id: str,
+                    *,
+                    expected_revision: int | None = None,
+                ):
+                    capsule = original_handoff(
+                        handoff_storage,
+                        handoff_task_id,
+                        expected_revision=expected_revision,
+                    )
+                    if not raced[0]:
+                        raced[0] = True
+                        with HostStorage(root) as other_storage:
+                            other_port = HostExtensionPort(
+                                other_storage,
+                                HostKernel(
+                                    other_storage,
+                                    clock_ms=clock,
+                                    owner_id="host:routing-owner-update:second",
+                                ),
+                            )
+                            other_port.append_preserving(
+                                task_id=task_id,
+                                expected_revision=3,
+                                event_id="event:routing-owner-update:world:r4",
+                                kind=EventKind("world.outcome-reconciled"),
+                                updates={"worldOutcomeState": "succeeded"},
+                            )
+                    return capsule
+
+                with mock.patch.object(
+                    continuity_module, "operator_handoff", racing_handoff
+                ):
+                    resumed = host.resume(task_id, expected_revision=3)
+
+                self.assertEqual(resumed.projection.revision, 3)
+                self.assertEqual(resumed.extension_namespaces, ("world",))
+                current = host.resume(task_id)
+                self.assertEqual(current.projection.revision, 4)
+                self.assertEqual(current.extension_namespaces, ("world",))
 
     def test_checkpoint_response_loss_retry_returns_existing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
