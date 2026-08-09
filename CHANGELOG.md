@@ -19,6 +19,7 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 
 ### Changed
 
+- Host MCP now publishes an exact schema-only interface identity on every Tool result; the digest binds Tool names plus input/output schemas while ignoring presentation text, and deployment receipts retain the independently re-observed wire `tools/list` schema identity so Agents can distinguish server capability from a stale client-loaded Tool schema;
 - local deployment now binds current/candidate Journal schema to release activation; forward migrations stop Host MCP, retain a receipt-bound schema-neutral preactivation SQLite snapshot, restore that snapshot before restarting the previous binary on activation failure, verify live schema in deployment status, refuse post-success explicit rollback across the schema boundary, and remove schema-incompatible previous releases from the reversible lifecycle frontier;
 - Host MCP delegates every Tool call to a fresh Host storage handle and H-C1 authority; MCP transport/session state never becomes durable Task continuity;
 - external continuity keeps its Task permanently at a stable READY/continue frontier; checkpointing advances only revision/time, while Runtime/Git/domain references remain navigation hints rather than copied truth;

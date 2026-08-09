@@ -946,12 +946,29 @@ def probe_host_mcp(env_file: Path, wait_seconds: float) -> dict[str, object]:
             names = [item.get("name") for item in tools if isinstance(item, dict)]
             if names != list(REQUIRED_TOOLS):
                 raise RuntimeError(f"Host MCP Tool catalog mismatch: {names}")
+            schema_descriptors = [
+                {
+                    "name": item.get("name"),
+                    "inputSchema": item.get("inputSchema"),
+                    "outputSchema": item.get("outputSchema"),
+                }
+                for item in tools
+                if isinstance(item, dict)
+            ]
+            schema_descriptors.sort(key=lambda item: str(item["name"]))
+            schema_digest = canonical_digest(schema_descriptors)
             return {
                 "protocolVersion": MODERN_PROTOCOL_VERSION,
                 "serverInfo": server_info,
                 "toolCount": len(names),
                 "toolNames": names,
                 "toolCatalogDigest": canonical_digest(tools),
+                "serverInterface": {
+                    "toolCount": len(names),
+                    "toolNames": sorted(str(name) for name in names),
+                    "schemaDigest": schema_digest,
+                    "schemaRevision": f"mcp-schema:{schema_digest[7:]}",
+                },
             }
         except (OSError, ValueError, TypeError, RuntimeError, urllib.error.URLError) as error:
             last = error
@@ -1408,6 +1425,11 @@ def deployment_status(release_root: Path, receipt_root: Path) -> dict[str, objec
         "observedAuthoritySchemaVersion": observed_authority_schema,
         "expectedAuthoritySchemaVersion": expected_authority_schema,
         "authorityError": authority_error,
+        "serverInterface": (
+            event.get("probe", {}).get("serverInterface")
+            if isinstance(event.get("probe"), dict)
+            else None
+        ),
         "explicitRollbackSupported": not (
             isinstance(authority_transition, dict)
             and authority_transition.get("migrationRequired") is True

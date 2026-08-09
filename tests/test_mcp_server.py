@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
+from anc_canonical import canonical_digest
 from ordivon_host.continuity import ExternalContinuityHost
 from ordivon_host.continuity_models import WorkingCheckpoint
 from ordivon_host.domain import EventKind, TaskState
@@ -25,6 +26,7 @@ from ordivon_host.mcp_server import (
     _host_status,
     _list_host_tasks,
     _observe_task,
+    _tool_schema_identity,
     check_settings,
 )
 from ordivon_host.runtime import McpRuntimeClient, RuntimeToolRejected, RuntimeTransportError
@@ -936,6 +938,39 @@ class HostMcpAgentUxTests(unittest.TestCase):
                     checkpoint_value={"frontier": "different stale patch"},
                 )
 
+    def test_tool_schema_identity_ignores_presentation_but_binds_schema(self) -> None:
+        first = [
+            {
+                "name": "task.example",
+                "title": "First title",
+                "description": "presentation one",
+                "inputSchema": {"type": "object", "properties": {"a": {"type": "string"}}},
+                "outputSchema": None,
+            }
+        ]
+        presentation_only = [
+            {
+                **first[0],
+                "title": "Different title",
+                "description": "presentation two",
+            }
+        ]
+        changed_schema = [
+            {
+                **first[0],
+                "inputSchema": {"type": "object", "properties": {"a": {"type": "integer"}}},
+            }
+        ]
+        first_identity = _tool_schema_identity(first)
+        self.assertEqual(first_identity, _tool_schema_identity(presentation_only))
+        self.assertNotEqual(
+            first_identity["schemaDigest"],
+            _tool_schema_identity(changed_schema)["schemaDigest"],
+        )
+        self.assertEqual(
+            first_identity["schemaRevision"],
+            f"mcp-schema:{str(first_identity['schemaDigest'])[7:]}",
+        )
 
 
 class HostMcpEndToEndTests(unittest.TestCase):
@@ -1034,6 +1069,16 @@ class HostMcpEndToEndTests(unittest.TestCase):
                 for tool in tools:
                     self.assertIsInstance(tool.get("inputSchema"), dict)
                 by_name = {tool["name"]: tool for tool in tools}
+                schema_descriptors = [
+                    {
+                        "name": tool["name"],
+                        "inputSchema": tool.get("inputSchema"),
+                        "outputSchema": tool.get("outputSchema"),
+                    }
+                    for tool in tools
+                ]
+                schema_descriptors.sort(key=lambda item: str(item["name"]))
+                wire_schema_digest = canonical_digest(schema_descriptors)
                 status_schema = by_name["host.status"]["inputSchema"]
                 self.assertEqual(
                     status_schema["properties"]["detail"]["enum"],
@@ -1227,6 +1272,17 @@ class HostMcpEndToEndTests(unittest.TestCase):
                 self.assertEqual(
                     adopted["checkpoint"]["checkpoint"]["truthRole"],
                     "semantic-working-claim",
+                )
+                self.assertEqual(
+                    adopted["serverInterface"]["schemaDigest"], wire_schema_digest
+                )
+                self.assertEqual(
+                    adopted["serverInterface"]["schemaRevision"],
+                    f"mcp-schema:{wire_schema_digest[7:]}",
+                )
+                self.assertEqual(
+                    adopted["serverInterface"]["toolNames"],
+                    sorted(by_name),
                 )
 
                 listed = client.call_tool(

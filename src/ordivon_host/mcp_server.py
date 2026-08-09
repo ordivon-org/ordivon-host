@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 
+from anc_canonical import canonical_digest
 from mcp.server import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
@@ -55,6 +56,49 @@ HOST_MCP_TOOL_NAMES = (
     "task.adopt",
     "task.checkpoint",
 )
+
+
+def _tool_schema_identity(descriptors: Sequence[dict[str, Any]]) -> dict[str, object]:
+    selected: list[dict[str, object]] = []
+    for descriptor in descriptors:
+        name = descriptor.get("name")
+        if not isinstance(name, str) or not name:
+            raise ValueError("Host MCP Tool descriptor has no name")
+        selected.append(
+            {
+                "name": name,
+                "inputSchema": descriptor.get("inputSchema"),
+                "outputSchema": descriptor.get("outputSchema"),
+            }
+        )
+    selected.sort(key=lambda item: str(item["name"]))
+    digest = canonical_digest(selected)
+    return {
+        "surfaceVersion": HOST_MCP_SURFACE_VERSION,
+        "toolCount": len(selected),
+        "toolNames": [str(item["name"]) for item in selected],
+        "schemaDigest": digest,
+        "schemaRevision": f"mcp-schema:{digest[7:]}",
+    }
+
+
+def _registered_tool_schema_identity(server: MCPServer) -> dict[str, object]:
+    # MCPServer.list_tools() is async; registration itself is synchronous. Use the
+    # pinned SDK ToolManager only to project the exact schemas that tools/list will
+    # expose, then verify this projection against wire tools/list in tests/deploy.
+    registered = server._tool_manager.list_tools()
+    descriptors = [
+        {
+            "name": tool.name,
+            "inputSchema": tool.parameters,
+            "outputSchema": tool.output_schema,
+        }
+        for tool in registered
+    ]
+    names = tuple(descriptor["name"] for descriptor in descriptors)
+    if names != HOST_MCP_TOOL_NAMES:
+        raise RuntimeError(f"Host MCP registered Tool order differs: {names}")
+    return _tool_schema_identity(descriptors)
 
 Receive = Callable[[], Awaitable[dict[str, Any]]]
 Send = Callable[[dict[str, Any]], Awaitable[None]]
@@ -354,6 +398,7 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
         version=_package_version(),
         log_level=settings.log_level,
     )
+    server_interface: dict[str, object] = {}
 
     @server.tool(
         name="host.status",
@@ -381,6 +426,7 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
                 detail=detail,
                 recent_limit=recentLimit,
             ),
+            server_interface=server_interface,
             write=False,
         )
 
@@ -412,6 +458,7 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
                 expected_revision=expectedRevision,
                 event_limit=eventLimit,
             ),
+            server_interface=server_interface,
             write=False,
         )
 
@@ -446,6 +493,7 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
                 cursor=cursor,
                 include_terminal=includeTerminal,
             ),
+            server_interface=server_interface,
             write=False,
         )
 
@@ -475,6 +523,7 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
                 task_id=taskId,
                 expected_revision=expectedRevision,
             ),
+            server_interface=server_interface,
             write=False,
         )
 
@@ -505,6 +554,7 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
                 goal_id=goalId,
                 checkpoint_value=initialCheckpoint,
             ),
+            server_interface=server_interface,
             write=True,
         )
 
@@ -541,9 +591,11 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
                 checkpoint_value=checkpoint,
                 disposition=continuityDisposition,
             ),
+            server_interface=server_interface,
             write=True,
         )
 
+    server_interface.update(_registered_tool_schema_identity(server))
     return server
 
 
@@ -1267,23 +1319,36 @@ async def _run_tool(
     operation: Callable[[], dict[str, object]],
     *,
     write: bool,
+    server_interface: dict[str, object] | None = None,
 ) -> CallToolResult:
     try:
         result = await asyncio.to_thread(operation)
     except Exception as error:
-        return _error_result(error, write=write)
-    return _success_result(result)
+        return _error_result(error, write=write, server_interface=server_interface)
+    return _success_result(result, server_interface=server_interface)
 
 
-def _success_result(value: dict[str, object]) -> CallToolResult:
+def _success_result(
+    value: dict[str, object],
+    *,
+    server_interface: dict[str, object] | None = None,
+) -> CallToolResult:
+    envelope = dict(value)
+    if server_interface:
+        envelope["serverInterface"] = dict(server_interface)
     return CallToolResult(
-        content=[TextContent(text=_json_text(value))],
-        structuredContent=value,
+        content=[TextContent(text=_json_text(envelope))],
+        structuredContent=envelope,
         isError=False,
     )
 
 
-def _error_result(error: Exception, *, write: bool) -> CallToolResult:
+def _error_result(
+    error: Exception,
+    *,
+    write: bool,
+    server_interface: dict[str, object] | None = None,
+) -> CallToolResult:
     code = "HOST_INTERNAL"
     message = "Host MCP operation failed"
     retryable = False
@@ -1345,6 +1410,8 @@ def _error_result(error: Exception, *, write: bool) -> CallToolResult:
             "origin": "host-mcp",
         }
     }
+    if server_interface:
+        envelope["serverInterface"] = dict(server_interface)
     return CallToolResult(
         content=[TextContent(text=_json_text(envelope))],
         structuredContent=envelope,
