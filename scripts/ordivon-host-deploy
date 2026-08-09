@@ -872,6 +872,73 @@ def restore_journal_database(
         raise RuntimeError("restored Host Journal schema differs from deployment snapshot")
 
 
+def migration_sidecar_prestate(
+    state_root: Path,
+    authority: dict[str, object],
+) -> dict[str, object]:
+    live = authority.get("liveSchemaVersion")
+    candidate = authority.get("candidateSchemaVersion")
+    if type(live) is not int or type(candidate) is not int or candidate <= live:
+        raise RuntimeError("migration sidecar prestate requires one forward schema transition")
+    entries: list[dict[str, object]] = []
+    for version in range(live + 1, candidate + 1):
+        path = state_root / f"host.sqlite3.pre-schema-v{version}.sqlite3"
+        if path.is_symlink():
+            raise RuntimeError(f"Host migration sidecar is an unsafe symlink: {path}")
+        existed = path.is_file()
+        entries.append(
+            {
+                "targetSchemaVersion": version,
+                "path": str(path),
+                "existed": existed,
+                "digest": sha256_file(path) if existed else None,
+                "byteLength": path.stat().st_size if existed else None,
+            }
+        )
+    return {
+        "schemaVersion": 1,
+        "kind": "ordivon.host-deployment-migration-sidecar-prestate",
+        "entries": entries,
+    }
+
+
+def reconcile_migration_sidecars(
+    prestate: dict[str, object],
+) -> dict[str, object]:
+    entries = prestate.get("entries")
+    if prestate.get("kind") != "ordivon.host-deployment-migration-sidecar-prestate" or not isinstance(entries, list):
+        raise RuntimeError("Host migration sidecar prestate is invalid")
+    removed: list[str] = []
+    preserved: list[str] = []
+    for raw in entries:
+        if not isinstance(raw, dict) or not isinstance(raw.get("path"), str):
+            raise RuntimeError("Host migration sidecar prestate entry is invalid")
+        path = Path(str(raw["path"]))
+        existed = raw.get("existed") is True
+        if existed:
+            if not path.is_file() or path.is_symlink():
+                raise RuntimeError(f"preactivation Host migration sidecar disappeared: {path}")
+            expected_digest = raw.get("digest")
+            expected_length = raw.get("byteLength")
+            if sha256_file(path) != expected_digest or path.stat().st_size != expected_length:
+                raise RuntimeError(f"preactivation Host migration sidecar changed during activation: {path}")
+            preserved.append(str(path))
+            continue
+        for suffix in ("", "-wal", "-shm", "-journal"):
+            candidate = Path(str(path) + suffix)
+            if candidate.exists() or candidate.is_symlink():
+                candidate.unlink()
+                removed.append(str(candidate))
+    if removed:
+        fsync_dir(Path(str(entries[0]["path"])).parent)
+    return {
+        "schemaVersion": 1,
+        "kind": "ordivon.host-deployment-migration-sidecar-reconciliation",
+        "removed": removed,
+        "preserved": preserved,
+    }
+
+
 def parse_environment_file(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
     for raw in path.read_text(encoding="utf-8").splitlines():
@@ -1153,12 +1220,18 @@ def apply_deployment(args: argparse.Namespace) -> dict[str, object]:
         switched = False
         service_stopped = False
         journal_snapshot: dict[str, object] | None = None
+        migration_sidecars: dict[str, object] | None = None
         snapshot_path = receipt / "authority-preactivation.sqlite3"
         try:
             if migration_required:
                 run([str(args.systemctl), "stop", args.service])
                 wait_service_inactive(args.systemctl, args.service, args.wait_seconds)
                 service_stopped = True
+                migration_sidecars = migration_sidecar_prestate(args.state_root, authority)
+                write_json_atomic(
+                    receipt / "authority-migration-sidecars-preactivation.json",
+                    migration_sidecars,
+                )
                 journal_snapshot = snapshot_journal_database(
                     args.state_root,
                     snapshot_path,
@@ -1209,6 +1282,7 @@ def apply_deployment(args: argparse.Namespace) -> dict[str, object]:
                 "authorityTransition": authority,
                 "finalJournalSchemaVersion": final_schema,
                 "preactivationJournalSnapshot": journal_snapshot,
+                "preactivationMigrationSidecars": migration_sidecars,
                 "probe": probe,
                 "finishedAtMs": int(time.time() * 1000),
                 "receipt": str(receipt),
@@ -1218,6 +1292,7 @@ def apply_deployment(args: argparse.Namespace) -> dict[str, object]:
         except Exception as deployment_error:
             rollback_error: Exception | None = None
             rollback_result: dict[str, object] | None = None
+            sidecar_reconciliation: dict[str, object] | None = None
             try:
                 if migration_required:
                     if service_active(args.systemctl, args.service):
@@ -1239,6 +1314,11 @@ def apply_deployment(args: argparse.Namespace) -> dict[str, object]:
                         raise RuntimeError(
                             "deployment changed Host Journal schema before a rollback snapshot was retained"
                         )
+                    sidecar_reconciliation = (
+                        reconcile_migration_sidecars(migration_sidecars)
+                        if migration_sidecars is not None
+                        else None
+                    )
                     if switched:
                         switch_current(args.release_root, str(previous["releaseId"]))
                     run([str(args.systemctl), "start", args.service])
@@ -1272,6 +1352,7 @@ def apply_deployment(args: argparse.Namespace) -> dict[str, object]:
                     "authorityRestored": migration_required and journal_snapshot is not None,
                     "authorityUnchanged": migration_required and journal_snapshot is None,
                     "restoredJournalSchemaVersion": restored_schema,
+                    "migrationSidecars": sidecar_reconciliation,
                 }
             except (OSError, ValueError, TypeError, RuntimeError) as error:
                 rollback_error = error
@@ -1308,6 +1389,7 @@ def apply_deployment(args: argparse.Namespace) -> dict[str, object]:
                         "restoredJournalSchemaVersion": rollback_result.get(
                             "restoredJournalSchemaVersion"
                         ),
+                        "migrationSidecars": rollback_result.get("migrationSidecars"),
                         "probe": rollback_result.get("probe"),
                         "finishedAtMs": int(time.time() * 1000),
                         "receipt": str(receipt),

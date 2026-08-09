@@ -1429,6 +1429,37 @@ class HostDeploymentOperatorTests(unittest.TestCase):
                 {current_id},
             )
 
+    def test_migration_sidecar_reconciliation_removes_only_activation_created_files(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            authority = {"liveSchemaVersion": 4, "candidateSchemaVersion": 5}
+            prestate = module.migration_sidecar_prestate(state, authority)
+            sidecar = state / "host.sqlite3.pre-schema-v5.sqlite3"
+            sidecar.write_bytes(b"candidate-sidecar")
+            (state / "host.sqlite3.pre-schema-v5.sqlite3-wal").write_bytes(b"")
+            (state / "host.sqlite3.pre-schema-v5.sqlite3-shm").write_bytes(b"transient")
+            result = module.reconcile_migration_sidecars(prestate)
+            self.assertFalse(sidecar.exists())
+            self.assertFalse((state / "host.sqlite3.pre-schema-v5.sqlite3-wal").exists())
+            self.assertFalse((state / "host.sqlite3.pre-schema-v5.sqlite3-shm").exists())
+            self.assertEqual(result["preserved"], [])
+            self.assertEqual(len(result["removed"]), 3)
+
+    def test_migration_sidecar_reconciliation_preserves_exact_preactivation_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            sidecar = state / "host.sqlite3.pre-schema-v5.sqlite3"
+            sidecar.write_bytes(b"preactivation-sidecar")
+            authority = {"liveSchemaVersion": 4, "candidateSchemaVersion": 5}
+            prestate = module.migration_sidecar_prestate(state, authority)
+            result = module.reconcile_migration_sidecars(prestate)
+            self.assertEqual(sidecar.read_bytes(), b"preactivation-sidecar")
+            self.assertEqual(result["removed"], [])
+            self.assertEqual(result["preserved"], [str(sidecar)])
+            sidecar.write_bytes(b"changed-during-activation")
+            with self.assertRaisesRegex(RuntimeError, "changed during activation"):
+                module.reconcile_migration_sidecars(prestate)
+
 
 if __name__ == "__main__":
     unittest.main()
