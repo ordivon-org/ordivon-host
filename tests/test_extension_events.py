@@ -5,6 +5,7 @@ import sqlite3
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from ordivon_host import EventKind, HostKernel, HostStorage, TaskState
 from ordivon_host.ops import validate_history
@@ -244,6 +245,116 @@ class ExtensionPortTests(unittest.TestCase):
                 self.assertNotIn("externalBinding", world.data)
                 self.assertEqual(external.data["externalBinding"], "binding:one")
                 self.assertNotIn("worldOutcomeState", external.data)
+
+
+    def test_namespace_snapshot_exposes_only_host_owned_metadata_under_revision_fence(self) -> None:
+        from ordivon_host import HostExtensionPort, TaskRevisionMismatch
+
+        with tempfile.TemporaryDirectory() as directory:
+            clock = itertools.count(4_500).__next__
+            with HostStorage(directory) as storage:
+                kernel = HostKernel(
+                    storage,
+                    clock_ms=clock,
+                    owner_id="host:test-extension-namespace-snapshot",
+                )
+                created = kernel.create_task(
+                    event_id="event:namespace-snapshot:create",
+                    kind=EventKind.TASK_CREATED,
+                    task_id="task:namespace-snapshot",
+                    goal_id="goal:namespace-snapshot",
+                    payload={"coreMarker": "created"},
+                    frontier=("node:namespace-snapshot",),
+                ).projection
+                port = HostExtensionPort(storage, kernel)
+
+                absent = port.load_namespace_snapshot(
+                    created.task_id,
+                    "world",
+                    expected_revision=created.revision,
+                )
+                self.assertFalse(absent.retained)
+                self.assertEqual(absent.data, {})
+                self.assertEqual(absent.projection.revision, created.revision)
+                self.assertIs(absent.task_event_kind, EventKind.TASK_CREATED)
+                self.assertIsNone(absent.owner_event_id)
+                self.assertIsNone(absent.owner_event_kind)
+                self.assertIsNone(absent.owner_state_digest)
+                self.assertIsNone(absent.owner_revision)
+                self.assertFalse(absent.legacy)
+
+                world = port.append_preserving(
+                    task_id=created.task_id,
+                    expected_revision=created.revision,
+                    event_id="event:namespace-snapshot:world",
+                    kind=EventKind("world.outcome-unknown"),
+                    updates={"worldOutcomeState": "unknown"},
+                )
+                world_event = storage.read_task_event_at_revision(
+                    created.task_id, world.projection.revision
+                )
+                assert world_event is not None
+                pointer = storage.journal.task_extension_state(created.task_id, "world")
+                assert pointer is not None
+
+                retained = port.load_namespace_snapshot(
+                    created.task_id,
+                    "world",
+                    expected_revision=world.projection.revision,
+                )
+                self.assertTrue(retained.retained)
+                self.assertEqual(retained.data, {"worldOutcomeState": "unknown"})
+                self.assertEqual(retained.owner_event_id, pointer.event_id)
+                self.assertIs(retained.owner_event_kind, pointer.event_kind)
+                self.assertEqual(retained.owner_state_digest, pointer.state_digest)
+                self.assertEqual(retained.owner_revision, pointer.revision)
+                self.assertFalse(retained.legacy)
+
+                with kernel.locked_task(
+                    created.task_id, expected_revision=world.projection.revision
+                ) as locked:
+                    core = locked.commit(
+                        event_id="event:namespace-snapshot:core",
+                        kind=EventKind.TASK_CONTEXT_CHECKPOINTED,
+                        payload={"hostCheckpoint": True},
+                    )
+                core_event = storage.read_task_event(created.task_id)
+                current = port.load_namespace_snapshot(
+                    created.task_id,
+                    "world",
+                    expected_revision=core.projection.revision,
+                )
+                self.assertEqual(current.projection.revision, core.projection.revision)
+                self.assertIs(
+                    current.task_event_kind, EventKind.TASK_CONTEXT_CHECKPOINTED
+                )
+                self.assertEqual(current.owner_revision, world.projection.revision)
+                self.assertIs(
+                    current.owner_event_kind, EventKind("world.outcome-unknown")
+                )
+                self.assertEqual(current.data, {"worldOutcomeState": "unknown"})
+                self.assertNotEqual(
+                    current.task_payload_digest, current.owner_state_digest
+                )
+
+                with self.assertRaisesRegex(
+                    TaskRevisionMismatch, "differs from expected Task revision"
+                ):
+                    port.load_namespace_snapshot(
+                        created.task_id,
+                        "world",
+                        expected_revision=world.projection.revision,
+                    )
+
+                with mock.patch.object(
+                    storage,
+                    "read_task_event",
+                    side_effect=[world_event, core_event, core_event, core_event],
+                ):
+                    raced = port.load_namespace_snapshot(created.task_id, "world")
+                self.assertEqual(raced.projection.revision, core.projection.revision)
+                self.assertEqual(raced.owner_revision, world.projection.revision)
+                self.assertEqual(raced.data, {"worldOutcomeState": "unknown"})
 
 
     def test_migrated_legacy_namespace_requires_exact_recovery_before_mutation(self) -> None:

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from anc_canonical import JsonValue, validate_json_value
 
 from .domain import EventKind, TaskProjection, TaskState
-from .kernel import ErrorFactory, HostKernel
+from .kernel import ErrorFactory, HostKernel, TaskRevisionMismatch
 from .objects import StoredObject
 from .storage import HostStorage, TaskEventSnapshot
 
@@ -30,6 +30,21 @@ class HostExtensionSnapshot:
     payload_digest: str
 
 
+@dataclass(frozen=True, slots=True)
+class HostExtensionNamespaceSnapshot:
+    namespace: str
+    retained: bool
+    data: dict[str, JsonValue]
+    projection: TaskProjection
+    task_event_kind: EventKind
+    task_payload_digest: str
+    owner_event_id: str | None
+    owner_event_kind: EventKind | None
+    owner_state_digest: str | None
+    owner_revision: int | None
+    legacy: bool
+
+
 class HostExtensionPort:
     """Small public port for append-only component extension events.
 
@@ -49,27 +64,84 @@ class HostExtensionPort:
         return self._extension_snapshot(self.storage.read_task_event(task_id))
 
     def load_namespace(self, task_id: str, namespace: str) -> HostExtensionSnapshot:
-        current = self.storage.read_task_event(task_id)
-        if not isinstance(current.data, dict):
-            raise HostExtensionError(
-                f"Host Task event data is not an object: {current.projection.task_id}"
-            )
-        retained = self.storage.read_task_extension_state(task_id, namespace)
-        if retained is None:
-            data: dict[str, JsonValue] = {}
-            event_kind = current.event_kind
-            state_digest = current.payload_digest
-        else:
-            pointer, extension_data = retained
-            data = dict(extension_data)
-            event_kind = pointer.event_kind
-            state_digest = pointer.state_digest
-        validate_json_value(data)
+        snapshot = self.load_namespace_snapshot(task_id, namespace)
         return HostExtensionSnapshot(
-            event_kind,
-            data,
-            current.projection,
-            state_digest,
+            snapshot.owner_event_kind or snapshot.task_event_kind,
+            dict(snapshot.data),
+            snapshot.projection,
+            snapshot.owner_state_digest or snapshot.task_payload_digest,
+        )
+
+    def load_namespace_snapshot(
+        self,
+        task_id: str,
+        namespace: str,
+        *,
+        expected_revision: int | None = None,
+    ) -> HostExtensionNamespaceSnapshot:
+        """Read one revision-coherent schema-blind extension namespace snapshot.
+
+        The retained owner pointer changes only with a Task Event revision. Reading
+        the Task head before and after the namespace pointer therefore gives a small
+        optimistic read fence: if the revision moved, retry from the new head rather
+        than combining owner metadata from one revision with a Task projection from
+        another. ``expected_revision`` turns this into an exact caller fence.
+        """
+        if expected_revision is not None and (
+            type(expected_revision) is not int or expected_revision < 1
+        ):
+            raise ValueError("Host extension namespace expected revision must be positive")
+        if not namespace:
+            raise ValueError("Host extension namespace must not be empty")
+
+        for _attempt in range(3):
+            before = self.storage.read_task_event(task_id)
+            if expected_revision is not None and before.projection.revision != expected_revision:
+                raise TaskRevisionMismatch(
+                    "Host extension namespace revision differs from expected Task revision"
+                )
+            retained = self.storage.read_task_extension_state(task_id, namespace)
+            after = self.storage.read_task_event(task_id)
+            if before.projection.revision != after.projection.revision:
+                continue
+            if expected_revision is not None and after.projection.revision != expected_revision:
+                raise TaskRevisionMismatch(
+                    "Host extension namespace revision differs from expected Task revision"
+                )
+
+            if retained is None:
+                data: dict[str, JsonValue] = {}
+                owner_event_id = None
+                owner_event_kind = None
+                owner_state_digest = None
+                owner_revision = None
+                legacy = False
+            else:
+                pointer, extension_data = retained
+                if pointer.revision > after.projection.revision:
+                    continue
+                data = dict(extension_data)
+                owner_event_id = pointer.event_id
+                owner_event_kind = pointer.event_kind
+                owner_state_digest = pointer.state_digest
+                owner_revision = pointer.revision
+                legacy = pointer.legacy
+            validate_json_value(data)
+            return HostExtensionNamespaceSnapshot(
+                namespace=namespace,
+                retained=retained is not None,
+                data=data,
+                projection=after.projection,
+                task_event_kind=after.event_kind,
+                task_payload_digest=after.payload_digest,
+                owner_event_id=owner_event_id,
+                owner_event_kind=owner_event_kind,
+                owner_state_digest=owner_state_digest,
+                owner_revision=owner_revision,
+                legacy=legacy,
+            )
+        raise HostExtensionError(
+            "Host Task changed repeatedly during extension namespace inspection"
         )
 
     def _namespace_state(
