@@ -233,6 +233,45 @@ class HostDeploymentOperatorTests(unittest.TestCase):
             self.assertTrue(status["contentMatchesReceipt"])
             self.assertTrue(status["pythonRuntimeMatchesReceipt"])
 
+    def test_candidate_entrypoint_check_uses_isolated_state_and_cleans_it(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            venv = base / "release" / "venv"
+            build_root = base / "build"
+            build_root.mkdir(parents=True)
+            commands: list[list[str]] = []
+
+            def fake_run(command: list[str], **_kwargs):
+                commands.append(command)
+                if command[0].endswith("ordivon-host-mcp"):
+                    self.assertIn("--state-root", command)
+                    state_root = Path(command[command.index("--state-root") + 1])
+                    self.assertEqual(state_root, build_root / ".entrypoint-check-state")
+                    self.assertTrue(state_root.is_dir())
+                    (state_root / "host.sqlite3").write_text("isolated", encoding="utf-8")
+                return mock.Mock(returncode=0, stdout="", stderr="")
+
+            with mock.patch.dict(
+                module.os.environ,
+                {"ORDIVON_HOST_STATE_ROOT": "/var/lib/ordivon/host"},
+                clear=False,
+            ), mock.patch.object(module, "run", side_effect=fake_run):
+                module.validate_candidate_entrypoints(venv, build_root)
+
+            self.assertEqual(len(commands), 2)
+            self.assertEqual(commands[0], [str(venv / "bin/ordivon-host"), "--help"])
+            self.assertEqual(
+                commands[1],
+                [
+                    str(venv / "bin/ordivon-host-mcp"),
+                    "--check",
+                    "--state-root",
+                    str(build_root / ".entrypoint-check-state"),
+                ],
+            )
+            self.assertNotIn("/var/lib/ordivon/host", commands[1])
+            self.assertFalse((build_root / ".entrypoint-check-state").exists())
+
     def test_candidate_validation_detects_release_tree_tamper(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)

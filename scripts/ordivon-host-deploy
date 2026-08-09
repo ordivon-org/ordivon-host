@@ -436,6 +436,28 @@ def install_no_bytecode_policy(venv_python: Path) -> Path:
     return policy
 
 
+def validate_candidate_entrypoints(venv: Path, build_root: Path) -> None:
+    """Exercise candidate entrypoints without opening production Host authority."""
+    check_state = build_root / ".entrypoint-check-state"
+    if check_state.exists():
+        raise RuntimeError(f"candidate entrypoint check state already exists: {check_state}")
+    check_state.mkdir(mode=0o700)
+    check_env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+    try:
+        run([str(venv / "bin/ordivon-host"), "--help"], env=check_env)
+        run(
+            [
+                str(venv / "bin/ordivon-host-mcp"),
+                "--check",
+                "--state-root",
+                str(check_state),
+            ],
+            env=check_env,
+        )
+    finally:
+        shutil.rmtree(check_state, ignore_errors=True)
+
+
 def prepare_candidate(args: argparse.Namespace) -> dict[str, object]:
     validate_commit(args.commit)
     source_repo = args.source_repo.resolve(strict=True)
@@ -493,9 +515,7 @@ def prepare_candidate(args: argparse.Namespace) -> dict[str, object]:
                 direct_url.unlink()
             install_no_bytecode_policy(venv / "bin/python")
             remove_runtime_bytecode(venv)
-            check_env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
-            run([str(venv / "bin/ordivon-host"), "--help"], env=check_env)
-            run([str(venv / "bin/ordivon-host-mcp"), "--check"], env=check_env)
+            validate_candidate_entrypoints(venv, build_root)
             dependencies = dependency_inventory(venv / "bin/python")
             content = tree_description(release)
             python_runtime = python_runtime_dependency(venv / "bin/python")

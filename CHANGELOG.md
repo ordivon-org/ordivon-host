@@ -35,6 +35,7 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 
 ### Fixed
 
+- release candidate construction is authority-pure: `prepare` now runs `ordivon-host-mcp --check` against an explicit temporary build-local state root and removes it afterward, preventing candidate validation from opening or migrating the default live Host authority;
 - canonical Host architecture and operations describe the post-H3 caller-neutral Harness boundary and derive the current Journal schema version from source rather than freezing an obsolete schema number in the documentation contract;
 - Host MCP reverse-proxy deployment now accepts one explicit canonical HTTPS public origin while retaining loopback binding and MCP SDK DNS-rebinding protection, preventing authenticated tunnel traffic from being rejected with HTTP 421;
 - concurrent Journal reopen/close now hardens the main database and transient WAL/SHM sidecars through no-follow file descriptors outside active SQLite lock ownership, so legitimate sidecar retirement cannot be misclassified as corruption or disturb process-scoped locking;
