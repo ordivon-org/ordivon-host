@@ -68,14 +68,14 @@ See [`docs/STATUS.md`](docs/STATUS.md) for the exact support claim and known lim
 Current proven slices include:
 
 - immutable TaskDescriptor identity, revisioned Task projections, exact lease fencing, and irreversible terminal state;
-- schema-v4 SQLite Journal/CAS state, migrations with backups, private modes, backup/restore, Doctor, and optional full-history verification;
+- schema-v5 SQLite Journal/CAS state, migrations with backups, private modes, backup/restore, Doctor, optional full-history verification, and schema-blind per-Task/per-namespace extension-state durability;
 - deterministic Runtime repository read with independent digest verification;
 - guarded mutation with durable Dispatch identity, explicit UNKNOWN, original-Job reconciliation, and no blind redispatch;
 - version-bound two-file source change with structured Runtime checks, exact diff evidence, and compare-and-close;
 - closed-choice action selection and open ActionProposal admission with one durable semantic cognition request, provider-neutral execution evidence, and Host-owned lowering or structured rejection;
 - participant-aware DecisionRequest lifecycle for shared, foreign-owned, irreversible, or uncertain consequences;
 - Goal-scoped Task revision snapshots and idempotent joint VerificationReceipt application;
-- generic extension event and CAS admission used by the independently versioned Harness repository;
+- generic extension event/CAS admission plus opaque namespaced extension-state retention, so later Host core Events or another extension namespace cannot erase an owner's durable state;
 - recovery across fresh Host processes and local Runtime control-plane restarts;
 - modern stateless Runtime MCP transport with explicit retained legacy decoding;
 - authenticated loopback Host MCP exposing paginated, semantically bounded external-continuity discovery plus revision-coherent resume/adopt/checkpoint operations, including terminal continuity tracking, without making MCP transport state durable.

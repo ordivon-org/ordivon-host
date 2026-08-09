@@ -58,7 +58,7 @@ The deployable Host state root is a trusted-local private boundary. Host enforce
 It contains:
 
 ```text
-host.sqlite3   schema v4 event journal, Task projection, leases, event-object references, and CAS validation cache
+host.sqlite3   schema v5 event journal, Task projection, namespaced extension-state pointers, leases, event-object references, and CAS validation cache
 objects/       immutable content-addressed objects
 receipts/      operational and live-scenario receipts
 backups/       optional operator-selected backup destinations
@@ -69,6 +69,7 @@ Schema evolution is explicit:
 - v1 → v2 removes the unowned `task_nodes`, `task_edges`, `runtime_links`, and `wakeups` tables. Migration proceeds only when all four tables are empty; populated legacy tables fail closed. The source database is retained as `host.sqlite3.pre-schema-v2.sqlite3`.
 - v2 → v3 adds `object_validation`, which binds a previously SHA-256-verified CAS object to its device, inode, length, modification time, change time, and mode. The source database is retained as `host.sqlite3.pre-schema-v3.sqlite3`.
 - v3 → v4 adds `event_object_refs`, a unique payload-reference constraint, a legacy-object reference set, and the sequence boundary from which every newly admitted Event must bind its payload/reference objects explicitly. The source database is retained as `host.sqlite3.pre-schema-v4.sqlite3`.
+- v4 → v5 adds `task_extension_state`, a schema-blind per-Task/per-Event-namespace pointer to opaque extension state. New extension writes retain one `host-extension-state` CAS object atomically with the Event and current Task revision; ordinary Host core Events do not overwrite that namespace state. `HostExtensionPort.load_namespace()` therefore recovers owner state across later checkpoints or other extension namespaces while preserving the current `TaskProjection`. Migration backfills only the latest actually recorded extension Event per namespace and marks it `legacy`; legacy state is readable for owner reconciliation but ordinary mutation fails closed. After inspecting that exact legacy state, the owner may call `HostExtensionPort.recover_legacy_namespace()` with the current Task revision, the exact legacy state digest and a complete replacement owner state; this atomically materializes native v5 namespace state, after which ordinary `append_preserving()` mutation can continue. Host never guesses which legacy payload fields belonged to that owner, never permits digest-blind recovery, and never claims that migration reconstructs state lost before v5. The source database is retained as `host.sqlite3.pre-schema-v5.sqlite3`.
 
 A v1 database advances through all migrations in order and records every transition in `schema_migrations`.
 
@@ -135,6 +136,8 @@ Only `init` should bootstrap a missing authority root. Run it once before concur
 ### External continuity workflow
 
 `task adopt`, `task resume`, and `task checkpoint` are local semantic-continuity operations. They do not load Runtime credentials, invoke Runtime, invoke Harness, call a Provider, start a scheduler, or infer ChatGPT session state.
+
+Schema v5 also separates opaque component continuity from the current Task Event payload. Stateful Host extensions should read their own Event namespace with `HostExtensionPort.load_namespace(taskId, namespace)` rather than treating `read_task_event()` or `HostExtensionPort.load()` as durable component state. The namespace store is an opaque durability primitive only: current Task meaning remains the Host projection/checkpoint, and each component still owns the schema, currentness, authority, and recovery meaning of its retained state.
 
 The checkpoint file is one exact `ordivon.host-working-checkpoint` JSON object. It is intentionally bounded and self-identifies as `truthRole: semantic-working-claim`; do not put raw conversation transcripts, chain-of-thought, or copied Runtime truth into it. Store references such as `workspaceId`, relevant Job identities, and the last observed Git head only as navigation hints, then revalidate them against the owning authority after `task resume`.
 

@@ -258,6 +258,8 @@ ordivon-runtime / ordivon-protocol as required by their own boundaries
 
 Host does not import `ordivon-harness`. The Host kernel accepts immutable lowercase dotted event kinds outside reserved Host namespaces, stores them exactly in the Journal and event payload, and reconstructs one thread-stable interned `EventKind` value after process restart. Misspellings under `task.*`, `cognition.*`, `effect.*`, `verification.*`, `runtime.*`, or `wakeup.*` fail closed. Generic Host Doctor validates event continuity, payload bytes, Task projections and every referenced CAS object. It deliberately does not decode Harness Assignment, Run or Recovery semantics.
 
+Schema v5 also separates the **current Task Event head** from **current opaque extension-owner state**. Each Task × extension namespace may retain one content-addressed state object and the exact Event/revision that authored it. `HostExtensionPort.load_namespace(taskId, namespace)` returns that owner state together with the current `TaskProjection`; a later Host core Event or a write from another namespace cannot erase it. Host preserves and fences these bytes without understanding their field names. Namespace state is durability/routing evidence only: its existence does not imply that an owner is currently available, that its state is externally current, that work is outstanding, or that any authority has been granted.
+
 The Harness extension owns:
 
 - its event-kind constants;

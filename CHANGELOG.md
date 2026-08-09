@@ -6,6 +6,7 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 
 ### Added
 
+- schema-v5 `task_extension_state` durability: each Task × extension namespace can retain one opaque content-addressed owner state independently of the current Task Event head, with `HostExtensionPort.load_namespace()` preserving the current Task projection without importing owner schemas;
 - Host MCP can explicitly trust Cloudflare Access assertions behind its loopback-only Tunnel deployment while retaining the independent local Bearer path, matching the proven Runtime remote-auth pattern;
 - authenticated loopback `ordivon-host-mcp` using the pinned official MCP Python SDK, with a separate private bearer token, stateless HTTP transport, four-Tool surface for bounded Task discovery plus external-continuity resume/adopt/checkpoint, systemd templates, structured Tool errors, and real response-loss/concurrency acceptance;
 - `ordivon.host.external-continuity.v1`, bounded `WorkingCheckpoint` CAS objects, `task.context-checkpointed`, revision-safe adoption/checkpoint/resume APIs, and local CLI commands for cross-session semantic continuity without Runtime or Provider execution;
@@ -32,7 +33,7 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 
 ### Fixed
 
-- canonical Host architecture and operations now describe the post-H3 caller-neutral Harness boundary and the actual schema-v4 Journal; documentation checks derive the schema version from source and reject the stale ownership/schema claims;
+- canonical Host architecture and operations describe the post-H3 caller-neutral Harness boundary and derive the current Journal schema version from source rather than freezing an obsolete schema number in the documentation contract;
 - Host MCP reverse-proxy deployment now accepts one explicit canonical HTTPS public origin while retaining loopback binding and MCP SDK DNS-rebinding protection, preventing authenticated tunnel traffic from being rejected with HTTP 421;
 - concurrent Journal reopen/close now hardens the main database and transient WAL/SHM sidecars through no-follow file descriptors outside active SQLite lock ownership, so legitimate sidecar retirement cannot be misclassified as corruption or disturb process-scoped locking;
 - the read-only live Runtime script now constructs the current logical `RepositoryRef` and explicit resolver instead of the removed physical `source_repo` plan field;
@@ -43,8 +44,9 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 - **Breaking pre-1.0 cleanup:** old Provider-shaped cognition events/objects/import paths and `[providers]` config are intentionally not decoded or aliased. New deployments use only the H3 semantic cognition schema.
 - `PROTOCOL_VERSION`, `ORDIVON_STATELESS_MCP_PROFILE`, and `ORDIVON_SESSION_MCP_PROFILE` retain their original `2025-06-18` compatibility semantics;
 - new code can select `DEFAULT_PROTOCOL_VERSION` or `ORDIVON_MODERN_MCP_PROFILE` for the canonical modern lifecycle;
-- existing durable Task, Journal, CAS, schema, Effect, Dispatch, verification, and recovery objects are unchanged;
-- external executor state uses extension Events and immutable CAS objects, requiring no Host Journal schema migration and no Harness dependency.
+- existing Task/Event/Effect/Dispatch/verification semantics remain owner-compatible, but opening a schema-v4 authority now performs the explicit v4 → v5 migration with a `host.sqlite3.pre-schema-v5.sqlite3` backup;
+- migrated extension namespaces remain readable as legacy owner state, but ordinary mutation fails closed until that owner uses `recover_legacy_namespace()` with the exact legacy state digest and a complete replacement state; Host does not infer or reconstruct owner semantics lost before v5;
+- external executor and other extension owners remain schema-independent at the semantic layer: Host stores opaque extension bytes and does not acquire a Harness or domain dependency.
 
 ## 0.1.2 — Extracted operational prototype
 

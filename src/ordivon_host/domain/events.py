@@ -103,6 +103,10 @@ class EventKind(str, metaclass=_EventKindMeta):
     def name(self) -> str:
         return _CORE_NAMES_BY_VALUE.get(str(self), "EXTENSION")
 
+    @property
+    def namespace(self) -> str:
+        return str(self).split(".", 1)[0]
+
     def __repr__(self) -> str:
         return f"EventKind({str(self)!r})"
 

@@ -513,7 +513,7 @@ class ExternalExecutorCoordinator:
         self.port = port
 
     def load(self, task_id: str) -> ExternalExecutionSnapshot:
-        snapshot = self.port.load(task_id)
+        snapshot = self.port.load_namespace(task_id, "external")
         request, request_object = self._load_optional(
             snapshot.data.get(_REQUEST_FIELD),
             expected_kind=_REQUEST_KIND,

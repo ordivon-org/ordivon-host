@@ -42,6 +42,9 @@ def initialize_schema(connection: sqlite3.Connection, path: Path) -> None:
         if version == 3:
             _migrate_v3_to_v4(connection, path)
             continue
+        if version == 4:
+            _migrate_v4_to_v5(connection, path)
+            continue
         raise SchemaMigrationError(f"unsupported Host Journal schema version: {version}")
     connection.executescript(_schema.SCHEMA)
     if schema_version(connection) != _schema.SCHEMA_VERSION:
@@ -189,6 +192,59 @@ def _migrate_v3_to_v4(connection: sqlite3.Connection, path: Path) -> None:
     else:
         connection.execute("COMMIT")
 
+
+
+def _migrate_v4_to_v5(connection: sqlite3.Connection, path: Path) -> None:
+    from ..domain import EventKind
+
+    backup_path = path.with_name(f"{path.name}.pre-schema-v5.sqlite3")
+    _ensure_backup(connection, backup_path, expected_version=4)
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        connection.execute(
+            "CREATE TABLE task_extension_state("
+            "task_id TEXT NOT NULL REFERENCES task_projection(task_id) ON DELETE CASCADE, "
+            "namespace TEXT NOT NULL, "
+            "state_digest TEXT NOT NULL REFERENCES object_refs(digest), "
+            "event_id TEXT NOT NULL REFERENCES events(event_id), "
+            "revision INTEGER NOT NULL CHECK(revision >= 1), "
+            "legacy INTEGER NOT NULL CHECK(legacy IN (0, 1)), "
+            "PRIMARY KEY(task_id, namespace))"
+        )
+        latest: dict[tuple[str, str], sqlite3.Row] = {}
+        rows = connection.execute(
+            "SELECT event_id, stream_id, stream_revision, event_kind, payload_digest "
+            "FROM events WHERE stream_kind = 'task' ORDER BY stream_id, stream_revision"
+        ).fetchall()
+        for row in rows:
+            kind = EventKind(str(row["event_kind"]))
+            if kind.name != "EXTENSION":
+                continue
+            latest[(str(row["stream_id"]), kind.namespace)] = row
+        for (task_id, namespace), row in sorted(latest.items()):
+            connection.execute(
+                "INSERT INTO task_extension_state("
+                "task_id, namespace, state_digest, event_id, revision, legacy"
+                ") VALUES (?, ?, ?, ?, ?, 1)",
+                (
+                    task_id,
+                    namespace,
+                    str(row["payload_digest"]),
+                    str(row["event_id"]),
+                    int(row["stream_revision"]),
+                ),
+            )
+        _advance_version(connection, 4, 5)
+        connection.execute(
+            "INSERT INTO schema_migrations(from_version, to_version, name, backup_path) "
+            "VALUES (4, 5, 'preserve-namespaced-extension-state', ?)",
+            (str(backup_path),),
+        )
+    except BaseException:
+        connection.execute("ROLLBACK")
+        raise
+    else:
+        connection.execute("COMMIT")
 
 def _advance_version(
     connection: sqlite3.Connection, from_version: int, to_version: int

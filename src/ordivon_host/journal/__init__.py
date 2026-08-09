@@ -8,6 +8,7 @@ from .sqlite import (
     LeaseRecord,
     RevisionConflict,
     TaskEventPointer,
+    TaskExtensionStatePointer,
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "LeaseRecord",
     "RevisionConflict",
     "TaskEventPointer",
+    "TaskExtensionStatePointer",
 ]

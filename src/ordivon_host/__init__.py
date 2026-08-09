@@ -25,7 +25,7 @@ from .effects import (
     VerificationReceipt,
     VerificationResultItem,
 )
-from .extensions import HostExtensionError, HostExtensionPort, HostExtensionSnapshot
+from .extensions import HostExtensionError, HostExtensionLegacyStateUnknown, HostExtensionPort, HostExtensionSnapshot
 from .external_executor import (
     ExternalCompletionConflict,
     ExternalCompletionProposal,
@@ -101,6 +101,7 @@ __all__ = [
     "GoalSnapshot",
     "HostConfig",
     "HostExtensionError",
+    "HostExtensionLegacyStateUnknown",
     "HostExtensionPort",
     "HostExtensionSnapshot",
     "HostJournal",

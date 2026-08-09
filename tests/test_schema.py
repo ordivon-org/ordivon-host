@@ -42,6 +42,7 @@ class HostSchemaTests(unittest.TestCase):
                         "events",
                         "streams",
                         "task_projection",
+                        "task_extension_state",
                         "leases",
                         "object_refs",
                         "object_validation",

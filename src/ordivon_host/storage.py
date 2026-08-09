@@ -15,7 +15,13 @@ from .domain import (
     TaskDescriptor,
     TaskProjection,
 )
-from .journal import HostJournal, JournalCorruption, LeaseRecord, TaskEventPointer
+from .journal import (
+    HostJournal,
+    JournalCorruption,
+    LeaseRecord,
+    TaskEventPointer,
+    TaskExtensionStatePointer,
+)
 from .objects import (
     ContentAddressedStore,
     ObjectCorrupt,
@@ -206,6 +212,35 @@ class HostStorage:
         pointer = self.journal.latest_task_event_of_kind(task_id, kind)
         return None if pointer is None else self._read_task_event_pointer(pointer)
 
+    def read_task_extension_state(
+        self, task_id: str, namespace: str
+    ) -> tuple[TaskExtensionStatePointer, dict[str, JsonValue]] | None:
+        pointer = self.journal.task_extension_state(task_id, namespace)
+        if pointer is None:
+            return None
+        stored = self.objects.inspect(pointer.state_digest)
+        if pointer.legacy:
+            if stored.kind != "host-event-payload":
+                raise JournalCorruption("legacy extension state is not an Event payload")
+            snapshot = self._read_task_event_pointer(
+                TaskEventPointer(
+                    event_id=pointer.event_id,
+                    task_id=pointer.task_id,
+                    event_kind=pointer.event_kind,
+                    payload_digest=pointer.state_digest,
+                    revision=pointer.revision,
+                )
+            )
+            if not isinstance(snapshot.data, dict):
+                raise JournalCorruption("legacy extension state data is not an object")
+            return pointer, dict(snapshot.data)
+        if stored.kind != "host-extension-state":
+            raise JournalCorruption("extension state object kind differs")
+        value = self.objects.get(pointer.state_digest, expected_kind="host-extension-state")
+        if not isinstance(value, dict):
+            raise ObjectCorrupt("Host extension state must be an object")
+        return pointer, dict(value)
+
     def _read_task_event_pointer(
         self, pointer: TaskEventPointer
     ) -> TaskEventSnapshot:
@@ -261,6 +296,7 @@ class HostStorage:
         expected_revision: int,
         caused_by_event_id: str | None = None,
         referenced_objects: tuple[StoredObject, ...] = (),
+        extension_state: tuple[str, StoredObject] | None = None,
         expected_lease: LeaseRecord | None = None,
         lease_checked_at_ms: int | None = None,
     ) -> EventAdmission:
@@ -287,6 +323,7 @@ class HostStorage:
             projection=projection,
             payload_object=stored,
             referenced_objects=referenced_objects,
+            extension_state=extension_state,
             expected_lease=expected_lease,
             lease_checked_at_ms=lease_checked_at_ms,
         )

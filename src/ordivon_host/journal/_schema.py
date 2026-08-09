@@ -1,4 +1,4 @@
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 LEGACY_UNUSED_TABLES = ("wakeups", "runtime_links", "task_edges", "task_nodes")
 
 SCHEMA = """
@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS host_metadata(
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-INSERT OR IGNORE INTO host_metadata(key, value) VALUES ('schema_version', '4');
+INSERT OR IGNORE INTO host_metadata(key, value) VALUES ('schema_version', '5');
 INSERT OR IGNORE INTO host_metadata(key, value) VALUES ('event_object_refs_start_sequence', '1');
 
 CREATE TABLE IF NOT EXISTS schema_migrations(
@@ -76,6 +76,16 @@ CREATE TABLE IF NOT EXISTS task_projection(
     ready_frontier_json TEXT NOT NULL,
     revision INTEGER NOT NULL CHECK(revision >= 1),
     updated_at_ms INTEGER NOT NULL CHECK(updated_at_ms >= 0)
+);
+
+CREATE TABLE IF NOT EXISTS task_extension_state(
+    task_id TEXT NOT NULL REFERENCES task_projection(task_id) ON DELETE CASCADE,
+    namespace TEXT NOT NULL,
+    state_digest TEXT NOT NULL REFERENCES object_refs(digest),
+    event_id TEXT NOT NULL REFERENCES events(event_id),
+    revision INTEGER NOT NULL CHECK(revision >= 1),
+    legacy INTEGER NOT NULL CHECK(legacy IN (0, 1)),
+    PRIMARY KEY(task_id, namespace)
 );
 
 CREATE TABLE IF NOT EXISTS leases(

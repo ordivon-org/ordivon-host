@@ -81,6 +81,17 @@ class TaskEventPointer:
     revision: int
 
 
+@dataclass(frozen=True, slots=True)
+class TaskExtensionStatePointer:
+    task_id: str
+    namespace: str
+    state_digest: str
+    event_id: str
+    event_kind: EventKind
+    revision: int
+    legacy: bool
+
+
 class HostJournal:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
@@ -165,6 +176,7 @@ class HostJournal:
         projection: TaskProjection,
         payload_object: StoredObject,
         referenced_objects: tuple[StoredObject, ...] = (),
+        extension_state: tuple[str, StoredObject] | None = None,
         expected_lease: LeaseRecord | None = None,
         lease_checked_at_ms: int | None = None,
     ) -> EventAdmission:
@@ -180,6 +192,14 @@ class HostJournal:
             raise ValueError("projection revision must advance expected revision exactly once")
         if event.recorded_at_ms != projection.updated_at_ms:
             raise ValueError("event and projection timestamps must match")
+        if extension_state is not None:
+            namespace, state_object = extension_state
+            if event.kind.name != "EXTENSION" or namespace != event.kind.namespace:
+                raise ValueError("extension state namespace differs from Event kind")
+            if state_object.kind != "host-extension-state":
+                raise ValueError("extension state has the wrong object kind")
+            if state_object not in referenced_objects:
+                raise ValueError("extension state object must be an explicit Event reference")
         if expected_revision > 0 and expected_lease is None:
             raise LeaseConflict("non-creation Task event requires an exact live lease")
         if (expected_lease is None) != (lease_checked_at_ms is None):
@@ -219,6 +239,19 @@ class HostJournal:
                     if actual_edges != expected_edges:
                         raise EventConflict(
                             "event identity is already bound to different object references"
+                        )
+                if extension_state is not None:
+                    namespace, state_object = extension_state
+                    pointer = self.task_extension_state(event.stream_id, namespace)
+                    if (
+                        pointer is None
+                        or pointer.event_id != event.event_id
+                        or pointer.state_digest != state_object.digest
+                        or pointer.revision != projection.revision
+                        or pointer.legacy
+                    ):
+                        raise EventConflict(
+                            "event identity differs from retained extension state"
                         )
                 if expected_lease is not None:
                     self._validate_exact_lease(
@@ -327,6 +360,23 @@ class HostJournal:
                     projection.updated_at_ms,
                 ),
             )
+            if extension_state is not None:
+                namespace, state_object = extension_state
+                self.connection.execute(
+                    "INSERT INTO task_extension_state("
+                    "task_id, namespace, state_digest, event_id, revision, legacy"
+                    ") VALUES (?, ?, ?, ?, ?, 0) "
+                    "ON CONFLICT(task_id, namespace) DO UPDATE SET "
+                    "state_digest = excluded.state_digest, event_id = excluded.event_id, "
+                    "revision = excluded.revision, legacy = 0",
+                    (
+                        event.stream_id,
+                        namespace,
+                        state_object.digest,
+                        event.event_id,
+                        projection.revision,
+                    ),
+                )
             if expected_lease is not None:
                 self._consume_exact_lease(expected_lease)
         return EventAdmission.CREATED
@@ -561,6 +611,33 @@ class HostJournal:
         except (TypeError, ValueError) as error:
             raise JournalCorruption("Task Event pointer is invalid") from error
 
+    def task_extension_state(
+        self, task_id: str, namespace: str
+    ) -> TaskExtensionStatePointer | None:
+        if not namespace or "." in namespace or namespace != namespace.strip():
+            raise ValueError("extension namespace must be one non-empty Event namespace")
+        row = self.connection.execute(
+            "SELECT s.task_id, s.namespace, s.state_digest, s.event_id, s.revision, "
+            "s.legacy, e.event_kind FROM task_extension_state s "
+            "JOIN events e ON e.event_id = s.event_id "
+            "WHERE s.task_id = ? AND s.namespace = ?",
+            (task_id, namespace),
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            return TaskExtensionStatePointer(
+                task_id=str(row["task_id"]),
+                namespace=str(row["namespace"]),
+                state_digest=str(row["state_digest"]),
+                event_id=str(row["event_id"]),
+                event_kind=EventKind(str(row["event_kind"])),
+                revision=int(row["revision"]),
+                legacy=bool(int(row["legacy"])),
+            )
+        except (TypeError, ValueError) as error:
+            raise JournalCorruption("Task extension state pointer is invalid") from error
+
     def get_task_head(self, task_id: str) -> TaskHead | None:
         row = self.connection.execute(
             "SELECT e.stream_id, e.event_kind, e.payload_digest, e.stream_revision "
@@ -725,6 +802,33 @@ class HostJournal:
                 "Event is missing its exact payload object edge: "
                 f"{missing_payload_edge['event_id']}"
             )
+
+        extension_mismatch = self.connection.execute(
+            "SELECT s.task_id, s.namespace FROM task_extension_state s "
+            "LEFT JOIN events e ON e.event_id = s.event_id "
+            "LEFT JOIN object_refs o ON o.digest = s.state_digest "
+            "WHERE e.event_id IS NULL OR o.digest IS NULL "
+            "OR e.stream_id != s.task_id OR e.stream_revision != s.revision "
+            "OR s.revision > (SELECT revision FROM task_projection p WHERE p.task_id = s.task_id) "
+            "LIMIT 1"
+        ).fetchone()
+        if extension_mismatch is not None:
+            raise JournalCorruption(
+                "Task extension state pointer differs from event/object history: "
+                f"{extension_mismatch['task_id']}:{extension_mismatch['namespace']}"
+            )
+        for row in self.connection.execute(
+            "SELECT s.task_id, s.namespace, s.event_id, e.event_kind, s.legacy "
+            "FROM task_extension_state s JOIN events e ON e.event_id = s.event_id"
+        ):
+            kind = EventKind(str(row["event_kind"]))
+            if kind.name != "EXTENSION" or kind.namespace != row["namespace"]:
+                raise JournalCorruption(
+                    "Task extension state namespace differs from Event kind: "
+                    f"{row['task_id']}:{row['namespace']}"
+                )
+            if int(row["legacy"]) not in {0, 1}:
+                raise JournalCorruption("Task extension legacy marker is invalid")
 
         for row in self.connection.execute(
             "SELECT task_id FROM task_projection ORDER BY task_id"

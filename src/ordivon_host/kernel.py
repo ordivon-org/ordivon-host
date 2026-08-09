@@ -81,6 +81,7 @@ class LockedTask:
         active_node_id: str | None = None,
         caused_by_event_id: str | None = None,
         referenced_objects: tuple[StoredObject, ...] = (),
+        extension_state: tuple[str, StoredObject] | None = None,
     ) -> TransitionReceipt:
         if self._committed:
             raise HostKernelError("one locked Task transition may commit only once")
@@ -98,6 +99,7 @@ class LockedTask:
             expected_revision=self.snapshot.projection.revision,
             caused_by_event_id=caused_by_event_id,
             referenced_objects=referenced_objects,
+            extension_state=extension_state,
             expected_lease=self.lease,
             lease_checked_at_ms=projection.updated_at_ms,
         )
