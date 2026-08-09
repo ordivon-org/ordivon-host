@@ -58,6 +58,7 @@ Python 3.13+, hostile multi-tenancy, remote distributed consensus, a general sch
 | immutable TaskDescriptor and revisioned Task projection | operational |
 | exact lease-fenced event admission and causal edges | operational |
 | Journal/CAS integrity, schema migration, backup/restore, Doctor | operational |
+| schema-aware local release activation with preactivation Journal snapshot, activation-only authority rollback, and post-success backward-rollback refusal | operational deployment boundary |
 | deterministic Runtime repository read and independent verification | operational |
 | guarded mutation with UNKNOWN reconciliation and no redispatch | operational proof slice |
 | version-bound two-file source change and compare-and-close | operational proof slice |

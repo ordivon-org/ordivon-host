@@ -172,7 +172,7 @@ A versioned directory is not sufficient by itself. Before deployment schema v3 a
 
 The local stable CPython generation is materialized into a new final versioned path rather than rewriting an in-use runtime. Staging compilation uses checked-hash bytecode with the final path projected into `co_filename`; the directory is then atomically renamed into the shared runtime namespace and exercised without `PYTHONDONTWRITEBYTECODE` before it is admitted. Materialization evidence is kept separately under `/var/lib/ordivon/python/materializations/`; Host consumes and independently validates the resulting runtime but still does not own shared-runtime retirement authority.
 
-`plan` independently re-reads `uv.lock` from the requested Git Commit, requires the configured releasable Git ref to resolve to that Commit, validates the candidate tree, the resolved production Python runtime tree, and its complete checked-hash materialization policy against the manifest, requires the current Host release to provide an exact rollback target, and requires the Host MCP service to be active.
+`plan` independently re-reads `uv.lock` from the requested Git Commit, requires the configured releasable Git ref to resolve to that Commit, validates the candidate tree, the resolved production Python runtime tree, and its complete checked-hash materialization policy against the manifest, requires the current Host release to provide an exact rollback target, and requires the Host MCP service to be active. It also binds the live Host Journal schema, the current release's supported Journal schema, and the candidate release's supported Journal schema. A current-release/live-schema mismatch is ambiguous and blocks deployment; a candidate older than the live authority is a backward migration and is rejected.
 
 A normal local deployment is:
 
@@ -192,6 +192,7 @@ scripts/ordivon-host-deploy plan \
   --source-repo "$repo" \
   --commit "$commit" \
   --candidate-dir "$candidate_dir" \
+  --state-root /var/lib/ordivon/host \
   --require-ref refs/heads/main \
   --pretty
 
@@ -199,13 +200,16 @@ scripts/ordivon-host-deploy apply \
   --source-repo "$repo" \
   --commit "$commit" \
   --candidate-dir "$candidate_dir" \
+  --state-root /var/lib/ordivon/host \
   --require-ref refs/heads/main \
   --confirm-release-id "$release_id"
 
 scripts/ordivon-host-deploy status --json
 ```
 
-`apply` copies the verified candidate into an immutable `releases/<releaseId>` directory, atomically replaces only the `current` symlink, restarts `ordivon-host-mcp.service`, and requires an authenticated modern `2026-07-28` MCP `server/discover` plus the exact six-Tool catalog (`host.status`, `task.observe`, `task.list`, `task.resume`, `task.adopt`, `task.checkpoint`). A failed activation or probe restores the exact previous symlink target, restarts and probes it, and receipts that automatic restoration. The global `/usr/local/bin/ordivon-host*` launchers intentionally resolve through `current/venv/bin/python -m ...`; relocatable virtual environments additionally make their own console scripts safe after staging moves.
+`apply` copies the verified candidate into an immutable `releases/<releaseId>` directory and binds release activation to the authority transition recorded by `plan`. For a same-schema transition it atomically switches `current`, restarts `ordivon-host-mcp.service`, and requires an authenticated modern `2026-07-28` MCP `server/discover` plus the exact six-Tool catalog (`host.status`, `task.observe`, `task.list`, `task.resume`, `task.adopt`, `task.checkpoint`). For a forward Journal migration, `apply` first stops Host MCP, waits for the service to become inactive, takes a schema-neutral SQLite backup of the exact preactivation `host.sqlite3` into the deployment receipt, then switches and starts the candidate. The candidate must pass the same MCP probe and the live Journal must reach the exact candidate schema. If snapshot creation, candidate startup, schema migration, or the probe fails, Host stops the candidate if necessary, restores the exact preactivation Journal snapshot before the previous binary is started, switches back to the previous release, starts and probes it, and verifies the restored Journal schema. A failure before the snapshot changed authority is recorded as `authorityUnchanged`; an actual snapshot restore is recorded as `authorityRestored`. The global `/usr/local/bin/ordivon-host*` launchers intentionally resolve through `current/venv/bin/python -m ...`; relocatable virtual environments additionally make their own console scripts safe after staging moves.
+
+The preactivation snapshot is an **activation rollback authority**, not a general historical rollback mechanism. During a schema-changing activation, external callers should be quiesced until the local candidate probe and schema verification succeed; otherwise restoring the preactivation snapshot could discard facts written by a caller during the provisional activation window. The canonical Tunnel deployment is therefore stopped around a real schema-changing activation and restarted only after the local deployment is accepted or the previous release has been restored.
 
 Receipts live under `/var/lib/ordivon/host/deployments/`. `status` verifies the current physical tree against the latest successful deployment or rollback event. An older pre-H-A1 release may legitimately appear as `unreceipted`; that is explicit legacy state rather than invented provenance. Explicit rollback requires the original deployment receipt and exact previous `releaseId` confirmation:
 
@@ -216,7 +220,7 @@ scripts/ordivon-host-deploy rollback \
   --pretty
 ```
 
-Rollback verifies the previous tree against the receipt before switching `current`; it then restarts and authenticates the same MCP surface. A rollback failure attempts to recover the displaced release.
+Rollback verifies the previous tree against the receipt before switching `current`; it then restarts and authenticates the same MCP surface. A rollback failure attempts to recover the displaced release. **A successfully completed Journal schema migration is intentionally not eligible for this explicit rollback path.** Once the new release has been accepted, it may have committed facts that cannot be represented by the previous schema; restoring the activation snapshot would discard those facts. `rollback` therefore fails closed for a receipt whose `authorityTransition.migrationRequired` is true. Reversing such a deployment requires a separately proven backward migration rather than a release-symlink operation.
 
 ### Release lifecycle and garbage collection
 
@@ -224,7 +228,8 @@ Release lifecycle is derived from execution semantics rather than wall-clock age
 
 The retained execution frontier is direction-aware:
 
-- after a successful deployment, retain the current release, the previous release needed for one exact rollback, and the current candidate needed to re-apply that release after rollback;
+- after a successful same-schema deployment, retain the current release, the previous release needed for one exact rollback, and the current candidate needed to re-apply that release after rollback;
+- after a successful Journal schema migration, retain only the current release as execution authority. The previous schema-incompatible release and the consumed candidate are not reversible peers; immutable receipts and the preactivation snapshot remain evidence, but they do not grant post-success rollback authority;
 - after an explicit rollback, retain the restored current release, the displaced release, and the displaced release's candidate so the rollback can be reversed;
 - after an automatic rollback caused by a failed deployment, do not promote the failed release or candidate into the recovery frontier. When available, recover the last successful deployment authority for the restored current release instead;
 - a current-schema candidate that has never reached a terminal deployment receipt is retained as unconsumed prepared work. It is not garbage merely because it is not active;

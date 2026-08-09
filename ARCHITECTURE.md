@@ -85,7 +85,7 @@ Participant or application intent becomes a durable Task and Context; replaceabl
 
 ## Failure modes
 
-Host fails closed on stale revisions, invalid leases, terminal reopening, missing or corrupt CAS objects, causal gaps, ambiguous external delivery, unsupported extension semantics, insufficient verification, and attempts to make transport or Provider state the owner of Task continuity.
+Host fails closed on stale revisions, invalid leases, terminal reopening, missing or corrupt CAS objects, causal gaps, ambiguous external delivery, unsupported extension semantics, insufficient verification, and attempts to make transport or Provider state the owner of Task continuity. Deployment also treats executable bytes and durable authority schema as one compatibility boundary: a forward Journal migration has an exact preactivation SQLite snapshot for activation-only recovery, while a successfully accepted schema migration cannot be reversed by merely switching to an older release because that would either strand the newer authority or discard post-deployment facts.
 
 ## Verification
 

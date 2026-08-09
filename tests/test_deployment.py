@@ -4,6 +4,7 @@ import argparse
 import importlib.machinery
 import importlib.util
 import py_compile
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -838,6 +839,541 @@ class HostDeploymentOperatorTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(RuntimeError, "confirm-plan-digest"):
                 module.apply_lifecycle_plan(args)
+
+
+    def test_journal_snapshot_restores_exact_preactivation_schema(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            state = base / "state"
+            state.mkdir()
+            database = state / "host.sqlite3"
+            connection = sqlite3.connect(database)
+            try:
+                connection.execute("CREATE TABLE host_metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+                connection.execute("INSERT INTO host_metadata VALUES ('schema_version', '4')")
+                connection.execute("CREATE TABLE marker(value TEXT NOT NULL)")
+                connection.execute("INSERT INTO marker VALUES ('before-activation')")
+                connection.commit()
+            finally:
+                connection.close()
+            snapshot = base / "receipt" / "authority-preactivation.sqlite3"
+            metadata = module.snapshot_journal_database(state, snapshot)
+            self.assertEqual(metadata["journalSchemaVersion"], 4)
+            self.assertEqual(metadata["digest"], module.sha256_file(snapshot))
+
+            connection = sqlite3.connect(database)
+            try:
+                connection.execute("UPDATE host_metadata SET value = '5' WHERE key = 'schema_version'")
+                connection.execute("UPDATE marker SET value = 'candidate-wrote'")
+                connection.commit()
+            finally:
+                connection.close()
+            self.assertEqual(module.raw_journal_schema_version(state), 5)
+            module.restore_journal_database(state, snapshot, metadata)
+            self.assertEqual(module.raw_journal_schema_version(state), 4)
+            connection = sqlite3.connect(database)
+            try:
+                self.assertEqual(
+                    connection.execute("SELECT value FROM marker").fetchone()[0],
+                    "before-activation",
+                )
+            finally:
+                connection.close()
+
+            snapshot.write_bytes(snapshot.read_bytes() + b"tamper")
+            with self.assertRaisesRegex(RuntimeError, "snapshot digest differs"):
+                module.verify_journal_snapshot(snapshot, metadata)
+
+    def test_authority_transition_plan_detects_forward_and_backward_schema_edges(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            current = {"path": str(base / "current")}
+            candidate = base / "candidate"
+            with mock.patch.object(module, "raw_journal_schema_version", return_value=4), mock.patch.object(
+                module,
+                "release_journal_schema_version",
+                side_effect=[4, 5],
+            ):
+                transition, blockers = module.authority_transition_plan(
+                    base / "state",
+                    current,
+                    candidate,
+                )
+            self.assertEqual(blockers, [])
+            assert transition is not None
+            self.assertTrue(transition["migrationRequired"])
+            self.assertEqual(transition["liveSchemaVersion"], 4)
+            self.assertEqual(transition["candidateSchemaVersion"], 5)
+            self.assertEqual(
+                transition["activationRollbackPolicy"],
+                "restore-preactivation-journal-snapshot",
+            )
+            self.assertFalse(transition["explicitRollbackSupportedAfterSuccess"])
+
+            with mock.patch.object(module, "raw_journal_schema_version", return_value=5), mock.patch.object(
+                module,
+                "release_journal_schema_version",
+                side_effect=[5, 4],
+            ):
+                _transition, blockers = module.authority_transition_plan(
+                    base / "state",
+                    current,
+                    candidate,
+                )
+            self.assertIn(
+                "candidate Host Journal schema is older than live authority; backward migration is not supported",
+                blockers,
+            )
+
+    def test_apply_schema_migration_restores_journal_before_previous_release_on_probe_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            release_root = base / "release-root"
+            receipt_root = base / "receipts"
+            state_root = base / "state"
+            state_root.mkdir()
+            (state_root / "host.sqlite3").write_bytes(b"placeholder")
+            previous = {
+                "releaseId": "previous-release",
+                "commit": "a" * 40,
+                "content": {"digest": "sha256:" + "1" * 64},
+                "pythonRuntime": {"runtimeRoot": "/runtime/previous"},
+            }
+            candidate = {
+                "releaseId": "candidate-release",
+                "content": {"digest": "sha256:" + "2" * 64},
+                "pythonRuntime": {"runtimeRoot": "/runtime/candidate"},
+            }
+            authority = {
+                "schemaVersion": 1,
+                "kind": "ordivon.host-deployment-authority-transition",
+                "stateRoot": str(state_root),
+                "databasePath": str(state_root / "host.sqlite3"),
+                "liveSchemaVersion": 4,
+                "previousReleaseSchemaVersion": 4,
+                "candidateSchemaVersion": 5,
+                "migrationRequired": True,
+                "activationRollbackPolicy": "restore-preactivation-journal-snapshot",
+                "explicitRollbackSupportedAfterSuccess": False,
+            }
+            plan = {
+                "eligible": True,
+                "blockers": [],
+                "releaseId": "candidate-release",
+                "candidate": candidate,
+                "current": previous,
+                "authorityTransition": authority,
+            }
+            args = argparse.Namespace(
+                lock_file=base / "deploy.lock",
+                confirm_release_id="candidate-release",
+                receipt_root=receipt_root,
+                release_root=release_root,
+                state_root=state_root,
+                service="host.service",
+                systemctl=Path("/usr/bin/systemctl"),
+                wait_seconds=1.0,
+                env_file=base / "host.env",
+                candidate_dir=base / "candidate",
+                commit="b" * 40,
+            )
+            events: list[str] = []
+
+            def record_run(command: list[str], **_kwargs):
+                events.append(f"systemctl:{command[1]}")
+                return mock.Mock(returncode=0, stdout="", stderr="")
+
+            def record_snapshot(_state: Path, path: Path):
+                events.append("snapshot")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"snapshot")
+                return {
+                    "schemaVersion": 1,
+                    "kind": "ordivon.host-deployment-journal-snapshot",
+                    "sourceDatabase": str(state_root / "host.sqlite3"),
+                    "snapshotPath": str(path),
+                    "journalSchemaVersion": 4,
+                    "digest": "sha256:" + "3" * 64,
+                    "byteLength": 8,
+                }
+
+            def record_switch(_root: Path, release_id: str):
+                events.append(f"switch:{release_id}")
+
+            def record_restore(_state: Path, _snapshot: Path, _metadata: dict[str, object]):
+                events.append("restore-journal")
+
+            probe_count = 0
+
+            def record_probe(_env: Path, _wait: float):
+                nonlocal probe_count
+                probe_count += 1
+                if probe_count == 1:
+                    events.append("probe:candidate-failed")
+                    raise RuntimeError("candidate probe failed")
+                events.append("probe:previous-ok")
+                return {"toolCount": 6}
+
+            with mock.patch.object(module, "deployment_plan", return_value=plan), mock.patch.object(
+                module, "copy_release", return_value=release_root / "releases" / "candidate-release"
+            ), mock.patch.object(module, "run", side_effect=record_run), mock.patch.object(
+                module, "wait_service_inactive"
+            ), mock.patch.object(module, "wait_service_active"), mock.patch.object(
+                module, "snapshot_journal_database", side_effect=record_snapshot
+            ), mock.patch.object(module, "restore_journal_database", side_effect=record_restore), mock.patch.object(
+                module, "switch_current", side_effect=record_switch
+            ), mock.patch.object(module, "probe_host_mcp", side_effect=record_probe), mock.patch.object(
+                module, "service_active", return_value=True
+            ), mock.patch.object(module, "inspect_current", return_value=previous), mock.patch.object(
+                module, "raw_journal_schema_version", return_value=4
+            ):
+                with self.assertRaisesRegex(RuntimeError, "candidate probe failed"):
+                    module.apply_deployment(args)
+
+            self.assertEqual(
+                events,
+                [
+                    "systemctl:stop",
+                    "snapshot",
+                    "switch:candidate-release",
+                    "systemctl:start",
+                    "probe:candidate-failed",
+                    "systemctl:stop",
+                    "restore-journal",
+                    "switch:previous-release",
+                    "systemctl:start",
+                    "probe:previous-ok",
+                ],
+            )
+            receipts = list(receipt_root.iterdir())
+            self.assertEqual(len(receipts), 1)
+            result = module.read_json_object(receipts[0] / "result.json")
+            rollback = module.read_json_object(receipts[0] / "rollback-result.json")
+            self.assertEqual(result["status"], "rolled_back")
+            self.assertTrue(result["rollback"]["authorityRestored"])
+            self.assertTrue(rollback["activationOnly"])
+            self.assertTrue(rollback["authorityRestored"])
+            self.assertEqual(rollback["restoredJournalSchemaVersion"], 4)
+
+    def test_apply_schema_migration_success_keeps_candidate_and_records_final_schema(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            release_root = base / "release-root"
+            receipt_root = base / "receipts"
+            state_root = base / "state"
+            state_root.mkdir()
+            (state_root / "host.sqlite3").write_bytes(b"placeholder")
+            previous = {
+                "releaseId": "previous-release",
+                "commit": "a" * 40,
+                "content": {"digest": "sha256:" + "1" * 64},
+                "pythonRuntime": {"runtimeRoot": "/runtime/previous"},
+            }
+            candidate = {
+                "releaseId": "candidate-release",
+                "content": {"digest": "sha256:" + "2" * 64},
+                "pythonRuntime": {"runtimeRoot": "/runtime/candidate"},
+            }
+            authority = {
+                "schemaVersion": 1,
+                "kind": "ordivon.host-deployment-authority-transition",
+                "stateRoot": str(state_root),
+                "databasePath": str(state_root / "host.sqlite3"),
+                "liveSchemaVersion": 4,
+                "previousReleaseSchemaVersion": 4,
+                "candidateSchemaVersion": 5,
+                "migrationRequired": True,
+                "activationRollbackPolicy": "restore-preactivation-journal-snapshot",
+                "explicitRollbackSupportedAfterSuccess": False,
+            }
+            plan = {
+                "eligible": True,
+                "blockers": [],
+                "releaseId": "candidate-release",
+                "candidate": candidate,
+                "current": previous,
+                "authorityTransition": authority,
+            }
+            args = argparse.Namespace(
+                lock_file=base / "deploy.lock",
+                confirm_release_id="candidate-release",
+                receipt_root=receipt_root,
+                release_root=release_root,
+                state_root=state_root,
+                service="host.service",
+                systemctl=Path("/usr/bin/systemctl"),
+                wait_seconds=1.0,
+                env_file=base / "host.env",
+                candidate_dir=base / "candidate",
+                commit="b" * 40,
+            )
+            events: list[str] = []
+
+            def record_run(command: list[str], **_kwargs):
+                events.append(f"systemctl:{command[1]}")
+                return mock.Mock(returncode=0, stdout="", stderr="")
+
+            def record_snapshot(_state: Path, path: Path):
+                events.append("snapshot")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"snapshot")
+                return {
+                    "schemaVersion": 1,
+                    "kind": "ordivon.host-deployment-journal-snapshot",
+                    "sourceDatabase": str(state_root / "host.sqlite3"),
+                    "snapshotPath": str(path),
+                    "journalSchemaVersion": 4,
+                    "digest": "sha256:" + "3" * 64,
+                    "byteLength": 8,
+                }
+
+            def record_switch(_root: Path, release_id: str):
+                events.append(f"switch:{release_id}")
+
+            with mock.patch.object(module, "deployment_plan", return_value=plan), mock.patch.object(
+                module, "copy_release", return_value=release_root / "releases" / "candidate-release"
+            ), mock.patch.object(module, "run", side_effect=record_run), mock.patch.object(
+                module, "wait_service_inactive"
+            ), mock.patch.object(module, "wait_service_active"), mock.patch.object(
+                module, "snapshot_journal_database", side_effect=record_snapshot
+            ), mock.patch.object(module, "switch_current", side_effect=record_switch), mock.patch.object(
+                module, "probe_host_mcp", return_value={"toolCount": 6}
+            ), mock.patch.object(module, "inspect_current", return_value={
+                "releaseId": "candidate-release",
+                "content": candidate["content"],
+                "pythonRuntime": candidate["pythonRuntime"],
+            }), mock.patch.object(module, "raw_journal_schema_version", return_value=5):
+                result = module.apply_deployment(args)
+
+            self.assertEqual(
+                events,
+                [
+                    "systemctl:stop",
+                    "snapshot",
+                    "switch:candidate-release",
+                    "systemctl:start",
+                ],
+            )
+            self.assertEqual(result["status"], "deployed")
+            self.assertEqual(result["finalJournalSchemaVersion"], 5)
+            self.assertEqual(
+                result["preactivationJournalSnapshot"]["journalSchemaVersion"],
+                4,
+            )
+            receipts = list(receipt_root.iterdir())
+            self.assertEqual(len(receipts), 1)
+            retained = module.read_json_object(receipts[0] / "result.json")
+            self.assertEqual(retained["finalJournalSchemaVersion"], 5)
+            self.assertFalse(
+                retained["authorityTransition"]["explicitRollbackSupportedAfterSuccess"]
+            )
+
+    def test_apply_schema_migration_snapshot_failure_restarts_unchanged_previous_release(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            receipt_root = base / "receipts"
+            previous = {
+                "releaseId": "previous-release",
+                "commit": "a" * 40,
+                "content": {"digest": "sha256:" + "1" * 64},
+                "pythonRuntime": {"runtimeRoot": "/runtime/previous"},
+            }
+            candidate = {
+                "releaseId": "candidate-release",
+                "content": {"digest": "sha256:" + "2" * 64},
+                "pythonRuntime": {"runtimeRoot": "/runtime/candidate"},
+            }
+            authority = {
+                "schemaVersion": 1,
+                "kind": "ordivon.host-deployment-authority-transition",
+                "liveSchemaVersion": 4,
+                "previousReleaseSchemaVersion": 4,
+                "candidateSchemaVersion": 5,
+                "migrationRequired": True,
+            }
+            plan = {
+                "eligible": True,
+                "blockers": [],
+                "releaseId": "candidate-release",
+                "candidate": candidate,
+                "current": previous,
+                "authorityTransition": authority,
+            }
+            args = argparse.Namespace(
+                lock_file=base / "deploy.lock",
+                confirm_release_id="candidate-release",
+                receipt_root=receipt_root,
+                release_root=base / "release-root",
+                state_root=base / "state",
+                service="host.service",
+                systemctl=Path("/usr/bin/systemctl"),
+                wait_seconds=1.0,
+                env_file=base / "host.env",
+                candidate_dir=base / "candidate",
+                commit="b" * 40,
+            )
+            events: list[str] = []
+
+            def record_run(command: list[str], **_kwargs):
+                events.append(f"systemctl:{command[1]}")
+                return mock.Mock(returncode=0, stdout="", stderr="")
+
+            def fail_snapshot(_state: Path, _path: Path):
+                events.append("snapshot-failed")
+                raise RuntimeError("snapshot failed")
+
+            def record_probe(_env: Path, _wait: float):
+                events.append("probe:previous-ok")
+                return {"toolCount": 6}
+
+            with mock.patch.object(module, "deployment_plan", return_value=plan), mock.patch.object(
+                module, "copy_release", return_value=base / "candidate-release"
+            ), mock.patch.object(module, "run", side_effect=record_run), mock.patch.object(
+                module, "wait_service_inactive"
+            ), mock.patch.object(module, "wait_service_active"), mock.patch.object(
+                module, "snapshot_journal_database", side_effect=fail_snapshot
+            ), mock.patch.object(module, "service_active", return_value=False), mock.patch.object(
+                module, "raw_journal_schema_version", return_value=4
+            ), mock.patch.object(module, "probe_host_mcp", side_effect=record_probe), mock.patch.object(
+                module, "inspect_current", return_value=previous
+            ), mock.patch.object(module, "switch_current") as switch:
+                with self.assertRaisesRegex(RuntimeError, "snapshot failed"):
+                    module.apply_deployment(args)
+                switch.assert_not_called()
+
+            self.assertEqual(
+                events,
+                [
+                    "systemctl:stop",
+                    "snapshot-failed",
+                    "systemctl:start",
+                    "probe:previous-ok",
+                ],
+            )
+            receipt = next(receipt_root.iterdir())
+            rollback = module.read_json_object(receipt / "rollback-result.json")
+            self.assertTrue(rollback["activationOnly"])
+            self.assertFalse(rollback["authorityRestored"])
+            self.assertTrue(rollback["authorityUnchanged"])
+            self.assertEqual(rollback["restoredJournalSchemaVersion"], 4)
+
+    def test_explicit_rollback_rejects_successful_schema_migration(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            receipt_root = base / "receipts"
+            receipt = receipt_root / "migration"
+            receipt.mkdir(parents=True)
+            release_root = base / "release-root"
+            state_root = base / "state"
+            env_file = base / "host.env"
+            module.write_json_atomic(
+                receipt / "manifest.json",
+                {
+                    "schemaVersion": module.SCHEMA_VERSION,
+                    "releaseRoot": str(release_root),
+                    "stateRoot": str(state_root),
+                    "envFile": str(env_file),
+                    "service": "host.service",
+                    "previous": {"releaseId": "previous-release"},
+                    "authorityTransition": {
+                        "schemaVersion": 1,
+                        "kind": "ordivon.host-deployment-authority-transition",
+                        "migrationRequired": True,
+                    },
+                },
+            )
+            args = argparse.Namespace(
+                lock_file=base / "deploy.lock",
+                receipt=receipt,
+                receipt_root=receipt_root,
+                release_root=release_root,
+                state_root=state_root,
+                env_file=env_file,
+                service="host.service",
+                confirm_release_id="previous-release",
+                systemctl=Path("/usr/bin/systemctl"),
+                wait_seconds=1.0,
+            )
+            with mock.patch.object(module, "switch_current") as switch:
+                with self.assertRaisesRegex(RuntimeError, "schema migration is unsupported"):
+                    module.rollback_deployment(args)
+                switch.assert_not_called()
+
+    def test_lifecycle_does_not_retain_schema_incompatible_previous_release_as_reversible_peer(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            release_root = base / "host"
+            candidate_root = base / "candidates"
+            receipt_root = base / "deployments"
+            state_root = base / "state"
+            state_root.mkdir()
+            connection = sqlite3.connect(state_root / "host.sqlite3")
+            try:
+                connection.execute(
+                    "CREATE TABLE host_metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+                )
+                connection.execute(
+                    "INSERT INTO host_metadata VALUES ('schema_version', '5')"
+                )
+                connection.commit()
+            finally:
+                connection.close()
+            runtime, executable = make_runtime(base)
+            releases = release_root / "releases"
+            previous = make_release(releases, "b" * 40, "b" * 40, executable)
+            current_id = "c" * 40 + "-schema5"
+            make_release(releases, current_id, "c" * 40, executable)
+            module.switch_current(release_root, current_id)
+            _, candidate = make_candidate(
+                candidate_root, current_id, "c" * 40, executable
+            )
+            receipt = make_deployment_receipt(
+                receipt_root,
+                "001-schema-migration",
+                candidate,
+                release_snapshot(previous),
+            )
+            manifest = module.read_json_object(receipt / "manifest.json")
+            manifest["stateRoot"] = str(state_root)
+            manifest["authorityTransition"] = {
+                "schemaVersion": 1,
+                "kind": "ordivon.host-deployment-authority-transition",
+                "stateRoot": str(state_root),
+                "liveSchemaVersion": 4,
+                "previousReleaseSchemaVersion": 4,
+                "candidateSchemaVersion": 5,
+                "migrationRequired": True,
+                "explicitRollbackSupportedAfterSuccess": False,
+            }
+            module.write_json_atomic(receipt / "manifest.json", manifest)
+
+            status = module.deployment_status(release_root, receipt_root)
+            self.assertEqual(status["status"], "healthy")
+            self.assertTrue(status["authoritySchemaMatchesReceipt"])
+            self.assertEqual(status["observedAuthoritySchemaVersion"], 5)
+            self.assertEqual(status["expectedAuthoritySchemaVersion"], 5)
+            self.assertFalse(status["explicitRollbackSupported"])
+            plan = module.lifecycle_plan(
+                release_root,
+                candidate_root,
+                receipt_root,
+                runtime.parent,
+            )
+            self.assertTrue(plan["eligible"], plan["blockers"])
+            self.assertEqual(plan["transition"]["mode"], "deployed_schema_migration")
+            self.assertEqual(
+                {item["id"] for item in plan["protected"]["releases"]},
+                {current_id},
+            )
+            self.assertEqual(plan["protected"]["candidates"], [])
+            self.assertEqual(
+                {item["id"] for item in plan["delete"]["releases"]},
+                {previous.name},
+            )
+            self.assertEqual(
+                {item["id"] for item in plan["delete"]["candidates"]},
+                {current_id},
+            )
 
 
 if __name__ == "__main__":

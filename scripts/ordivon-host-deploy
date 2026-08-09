@@ -8,6 +8,7 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import stat
 import subprocess
 import tempfile
@@ -24,6 +25,7 @@ REQUIRED_TOOLS = ("host.status", "task.observe", "task.list", "task.resume", "ta
 DEFAULT_RELEASE_ROOT = Path("/usr/local/libexec/ordivon/host")
 DEFAULT_CANDIDATE_ROOT = Path("/var/lib/ordivon/host/candidates")
 DEFAULT_RECEIPT_ROOT = Path("/var/lib/ordivon/host/deployments")
+DEFAULT_STATE_ROOT = Path("/var/lib/ordivon/host")
 DEFAULT_ENV_FILE = Path("/etc/ordivon/ordivon-host-mcp.env")
 DEFAULT_LOCK_FILE = Path("/run/ordivon-host-deploy.lock")
 DEFAULT_SERVICE = "ordivon-host-mcp.service"
@@ -68,6 +70,7 @@ def parser() -> argparse.ArgumentParser:
         command.add_argument("--candidate-dir", type=absolute_path, required=True)
         command.add_argument("--release-root", type=absolute_path, default=DEFAULT_RELEASE_ROOT)
         command.add_argument("--receipt-root", type=absolute_path, default=DEFAULT_RECEIPT_ROOT)
+        command.add_argument("--state-root", type=absolute_path, default=DEFAULT_STATE_ROOT)
         command.add_argument("--env-file", type=absolute_path, default=DEFAULT_ENV_FILE)
         command.add_argument("--service", default=DEFAULT_SERVICE)
         command.add_argument("--systemctl", type=absolute_path, default=DEFAULT_SYSTEMCTL)
@@ -92,6 +95,7 @@ def parser() -> argparse.ArgumentParser:
     rollback.add_argument("--receipt", type=absolute_path, required=True)
     rollback.add_argument("--release-root", type=absolute_path, default=DEFAULT_RELEASE_ROOT)
     rollback.add_argument("--receipt-root", type=absolute_path, default=DEFAULT_RECEIPT_ROOT)
+    rollback.add_argument("--state-root", type=absolute_path, default=DEFAULT_STATE_ROOT)
     rollback.add_argument("--env-file", type=absolute_path, default=DEFAULT_ENV_FILE)
     rollback.add_argument("--service", default=DEFAULT_SERVICE)
     rollback.add_argument("--systemctl", type=absolute_path, default=DEFAULT_SYSTEMCTL)
@@ -641,6 +645,204 @@ def wait_service_active(systemctl: Path, service: str, wait_seconds: float) -> N
     raise RuntimeError(f"service did not become active: {service}")
 
 
+def wait_service_inactive(systemctl: Path, service: str, wait_seconds: float) -> None:
+    deadline = time.monotonic() + wait_seconds
+    while time.monotonic() < deadline:
+        if not service_active(systemctl, service):
+            return
+        time.sleep(0.25)
+    raise RuntimeError(f"service did not become inactive: {service}")
+
+
+def raw_journal_schema_version(state_root: Path) -> int:
+    database = state_root / "host.sqlite3"
+    if not database.is_file() or database.is_symlink():
+        raise RuntimeError(f"Host Journal database is missing or unsafe: {database}")
+    connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+    try:
+        row = connection.execute(
+            "SELECT value FROM host_metadata WHERE key = 'schema_version'"
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("Host Journal schema version is missing")
+        version = int(row[0])
+        if version < 1:
+            raise RuntimeError("Host Journal schema version is invalid")
+        if connection.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
+            raise RuntimeError("Host Journal failed quick_check")
+        return version
+    except (sqlite3.Error, TypeError, ValueError) as error:
+        raise RuntimeError(f"Host Journal schema inspection failed: {error}") from error
+    finally:
+        connection.close()
+
+
+def release_journal_schema_version(release: Path) -> int:
+    python = release / "venv" / "bin" / "python"
+    if not python.exists():
+        raise RuntimeError(f"Host release Python is missing: {python}")
+    code = (
+        "from ordivon_host.journal._schema import SCHEMA_VERSION; "
+        "print(SCHEMA_VERSION)"
+    )
+    output = run(
+        [str(python), "-B", "-c", code],
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+    ).stdout.strip()
+    try:
+        version = int(output)
+    except ValueError as error:
+        raise RuntimeError(f"Host release returned invalid Journal schema version: {output!r}") from error
+    if version < 1:
+        raise RuntimeError("Host release Journal schema version is invalid")
+    return version
+
+
+def authority_transition_plan(
+    state_root: Path,
+    current: dict[str, object] | None,
+    candidate_dir: Path,
+) -> tuple[dict[str, object] | None, list[str]]:
+    blockers: list[str] = []
+    if current is None:
+        return None, ["Host current release is missing; authority transition cannot be derived"]
+    try:
+        live_schema = raw_journal_schema_version(state_root)
+    except RuntimeError as error:
+        return None, [str(error)]
+    try:
+        previous_schema = release_journal_schema_version(Path(str(current["path"])))
+    except (KeyError, RuntimeError) as error:
+        blockers.append(f"cannot inspect current release Journal schema: {error}")
+        previous_schema = None
+    try:
+        candidate_schema = release_journal_schema_version(candidate_dir / "release")
+    except RuntimeError as error:
+        blockers.append(f"cannot inspect candidate Journal schema: {error}")
+        candidate_schema = None
+    if previous_schema is not None and previous_schema != live_schema:
+        blockers.append(
+            "live Host Journal schema differs from current release schema; deployment rollback authority is ambiguous"
+        )
+    if candidate_schema is not None and candidate_schema < live_schema:
+        blockers.append(
+            "candidate Host Journal schema is older than live authority; backward migration is not supported"
+        )
+    if candidate_schema is None or previous_schema is None:
+        return None, blockers
+    migration_required = candidate_schema > live_schema
+    return (
+        {
+            "schemaVersion": 1,
+            "kind": "ordivon.host-deployment-authority-transition",
+            "stateRoot": str(state_root),
+            "databasePath": str(state_root / "host.sqlite3"),
+            "liveSchemaVersion": live_schema,
+            "previousReleaseSchemaVersion": previous_schema,
+            "candidateSchemaVersion": candidate_schema,
+            "migrationRequired": migration_required,
+            "activationRollbackPolicy": (
+                "restore-preactivation-journal-snapshot"
+                if migration_required
+                else "release-bytes-only"
+            ),
+            "explicitRollbackSupportedAfterSuccess": not migration_required,
+        },
+        blockers,
+    )
+
+
+def snapshot_journal_database(state_root: Path, destination: Path) -> dict[str, object]:
+    source_path = state_root / "host.sqlite3"
+    if destination.exists():
+        raise FileExistsError(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    source = sqlite3.connect(f"file:{source_path}?mode=ro", uri=True)
+    target = sqlite3.connect(destination)
+    try:
+        source.backup(target)
+        if target.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
+            raise RuntimeError("Host deployment Journal snapshot failed quick_check")
+    except BaseException:
+        target.close()
+        source.close()
+        destination.unlink(missing_ok=True)
+        raise
+    else:
+        target.close()
+        source.close()
+    os.chmod(destination, 0o600)
+    descriptor = os.open(destination, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    schema = raw_journal_schema_version_from_path(destination)
+    metadata = {
+        "schemaVersion": 1,
+        "kind": "ordivon.host-deployment-journal-snapshot",
+        "sourceDatabase": str(source_path),
+        "snapshotPath": str(destination),
+        "journalSchemaVersion": schema,
+        "digest": sha256_file(destination),
+        "byteLength": destination.stat().st_size,
+    }
+    return metadata
+
+
+def raw_journal_schema_version_from_path(database: Path) -> int:
+    connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+    try:
+        row = connection.execute(
+            "SELECT value FROM host_metadata WHERE key = 'schema_version'"
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("Host Journal snapshot schema version is missing")
+        version = int(row[0])
+        if connection.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
+            raise RuntimeError("Host Journal snapshot failed quick_check")
+        return version
+    except (sqlite3.Error, TypeError, ValueError) as error:
+        raise RuntimeError(f"Host Journal snapshot inspection failed: {error}") from error
+    finally:
+        connection.close()
+
+
+def verify_journal_snapshot(snapshot: Path, metadata: dict[str, object]) -> None:
+    if metadata.get("kind") != "ordivon.host-deployment-journal-snapshot":
+        raise RuntimeError("Host deployment Journal snapshot kind differs")
+    if sha256_file(snapshot) != metadata.get("digest"):
+        raise RuntimeError("Host deployment Journal snapshot digest differs")
+    if snapshot.stat().st_size != metadata.get("byteLength"):
+        raise RuntimeError("Host deployment Journal snapshot byte length differs")
+    if raw_journal_schema_version_from_path(snapshot) != metadata.get("journalSchemaVersion"):
+        raise RuntimeError("Host deployment Journal snapshot schema differs")
+
+
+def restore_journal_database(
+    state_root: Path,
+    snapshot: Path,
+    metadata: dict[str, object],
+) -> None:
+    verify_journal_snapshot(snapshot, metadata)
+    database = state_root / "host.sqlite3"
+    temporary = state_root / f".host.sqlite3.deployment-restore-{os.getpid()}-{time.time_ns()}"
+    shutil.copyfile(snapshot, temporary)
+    os.chmod(temporary, 0o600)
+    descriptor = os.open(temporary, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    for suffix in ("-wal", "-shm", "-journal"):
+        (state_root / f"host.sqlite3{suffix}").unlink(missing_ok=True)
+    os.replace(temporary, database)
+    fsync_dir(state_root)
+    expected_schema = metadata.get("journalSchemaVersion")
+    if raw_journal_schema_version(state_root) != expected_schema:
+        raise RuntimeError("restored Host Journal schema differs from deployment snapshot")
+
+
 def parse_environment_file(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
     for raw in path.read_text(encoding="utf-8").splitlines():
@@ -776,8 +978,16 @@ def deployment_plan(args: argparse.Namespace) -> dict[str, object]:
     if not service_active(args.systemctl, args.service):
         blockers.append("Host MCP service is not active")
     current = inspect_current(args.release_root)
+    authority_transition: dict[str, object] | None = None
     if current is None:
         blockers.append("Host current release is missing; canonical apply requires an exact rollback target")
+    else:
+        authority_transition, authority_blockers = authority_transition_plan(
+            args.state_root,
+            current,
+            args.candidate_dir,
+        )
+        blockers.extend(authority_blockers)
     return {
         "schemaVersion": SCHEMA_VERSION,
         "commit": args.commit,
@@ -789,6 +999,8 @@ def deployment_plan(args: argparse.Namespace) -> dict[str, object]:
         "sourceLockDigest": source_lock_digest,
         "candidate": manifest,
         "current": current,
+        "stateRoot": str(args.state_root),
+        "authorityTransition": authority_transition,
         "service": args.service,
         "eligible": not blockers,
         "blockers": blockers,
@@ -856,13 +1068,19 @@ def apply_deployment(args: argparse.Namespace) -> dict[str, object]:
         if args.confirm_release_id != release_id:
             raise RuntimeError("confirm-release-id must exactly equal candidate releaseId")
         candidate = plan["candidate"]
+        authority = plan.get("authorityTransition")
         if (
             not isinstance(candidate, dict)
             or not isinstance(candidate.get("content"), dict)
             or not isinstance(candidate.get("pythonRuntime"), dict)
         ):
             raise TypeError("candidate manifest lacks effective content identity")
+        if not isinstance(authority, dict):
+            raise TypeError("deployment plan lacks authority transition identity")
+        migration_required = authority.get("migrationRequired") is True
         previous = plan.get("current")
+        if not isinstance(previous, dict):
+            raise TypeError("deployment plan lacks previous release identity")
         receipt = receipt_directory(args.receipt_root, release_id)
         manifest = {
             "schemaVersion": SCHEMA_VERSION,
@@ -871,20 +1089,54 @@ def apply_deployment(args: argparse.Namespace) -> dict[str, object]:
             "commit": args.commit,
             "service": args.service,
             "releaseRoot": str(args.release_root),
+            "stateRoot": str(args.state_root),
             "envFile": str(args.env_file),
             "candidate": candidate,
             "previous": previous,
+            "authorityTransition": authority,
             "planDigest": canonical_digest(plan),
         }
         write_json_atomic(receipt / "plan.json", plan)
         write_json_atomic(receipt / "manifest.json", manifest)
-        final_release = copy_release(args.candidate_dir / "release", args.release_root, release_id, candidate["content"])
-        commit_started = False
+        final_release = copy_release(
+            args.candidate_dir / "release",
+            args.release_root,
+            release_id,
+            candidate["content"],
+        )
+        switched = False
+        service_stopped = False
+        journal_snapshot: dict[str, object] | None = None
+        snapshot_path = receipt / "authority-preactivation.sqlite3"
         try:
-            switch_current(args.release_root, release_id)
-            commit_started = True
-            run([str(args.systemctl), "restart", args.service])
-            wait_service_active(args.systemctl, args.service, args.wait_seconds)
+            if migration_required:
+                run([str(args.systemctl), "stop", args.service])
+                wait_service_inactive(args.systemctl, args.service, args.wait_seconds)
+                service_stopped = True
+                journal_snapshot = snapshot_journal_database(
+                    args.state_root,
+                    snapshot_path,
+                )
+                if (
+                    journal_snapshot.get("journalSchemaVersion")
+                    != authority.get("liveSchemaVersion")
+                ):
+                    raise RuntimeError(
+                        "preactivation Journal snapshot schema differs from deployment plan"
+                    )
+                write_json_atomic(
+                    receipt / "authority-preactivation.json",
+                    journal_snapshot,
+                )
+                switch_current(args.release_root, release_id)
+                switched = True
+                run([str(args.systemctl), "start", args.service])
+                wait_service_active(args.systemctl, args.service, args.wait_seconds)
+            else:
+                switch_current(args.release_root, release_id)
+                switched = True
+                run([str(args.systemctl), "restart", args.service])
+                wait_service_active(args.systemctl, args.service, args.wait_seconds)
             probe = probe_host_mcp(args.env_file, args.wait_seconds)
             observed = inspect_current(args.release_root)
             if (
@@ -896,6 +1148,11 @@ def apply_deployment(args: argparse.Namespace) -> dict[str, object]:
                 raise RuntimeError(
                     "current release does not match deployed candidate effective bytes after restart"
                 )
+            final_schema = raw_journal_schema_version(args.state_root)
+            if final_schema != authority.get("candidateSchemaVersion"):
+                raise RuntimeError(
+                    "live Host Journal schema differs from deployed candidate schema"
+                )
             result = {
                 "schemaVersion": SCHEMA_VERSION,
                 "status": "deployed",
@@ -903,6 +1160,9 @@ def apply_deployment(args: argparse.Namespace) -> dict[str, object]:
                 "commit": args.commit,
                 "releasePath": str(final_release),
                 "previous": previous,
+                "authorityTransition": authority,
+                "finalJournalSchemaVersion": final_schema,
+                "preactivationJournalSnapshot": journal_snapshot,
                 "probe": probe,
                 "finishedAtMs": int(time.time() * 1000),
                 "receipt": str(receipt),
@@ -912,26 +1172,64 @@ def apply_deployment(args: argparse.Namespace) -> dict[str, object]:
         except Exception as deployment_error:
             rollback_error: Exception | None = None
             rollback_result: dict[str, object] | None = None
-            if commit_started and isinstance(previous, dict):
-                try:
+            try:
+                if migration_required:
+                    if service_active(args.systemctl, args.service):
+                        run([str(args.systemctl), "stop", args.service])
+                        wait_service_inactive(
+                            args.systemctl,
+                            args.service,
+                            args.wait_seconds,
+                        )
+                    if journal_snapshot is not None:
+                        restore_journal_database(
+                            args.state_root,
+                            snapshot_path,
+                            journal_snapshot,
+                        )
+                    elif raw_journal_schema_version(args.state_root) != authority.get(
+                        "liveSchemaVersion"
+                    ):
+                        raise RuntimeError(
+                            "deployment changed Host Journal schema before a rollback snapshot was retained"
+                        )
+                    if switched:
+                        switch_current(args.release_root, str(previous["releaseId"]))
+                    run([str(args.systemctl), "start", args.service])
+                    wait_service_active(args.systemctl, args.service, args.wait_seconds)
+                elif switched:
                     switch_current(args.release_root, str(previous["releaseId"]))
                     run([str(args.systemctl), "restart", args.service])
                     wait_service_active(args.systemctl, args.service, args.wait_seconds)
-                    rollback_probe = probe_host_mcp(args.env_file, args.wait_seconds)
-                    restored = inspect_current(args.release_root)
-                    if (
-                        restored is None
-                        or restored["releaseId"] != previous["releaseId"]
-                        or restored["content"] != previous["content"]
-                        or restored["pythonRuntime"] != previous["pythonRuntime"]
-                    ):
-                        raise RuntimeError(
-                            "automatic rollback did not restore previous effective release bytes"
-                        )
-                    rollback_result = {"serviceActive": True, "probe": rollback_probe}
-                except (OSError, ValueError, TypeError, RuntimeError) as error:
-                    rollback_error = error
-            restored_previous = rollback_error is None and rollback_result is not None and isinstance(previous, dict)
+                elif service_stopped:
+                    run([str(args.systemctl), "start", args.service])
+                    wait_service_active(args.systemctl, args.service, args.wait_seconds)
+                rollback_probe = probe_host_mcp(args.env_file, args.wait_seconds)
+                restored = inspect_current(args.release_root)
+                if (
+                    restored is None
+                    or restored["releaseId"] != previous["releaseId"]
+                    or restored["content"] != previous["content"]
+                    or restored["pythonRuntime"] != previous["pythonRuntime"]
+                ):
+                    raise RuntimeError(
+                        "automatic rollback did not restore previous effective release bytes"
+                    )
+                restored_schema = raw_journal_schema_version(args.state_root)
+                if restored_schema != authority.get("previousReleaseSchemaVersion"):
+                    raise RuntimeError(
+                        "automatic rollback did not restore previous Host Journal schema"
+                    )
+                rollback_result = {
+                    "serviceActive": True,
+                    "probe": rollback_probe,
+                    "authorityRestored": migration_required and journal_snapshot is not None,
+                    "authorityUnchanged": migration_required and journal_snapshot is None,
+                    "restoredJournalSchemaVersion": restored_schema,
+                }
+            except (OSError, ValueError, TypeError, RuntimeError) as error:
+                rollback_error = error
+            restored_previous = rollback_error is None and rollback_result is not None
             failed = {
                 "schemaVersion": SCHEMA_VERSION,
                 "status": "rolled_back" if restored_previous else "failed",
@@ -939,6 +1237,7 @@ def apply_deployment(args: argparse.Namespace) -> dict[str, object]:
                 "commit": args.commit,
                 "restoredReleaseId": previous.get("releaseId") if restored_previous else None,
                 "restoredCommit": previous.get("commit") if restored_previous else None,
+                "authorityTransition": authority,
                 "errorType": type(deployment_error).__name__,
                 "error": str(deployment_error),
                 "rollback": rollback_result,
@@ -956,14 +1255,22 @@ def apply_deployment(args: argparse.Namespace) -> dict[str, object]:
                         "releaseId": previous["releaseId"],
                         "commit": previous.get("commit"),
                         "automatic": True,
+                        "activationOnly": True,
                         "cause": "deployment_probe_or_activation_failure",
-                        "probe": rollback_result.get("probe") if isinstance(rollback_result, dict) else None,
+                        "authorityRestored": rollback_result.get("authorityRestored"),
+                        "authorityUnchanged": rollback_result.get("authorityUnchanged"),
+                        "restoredJournalSchemaVersion": rollback_result.get(
+                            "restoredJournalSchemaVersion"
+                        ),
+                        "probe": rollback_result.get("probe"),
                         "finishedAtMs": int(time.time() * 1000),
                         "receipt": str(receipt),
                     },
                 )
             if rollback_error is not None:
-                raise RuntimeError(f"deployment failed and rollback failed: {deployment_error}; rollback={rollback_error}") from deployment_error
+                raise RuntimeError(
+                    f"deployment failed and rollback failed: {deployment_error}; rollback={rollback_error}"
+                ) from deployment_error
             raise
 
 
@@ -1029,7 +1336,44 @@ def deployment_status(release_root: Path, receipt_root: Path) -> dict[str, objec
         )
     content_matches = expected_content == current["content"]
     runtime_matches = expected_python_runtime == current["pythonRuntime"]
-    matches = content_matches and runtime_matches
+    authority_transition = manifest.get("authorityTransition")
+    authority_schema_matches = True
+    observed_authority_schema: int | None = None
+    expected_authority_schema: int | None = None
+    authority_error: str | None = None
+    if isinstance(authority_transition, dict):
+        state_root_value = manifest.get("stateRoot", authority_transition.get("stateRoot"))
+        if not isinstance(state_root_value, str):
+            authority_schema_matches = False
+            authority_error = "deployment receipt omitted authority state root"
+        else:
+            expected_key = (
+                "previousReleaseSchemaVersion"
+                if event["event"] == "rollback-result.json"
+                and event["status"] == "restored_previous"
+                else "candidateSchemaVersion"
+            )
+            expected_value = authority_transition.get(expected_key)
+            if type(expected_value) is not int:
+                authority_schema_matches = False
+                authority_error = "deployment receipt omitted expected authority schema"
+            else:
+                expected_authority_schema = expected_value
+                try:
+                    observed_authority_schema = raw_journal_schema_version(
+                        Path(state_root_value)
+                    )
+                    authority_schema_matches = (
+                        observed_authority_schema == expected_authority_schema
+                    )
+                    if not authority_schema_matches:
+                        authority_error = (
+                            "live Host Journal schema differs from deployment receipt"
+                        )
+                except RuntimeError as error:
+                    authority_schema_matches = False
+                    authority_error = str(error)
+    matches = content_matches and runtime_matches and authority_schema_matches
     return {
         "schemaVersion": SCHEMA_VERSION,
         "status": "healthy" if matches else "mismatch",
@@ -1037,6 +1381,17 @@ def deployment_status(release_root: Path, receipt_root: Path) -> dict[str, objec
         "receipt": {"path": event["receipt"], "event": event["event"], "status": event["status"]},
         "contentMatchesReceipt": content_matches,
         "pythonRuntimeMatchesReceipt": runtime_matches,
+        "authorityTransition": (
+            authority_transition if isinstance(authority_transition, dict) else None
+        ),
+        "authoritySchemaMatchesReceipt": authority_schema_matches,
+        "observedAuthoritySchemaVersion": observed_authority_schema,
+        "expectedAuthoritySchemaVersion": expected_authority_schema,
+        "authorityError": authority_error,
+        "explicitRollbackSupported": not (
+            isinstance(authority_transition, dict)
+            and authority_transition.get("migrationRequired") is True
+        ),
     }
 
 
@@ -1170,11 +1525,20 @@ def active_lifecycle_transition(
     candidate: dict[str, object] | None = None
     authority_record = record
     if event == "result.json":
-        mode = "deployed"
-        previous = manifest.get("previous")
-        peer = previous if isinstance(previous, dict) else None
-        manifest_candidate = manifest.get("candidate")
-        candidate = manifest_candidate if isinstance(manifest_candidate, dict) else None
+        authority_transition = manifest.get("authorityTransition")
+        if (
+            isinstance(authority_transition, dict)
+            and authority_transition.get("migrationRequired") is True
+        ):
+            mode = "deployed_schema_migration"
+            peer = None
+            candidate = None
+        else:
+            mode = "deployed"
+            previous = manifest.get("previous")
+            peer = previous if isinstance(previous, dict) else None
+            manifest_candidate = manifest.get("candidate")
+            candidate = manifest_candidate if isinstance(manifest_candidate, dict) else None
     elif event == "rollback-result.json":
         rollback_result = record.get("rollbackResult")
         if not isinstance(rollback_result, dict):
@@ -1711,6 +2075,18 @@ def rollback_deployment(args: argparse.Namespace) -> dict[str, object]:
             raise RuntimeError("rollback release root differs from receipt")
         if manifest.get("service") != args.service or Path(str(manifest.get("envFile"))).resolve() != args.env_file.resolve():
             raise RuntimeError("rollback service or env file differs from receipt")
+        manifest_state_root = manifest.get("stateRoot")
+        if manifest_state_root is not None and Path(str(manifest_state_root)).resolve() != args.state_root.resolve():
+            raise RuntimeError("rollback state root differs from receipt")
+        authority_transition = manifest.get("authorityTransition")
+        if (
+            isinstance(authority_transition, dict)
+            and authority_transition.get("migrationRequired") is True
+        ):
+            raise RuntimeError(
+                "explicit rollback across a successful Host Journal schema migration is unsupported; "
+                "restoring the preactivation snapshot could discard post-deployment facts"
+            )
         previous = manifest.get("previous")
         if not isinstance(previous, dict):
             raise TypeError("deployment receipt has no previous release")
