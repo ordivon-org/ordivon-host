@@ -495,31 +495,35 @@ def prepare_candidate(args: argparse.Namespace) -> dict[str, object]:
             os.chmod(release / "COMMIT", 0o644)
             venv = release / "venv"
             run([str(args.uv), "venv", "--relocatable", "--python", str(args.python), str(venv)])
-            build_env = os.environ.copy()
-            build_env.update({
-                "UV_PROJECT_ENVIRONMENT": str(venv),
+            offline_env = {
+                **os.environ,
                 "PYTHONDONTWRITEBYTECODE": "1",
-            })
+                "UV_OFFLINE": "1",
+            }
+            build_env = {
+                **offline_env,
+                "UV_PROJECT_ENVIRONMENT": str(venv),
+            }
             run([
-                str(args.uv), "sync", "--frozen", "--no-editable", "--no-install-project",
-                "--project", str(source), "--python", str(args.python), "--link-mode", "copy",
-                "--no-python-downloads",
+                str(args.uv), "sync", "--offline", "--frozen", "--no-editable",
+                "--no-install-project", "--project", str(source), "--python", str(args.python),
+                "--link-mode", "copy", "--no-python-downloads",
             ], cwd=source, env=build_env)
             dist = build_root / "dist"
             dist.mkdir()
             run([
                 str(args.uv), "build", "--offline", "--wheel", "--python", str(args.python),
                 "--out-dir", str(dist), str(source),
-            ], cwd=source, env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+            ], cwd=source, env=offline_env)
             wheels = list(dist.glob("ordivon_host-*.whl"))
             if len(wheels) != 1:
                 raise RuntimeError("Host wheel build did not produce exactly one wheel")
             wheel = wheels[0]
             wheel_digest = sha256_file(wheel)
             run([
-                str(args.uv), "pip", "install", "--python", str(venv / "bin/python"),
-                "--no-deps", "--link-mode", "copy", str(wheel),
-            ], env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+                str(args.uv), "pip", "install", "--offline", "--python",
+                str(venv / "bin/python"), "--no-deps", "--link-mode", "copy", str(wheel),
+            ], env=offline_env)
             for direct_url in venv.glob("lib/python3.12/site-packages/ordivon_host-*.dist-info/direct_url.json"):
                 direct_url.unlink()
             install_no_bytecode_policy(venv / "bin/python")

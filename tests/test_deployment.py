@@ -128,6 +128,17 @@ def make_deployment_receipt(
 
 
 class HostDeploymentOperatorTests(unittest.TestCase):
+    def test_candidate_prepare_uv_operations_are_offline(self) -> None:
+        source = SCRIPT.read_text(encoding="utf-8")
+        prepare = source[
+            source.index("def prepare_candidate") : source.index("def load_candidate")
+        ]
+        self.assertIn('str(args.uv), "lock", "--check", "--offline"', prepare)
+        self.assertIn('str(args.uv), "sync", "--offline"', prepare)
+        self.assertIn('str(args.uv), "build", "--offline"', prepare)
+        self.assertIn('str(args.uv), "pip", "install", "--offline"', prepare)
+        self.assertIn('"UV_OFFLINE": "1"', prepare)
+
     def test_tree_description_binds_bytes_modes_and_symlink_target(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "release"
