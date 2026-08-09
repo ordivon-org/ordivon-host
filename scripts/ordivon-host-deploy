@@ -447,6 +447,15 @@ def validate_candidate_entrypoints(venv: Path, build_root: Path) -> None:
         run([str(venv / "bin/ordivon-host"), "--help"], env=check_env)
         run(
             [
+                str(venv / "bin/ordivon-host"),
+                "--state-root",
+                str(check_state),
+                "init",
+            ],
+            env=check_env,
+        )
+        run(
+            [
                 str(venv / "bin/ordivon-host-mcp"),
                 "--check",
                 "--state-root",

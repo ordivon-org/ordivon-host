@@ -243,12 +243,17 @@ class HostDeploymentOperatorTests(unittest.TestCase):
 
             def fake_run(command: list[str], **_kwargs):
                 commands.append(command)
-                if command[0].endswith("ordivon-host-mcp"):
+                if command[0].endswith("ordivon-host") and command[-1] == "init":
                     self.assertIn("--state-root", command)
                     state_root = Path(command[command.index("--state-root") + 1])
                     self.assertEqual(state_root, build_root / ".entrypoint-check-state")
                     self.assertTrue(state_root.is_dir())
                     (state_root / "host.sqlite3").write_text("isolated", encoding="utf-8")
+                if command[0].endswith("ordivon-host-mcp"):
+                    self.assertIn("--state-root", command)
+                    state_root = Path(command[command.index("--state-root") + 1])
+                    self.assertEqual(state_root, build_root / ".entrypoint-check-state")
+                    self.assertTrue((state_root / "host.sqlite3").is_file())
                 return mock.Mock(returncode=0, stdout="", stderr="")
 
             with mock.patch.dict(
@@ -258,10 +263,19 @@ class HostDeploymentOperatorTests(unittest.TestCase):
             ), mock.patch.object(module, "run", side_effect=fake_run):
                 module.validate_candidate_entrypoints(venv, build_root)
 
-            self.assertEqual(len(commands), 2)
+            self.assertEqual(len(commands), 3)
             self.assertEqual(commands[0], [str(venv / "bin/ordivon-host"), "--help"])
             self.assertEqual(
                 commands[1],
+                [
+                    str(venv / "bin/ordivon-host"),
+                    "--state-root",
+                    str(build_root / ".entrypoint-check-state"),
+                    "init",
+                ],
+            )
+            self.assertEqual(
+                commands[2],
                 [
                     str(venv / "bin/ordivon-host-mcp"),
                     "--check",
@@ -270,6 +284,7 @@ class HostDeploymentOperatorTests(unittest.TestCase):
                 ],
             )
             self.assertNotIn("/var/lib/ordivon/host", commands[1])
+            self.assertNotIn("/var/lib/ordivon/host", commands[2])
             self.assertFalse((build_root / ".entrypoint-check-state").exists())
 
     def test_candidate_validation_detects_release_tree_tamper(self) -> None:
