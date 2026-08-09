@@ -25,6 +25,8 @@ from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema
 from .config import load_config, read_private_token_file
 from .continuity import ExternalContinuityHost
 from .continuity_models import EXTERNAL_CONTINUITY_WORKLOAD_ID, WorkingCheckpoint
+from .domain import TaskState
+from .handoff import operator_handoff
 from .journal import (
     EventConflict,
     JournalCorruption,
@@ -32,8 +34,11 @@ from .journal import (
     LeaseHeld,
     RevisionConflict,
 )
+from .journal.migrations import schema_version
 from .kernel import TaskRevisionMismatch
 from .objects import ObjectCorrupt
+from .ops import doctor_state, inspect_deployment
+from .recovery import assess_recovery
 from .storage import HostStorage
 
 DEFAULT_HOST_MCP_BIND = "127.0.0.1"
@@ -41,6 +46,15 @@ DEFAULT_HOST_MCP_PORT = 8898
 DEFAULT_HOST_MCP_TOKEN_FILE = Path("/etc/ordivon/host-mcp.token")
 DEFAULT_HOST_MCP_BODY_LIMIT_BYTES = 1_048_576
 MIN_HOST_MCP_TOKEN_CHARACTERS = 32
+HOST_MCP_SURFACE_VERSION = 2
+HOST_MCP_TOOL_NAMES = (
+    "host.status",
+    "task.observe",
+    "task.list",
+    "task.resume",
+    "task.adopt",
+    "task.checkpoint",
+)
 
 Receive = Callable[[], Awaitable[dict[str, Any]]]
 Send = Callable[[dict[str, Any]], Awaitable[None]]
@@ -118,10 +132,67 @@ def _working_checkpoint_input_schema() -> dict[str, Any]:
     return schema
 
 
+def _working_checkpoint_patch_schema() -> dict[str, Any]:
+    full = _working_checkpoint_input_schema()
+    properties = full["properties"]
+    allowed = (
+        "objective",
+        "frontier",
+        "established",
+        "unresolved",
+        "rejected",
+        "constraints",
+        "nextActions",
+        "runtime",
+    )
+    return {
+        "type": "object",
+        "title": "WorkingCheckpointPatch",
+        "description": (
+            "Patch the WorkingCheckpoint at expectedRevision. Omitted fields are inherited "
+            "from that exact revision; present fields replace the complete field value."
+        ),
+        "additionalProperties": False,
+        "minProperties": 1,
+        "properties": {name: properties[name] for name in allowed},
+    }
+
+
 WorkingCheckpointWireInput = Annotated[
     dict[str, Any],
     WithJsonSchema(_working_checkpoint_input_schema()),
 ]
+
+WorkingCheckpointUpdateInput = Annotated[
+    dict[str, Any],
+    WithJsonSchema(
+        {
+            "oneOf": [
+                _working_checkpoint_input_schema(),
+                _working_checkpoint_patch_schema(),
+            ],
+            "description": (
+                "Either a complete WorkingCheckpoint or a revision-bound patch. "
+                "A patch inherits omitted fields from expectedRevision."
+            ),
+        }
+    ),
+]
+
+HostStatusDetailInput = Annotated[
+    str,
+    WithJsonSchema(
+        {
+            "type": "string",
+            "enum": ["summary", "integrity", "history"],
+            "description": (
+                "summary is cheap; integrity runs full local Host Doctor checks; history also "
+                "validates every retained Event. Runtime is not proxied by this Tool."
+            ),
+        }
+    ),
+]
+
 
 ContinuityDispositionInput = Annotated[
     str,
@@ -270,17 +341,79 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
     server = MCPServer(
         name="ordivon-host-mcp",
         title="Ordivon Host",
-        description="Durable semantic continuity and Task authority for external Agents.",
+        description=(
+            "Observable Host Task authority and durable semantic continuity for external Agents."
+        ),
         instructions=(
-            "Use task.list to discover resumable external-continuity Tasks. Use task.resume "
-            "for one listed Task. WorkingCheckpoint is a semantic "
-            "working claim, not Runtime, Git, or domain truth: revalidate physical/current "
-            "facts at their owning authority before continuing. task.adopt and "
-            "task.checkpoint are revision-safe and exact retry after response loss is allowed."
+            "Use host.status for Host-owned operational state and task.observe for a compact "
+            "revision-fenced Task timeline. Use task.list/task.resume for external continuity. "
+            "WorkingCheckpoint is a semantic working claim, not Runtime, Git, or domain truth: "
+            "revalidate physical/current facts at their owning authority. task.checkpoint accepts "
+            "a full checkpoint or an exact-revision patch; exact retry after response loss is safe."
         ),
         version=_package_version(),
         log_level=settings.log_level,
     )
+
+    @server.tool(
+        name="host.status",
+        title="Observe Host status",
+        description=(
+            "Return one compact Host operational snapshot: Journal/schema/task counts, current "
+            "deployment identity, continuity counts, and bounded recent Task activity. detail="
+            "integrity adds full local Host Doctor checks; detail=history additionally validates "
+            "all retained Event history. Runtime is deliberately not proxied by this Tool."
+        ),
+        annotations=ToolAnnotations(
+            readOnlyHint=True,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=False,
+        ),
+    )
+    async def host_status(
+        detail: HostStatusDetailInput = "summary",
+        recentLimit: int = 5,
+    ) -> CallToolResult:
+        return await _run_tool(
+            lambda: _host_status(
+                settings.state_root,
+                detail=detail,
+                recent_limit=recentLimit,
+            ),
+            write=False,
+        )
+
+    @server.tool(
+        name="task.observe",
+        title="Observe one Host task",
+        description=(
+            "Return a compact revision-fenced observation for any Host Task: projection, workload "
+            "identity, current head metadata, handoff, recovery assessment when applicable, "
+            "external-continuity checkpoint preview, and a bounded recent Event timeline. This "
+            "does not return raw Event payload data and never invokes Runtime, Harness, or a Provider."
+        ),
+        annotations=ToolAnnotations(
+            readOnlyHint=True,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=False,
+        ),
+    )
+    async def task_observe(
+        taskId: str,
+        expectedRevision: int | None = None,
+        eventLimit: int = 5,
+    ) -> CallToolResult:
+        return await _run_tool(
+            lambda: _observe_task(
+                settings.state_root,
+                task_id=taskId,
+                expected_revision=expectedRevision,
+                event_limit=eventLimit,
+            ),
+            write=False,
+        )
 
     @server.tool(
         name="task.list",
@@ -382,8 +515,10 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
             "Commit a new WorkingCheckpoint against one exact Task revision. If the original "
             "response was lost, replay the identical checkpoint with the original "
             "expectedRevision: Host returns admission=existing when that exact transition is "
-            "already current. continuityDisposition may continue, complete, or abandon Host "
-            "tracking without asserting a domain outcome. Different or stale claims fail closed."
+            "already current. checkpoint accepts either a full WorkingCheckpoint or a patch "
+            "that inherits omitted fields from expectedRevision. continuityDisposition may continue, "
+            "complete, or abandon Host tracking without asserting a domain outcome. Different or "
+            "stale claims fail closed."
         ),
         annotations=ToolAnnotations(
             readOnlyHint=False,
@@ -395,7 +530,7 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
     async def task_checkpoint(
         taskId: str,
         expectedRevision: int,
-        checkpoint: WorkingCheckpointWireInput,
+        checkpoint: WorkingCheckpointUpdateInput,
         continuityDisposition: ContinuityDispositionInput = "continue",
     ) -> CallToolResult:
         return await _run_tool(
@@ -571,6 +706,18 @@ def _discovery_preview(value: str) -> tuple[str, bool]:
     return preview, True
 
 
+def _item_previews(values: tuple[str, ...], *, limit: int = 3) -> dict[str, object]:
+    visible = []
+    for value in values[:limit]:
+        preview, truncated = _discovery_preview(value)
+        visible.append({"text": preview, "truncated": truncated})
+    return {
+        "items": visible,
+        "total": len(values),
+        "more": len(values) > limit,
+    }
+
+
 def _task_cursor(
     created_at_ms: int,
     task_id: str,
@@ -629,6 +776,240 @@ def _parse_task_cursor(
     return payload["createdAtMs"], payload["taskId"]
 
 
+def _current_deployment_identity() -> dict[str, object]:
+    try:
+        raw = inspect_deployment()
+    except (OSError, ValueError) as error:
+        return {"status": "unavailable", "reason": _bounded_message(error)}
+    module_path = Path(__file__).resolve()
+    release_path = Path(str(raw["currentRelease"])).resolve()
+    if not module_path.is_relative_to(release_path):
+        return {
+            "status": "unbound",
+            "reason": "running Host MCP module is not loaded from installed current release",
+        }
+    return {
+        "status": "observed",
+        "releaseId": raw["releaseId"],
+        "deployedRevision": raw["deployedRevision"],
+    }
+
+
+def _host_status(
+    state_root: Path,
+    *,
+    detail: str,
+    recent_limit: int,
+) -> dict[str, object]:
+    if detail not in {"summary", "integrity", "history"}:
+        raise ToolArgumentError(
+            "detail", "host.status detail must be summary, integrity, or history"
+        )
+    if type(recent_limit) is not int or recent_limit < 0 or recent_limit > 20:
+        raise ToolArgumentError("recentLimit", "recentLimit must be in [0, 20]")
+    observed_at_ms = _wall_clock_ms()
+    deployment = _current_deployment_identity()
+
+    with HostStorage(state_root, update_validation_cache=False) as storage:
+        states = storage.journal.task_counts_by_state()
+        task_count = storage.journal.task_count()
+        terminal_count = sum(
+            count for state, count in states.items() if TaskState(state).terminal
+        )
+        lease_count = int(
+            storage.journal.connection.execute("SELECT COUNT(*) FROM leases").fetchone()[0]
+        )
+        authority = {
+            "journalSchema": schema_version(storage.journal.connection),
+            "events": storage.journal.event_count(),
+            "objectRefs": storage.journal.object_ref_count(),
+            "validatedObjects": storage.journal.object_validation_count(),
+            "tasks": task_count,
+            "terminalTasks": terminal_count,
+            "tasksByState": states,
+            "leases": lease_count,
+            "startupValidation": {
+                "cachedObjects": storage.validation_summary.cached_objects,
+                "hashedObjects": storage.validation_summary.hashed_objects,
+                "taskHeads": storage.validation_summary.task_heads,
+                "full": storage.validation_summary.full,
+                "cacheUpdated": False,
+            },
+        }
+        rows = storage.journal.connection.execute(
+            "SELECT e.stream_id, e.stream_revision, e.event_kind, e.payload_digest, "
+            "e.caused_by_event_id, e.recorded_at_ms, p.state "
+            "FROM events e JOIN task_projection p ON p.task_id = e.stream_id "
+            "WHERE e.stream_kind = 'task' ORDER BY e.sequence DESC LIMIT ?",
+            (recent_limit,),
+        ).fetchall()
+        recent = [
+            {
+                "taskId": str(row["stream_id"]),
+                "revision": int(row["stream_revision"]),
+                "eventKind": str(row["event_kind"]),
+                "recordedAtMs": int(row["recorded_at_ms"]),
+                "ageMs": max(0, observed_at_ms - int(row["recorded_at_ms"])),
+                "payloadDigest": str(row["payload_digest"]),
+                "causedByEventId": row["caused_by_event_id"],
+                "currentState": str(row["state"]),
+            }
+            for row in rows
+        ]
+        continuity_counts = {"active": 0, "terminal": 0}
+        for task_id in storage.journal.task_ids():
+            descriptor = storage.read_task_descriptor(task_id)
+            if descriptor is None or descriptor.workload_id != EXTERNAL_CONTINUITY_WORKLOAD_ID:
+                continue
+            projection = storage.journal.get_task(task_id)
+            if projection is None:
+                raise RuntimeError("Task disappeared during Host status projection")
+            key = "terminal" if projection.state.terminal else "active"
+            continuity_counts[key] += 1
+
+    doctor = None
+    if detail != "summary":
+        doctor = doctor_state(
+            state_root,
+            check_history=detail == "history",
+        )
+
+    return {
+        "schemaVersion": 1,
+        "kind": "ordivon.host-status",
+        "observedAtMs": observed_at_ms,
+        "detail": detail,
+        "interface": {
+            "surfaceVersion": HOST_MCP_SURFACE_VERSION,
+            "toolCount": len(HOST_MCP_TOOL_NAMES),
+            "toolNames": list(HOST_MCP_TOOL_NAMES),
+            "readTools": ["host.status", "task.observe", "task.list", "task.resume"],
+            "writeTools": ["task.adopt", "task.checkpoint"],
+            "runtimeProxy": False,
+        },
+        "authority": authority,
+        "deployment": deployment,
+        "continuity": continuity_counts,
+        "recentActivity": recent,
+        "doctor": doctor,
+        "truthBoundary": {
+            "host": "authoritative for Host Journal/CAS and continuity projection",
+            "deployment": "read-only installed release identity projection",
+            "runtime": "not checked; Runtime remains independent physical authority",
+        },
+    }
+
+
+def _observe_task(
+    state_root: Path,
+    *,
+    task_id: str,
+    expected_revision: int | None,
+    event_limit: int,
+) -> dict[str, object]:
+    if not task_id.startswith("task:") or task_id != task_id.strip():
+        raise ToolArgumentError("taskId", "Task identity must start with task:")
+    if expected_revision is not None and (
+        type(expected_revision) is not int or expected_revision < 1
+    ):
+        raise ToolArgumentError(
+            "expectedRevision", "expectedRevision must be a positive integer"
+        )
+    if type(event_limit) is not int or event_limit < 0 or event_limit > 20:
+        raise ToolArgumentError("eventLimit", "eventLimit must be in [0, 20]")
+
+    observed_at_ms = _wall_clock_ms()
+    with HostStorage(state_root, update_validation_cache=False) as storage:
+        snapshot = storage.read_task_event(task_id)
+        projection = snapshot.projection
+        if expected_revision is not None and projection.revision != expected_revision:
+            raise TaskRevisionMismatch(
+                f"Task revision is {projection.revision}, expected {expected_revision}"
+            )
+        descriptor = storage.read_task_descriptor(task_id)
+        workload_id = None if descriptor is None else descriptor.workload_id
+        handoff = operator_handoff(
+            storage, task_id, expected_revision=projection.revision
+        )
+        head_row = storage.journal.connection.execute(
+            "SELECT event_id, event_kind, payload_digest, caused_by_event_id, recorded_at_ms "
+            "FROM events WHERE stream_id = ? AND stream_revision = ?",
+            (task_id, projection.revision),
+        ).fetchone()
+        if head_row is None:
+            raise JournalCorruption(f"Task head Event is missing: {task_id}")
+        event_rows = storage.journal.connection.execute(
+            "SELECT stream_revision, event_kind, payload_digest, caused_by_event_id, "
+            "recorded_at_ms FROM events WHERE stream_id = ? "
+            "ORDER BY stream_revision DESC LIMIT ?",
+            (task_id, event_limit),
+        ).fetchall()
+        timeline = [
+            {
+                "revision": int(row["stream_revision"]),
+                "eventKind": str(row["event_kind"]),
+                "recordedAtMs": int(row["recorded_at_ms"]),
+                "payloadDigest": str(row["payload_digest"]),
+                "causedByEventId": row["caused_by_event_id"],
+            }
+            for row in event_rows
+        ]
+
+        external = workload_id == EXTERNAL_CONTINUITY_WORKLOAD_ID
+        continuity = None
+        recovery = None
+        if external:
+            record = ExternalContinuityHost(
+                storage, clock_ms=_wall_clock_ms
+            ).checkpoint_at_revision(task_id, projection.revision)
+            if record is not None:
+                objective_preview, objective_truncated = _discovery_preview(
+                    record.checkpoint.objective
+                )
+                frontier_preview, frontier_truncated = _discovery_preview(
+                    record.checkpoint.frontier
+                )
+                continuity = {
+                    "checkpointRevision": record.task_revision,
+                    "checkpointDigest": record.checkpoint_digest,
+                    "objectivePreview": objective_preview,
+                    "objectiveTruncated": objective_truncated,
+                    "frontierPreview": frontier_preview,
+                    "frontierTruncated": frontier_truncated,
+                    "nextActions": _item_previews(record.checkpoint.next_actions),
+                    "unresolved": _item_previews(record.checkpoint.unresolved),
+                }
+        else:
+            recovery = assess_recovery(storage, task_id).to_dict()
+
+        return {
+            "schemaVersion": 1,
+            "kind": "ordivon.host-task-observation",
+            "observedAtMs": observed_at_ms,
+            "activityAgeMs": max(0, observed_at_ms - projection.updated_at_ms),
+            "projection": projection.to_dict(),
+            "workloadId": workload_id,
+            "externalContinuity": external,
+            "head": {
+                "eventId": str(head_row["event_id"]),
+                "eventKind": str(head_row["event_kind"]),
+                "recordedAtMs": int(head_row["recorded_at_ms"]),
+                "payloadDigest": str(head_row["payload_digest"]),
+                "causedByEventId": head_row["caused_by_event_id"],
+            },
+            "handoff": handoff.to_dict(),
+            "handoffDigest": handoff.digest,
+            "recovery": recovery,
+            "continuity": continuity,
+            "recentEvents": timeline,
+            "truthBoundary": (
+                "semantic continuity only; revalidate Runtime/Git/domain facts with their owner"
+                if external
+                else "Host Task metadata/recovery projection only; external owners remain authoritative"
+            ),
+        }
+
+
 def _list_host_tasks(
     state_root: Path,
     *,
@@ -649,7 +1030,7 @@ def _list_host_tasks(
     matches: list[tuple[int, dict[str, object]]] = []
     scan_after = after
     scan_batch = 256
-    with HostStorage(state_root) as storage:
+    with HostStorage(state_root, update_validation_cache=False) as storage:
         while len(matches) <= limit:
             clauses: list[str] = []
             params: list[object] = []
@@ -772,7 +1153,7 @@ def _resume_task(
         raise ToolArgumentError(
             "expectedRevision", "expectedRevision must be a positive integer"
         )
-    with HostStorage(state_root) as storage:
+    with HostStorage(state_root, update_validation_cache=False) as storage:
         return ExternalContinuityHost(storage, clock_ms=_wall_clock_ms).resume(
             task_id,
             expected_revision=expected_revision,
@@ -826,17 +1207,55 @@ def _checkpoint_task(
             "continuityDisposition",
             "continuityDisposition must be continue, complete, or abandon",
         )
-    try:
-        checkpoint = WorkingCheckpoint.from_dict(checkpoint_value)
-    except (ValueError, TypeError) as error:
-        raise ToolArgumentError("checkpoint", str(error)) from error
-    if checkpoint.task_id != task_id:
+    if not isinstance(checkpoint_value, dict) or not checkpoint_value:
         raise ToolArgumentError(
-            "checkpoint.taskId",
-            "WorkingCheckpoint taskId must equal the taskId Tool argument",
+            "checkpoint", "checkpoint must be a non-empty full checkpoint or patch"
         )
+    full_markers = {"schemaVersion", "kind", "truthRole", "taskId"}
+    is_full = bool(full_markers & set(checkpoint_value))
     with HostStorage(state_root) as storage:
-        return ExternalContinuityHost(storage, clock_ms=_wall_clock_ms).checkpoint(
+        continuity = ExternalContinuityHost(storage, clock_ms=_wall_clock_ms)
+        if not is_full:
+            allowed = {
+                "objective",
+                "frontier",
+                "established",
+                "unresolved",
+                "rejected",
+                "constraints",
+                "nextActions",
+                "runtime",
+            }
+            if not set(checkpoint_value).issubset(allowed):
+                raise ToolArgumentError(
+                    "checkpoint",
+                    "checkpoint patch contains unsupported fields",
+                )
+            base_record = continuity.checkpoint_at_revision(
+                task_id, expected_revision
+            )
+            if base_record is None:
+                raise ToolArgumentError(
+                    "checkpoint",
+                    "expectedRevision has no WorkingCheckpoint to inherit from",
+                )
+            candidate = base_record.checkpoint.to_dict()
+            candidate.update(checkpoint_value)
+            try:
+                checkpoint = WorkingCheckpoint.from_dict(candidate)
+            except (ValueError, TypeError) as error:
+                raise ToolArgumentError("checkpoint", str(error)) from error
+        else:
+            try:
+                checkpoint = WorkingCheckpoint.from_dict(checkpoint_value)
+            except (ValueError, TypeError) as error:
+                raise ToolArgumentError("checkpoint", str(error)) from error
+            if checkpoint.task_id != task_id:
+                raise ToolArgumentError(
+                    "checkpoint.taskId",
+                    "WorkingCheckpoint taskId must equal the taskId Tool argument",
+                )
+        return continuity.checkpoint(
             task_id=task_id,
             expected_revision=expected_revision,
             checkpoint=checkpoint,

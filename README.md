@@ -144,7 +144,7 @@ ordivon-host-mcp --check
 ordivon-host-mcp
 ```
 
-`task reconcile` performs at most one conservative step. It never invents a new Effect, blindly redispatches uncertain work, or invokes a Provider. `ordivon-host-mcp` is a separate loopback-only transport surface for `task.list`, `task.resume`, `task.adopt`, and `task.checkpoint`; it uses a separate private bearer token and never proxies Runtime or Harness.
+`task reconcile` performs at most one conservative step. It never invents a new Effect, blindly redispatches uncertain work, or invokes a Provider. `ordivon-host-mcp` is a separate loopback-only Agent surface: `host.status` and `task.observe` provide bounded Host-owned observability, `task.list` and `task.resume` provide external-continuity discovery/recovery, and only `task.adopt` / `task.checkpoint` mutate continuity state. `task.checkpoint` also supports exact-revision partial updates so an Agent need not resend unchanged checkpoint fields. MCP uses a separate private bearer token and never proxies Runtime or Harness.
 
 ## Documentation map
 

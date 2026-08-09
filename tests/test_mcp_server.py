@@ -19,7 +19,14 @@ from ordivon_host.continuity import ExternalContinuityHost
 from ordivon_host.continuity_models import WorkingCheckpoint
 from ordivon_host.domain import EventKind, TaskState
 from ordivon_host.kernel import HostKernel
-from ordivon_host.mcp_server import HostMcpSettings, _list_host_tasks, check_settings
+from ordivon_host.mcp_server import (
+    HostMcpSettings,
+    _checkpoint_task,
+    _host_status,
+    _list_host_tasks,
+    _observe_task,
+    check_settings,
+)
 from ordivon_host.runtime import McpRuntimeClient, RuntimeToolRejected, RuntimeTransportError
 from ordivon_host.storage import HostStorage
 
@@ -693,6 +700,244 @@ class HostMcpTaskDiscoveryTests(unittest.TestCase):
             self.assertEqual(wrong_terminal_scope.exception.field, "cursor")
 
 
+class HostMcpAgentUxTests(unittest.TestCase):
+    def test_host_status_projects_compact_state_activity_and_integrity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / "state"
+            now = [1_000]
+
+            def clock() -> int:
+                now[0] += 1
+                return now[0]
+
+            task_id = "task:mcp:status-observation"
+            with HostStorage(state_root) as storage:
+                ExternalContinuityHost(storage, clock_ms=clock).adopt(
+                    task_id=task_id,
+                    goal_id="goal:mcp:status-observation",
+                    initial_checkpoint=WorkingCheckpoint(
+                        task_id=task_id,
+                        objective="make Host observable",
+                        frontier="inspect current status",
+                    ),
+                )
+
+            summary = _host_status(state_root, detail="summary", recent_limit=5)
+            self.assertEqual(summary["kind"], "ordivon.host-status")
+            self.assertEqual(summary["detail"], "summary")
+            self.assertEqual(summary["interface"]["surfaceVersion"], 2)
+            self.assertEqual(summary["interface"]["toolCount"], 6)
+            self.assertEqual(
+                summary["interface"]["toolNames"],
+                [
+                    "host.status",
+                    "task.observe",
+                    "task.list",
+                    "task.resume",
+                    "task.adopt",
+                    "task.checkpoint",
+                ],
+            )
+            self.assertFalse(summary["interface"]["runtimeProxy"])
+            self.assertEqual(summary["authority"]["tasks"], 1)
+            self.assertEqual(summary["authority"]["tasksByState"]["ready"], 1)
+            self.assertEqual(summary["continuity"], {"active": 1, "terminal": 0})
+            self.assertEqual(summary["recentActivity"][0]["taskId"], task_id)
+            self.assertEqual(summary["recentActivity"][0]["revision"], 2)
+            self.assertGreaterEqual(summary["recentActivity"][0]["ageMs"], 0)
+            self.assertIn(summary["deployment"]["status"], {"unbound", "unavailable"})
+            self.assertIsNone(summary["doctor"])
+            self.assertIn("Runtime remains independent", summary["truthBoundary"]["runtime"])
+
+            integrity = _host_status(
+                state_root, detail="integrity", recent_limit=1
+            )
+            self.assertTrue(integrity["doctor"]["healthy"])
+            self.assertNotIn(
+                "journal.history",
+                {check["name"] for check in integrity["doctor"]["checks"]},
+            )
+            history = _host_status(state_root, detail="history", recent_limit=0)
+            self.assertTrue(history["doctor"]["healthy"])
+            self.assertIn(
+                "journal.history",
+                {check["name"] for check in history["doctor"]["checks"]},
+            )
+            self.assertEqual(history["recentActivity"], [])
+
+    def test_task_observe_is_revision_fenced_and_payload_bounded(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / "state"
+            now = [2_000]
+
+            def clock() -> int:
+                now[0] += 1
+                return now[0]
+
+            task_id = "task:mcp:observe"
+            with HostStorage(state_root) as storage:
+                ExternalContinuityHost(storage, clock_ms=clock).adopt(
+                    task_id=task_id,
+                    goal_id="goal:mcp:observe",
+                    initial_checkpoint=WorkingCheckpoint(
+                        task_id=task_id,
+                        objective="observe without raw payload",
+                        frontier="baseline",
+                        unresolved=("visibility gap",),
+                        next_actions=("inspect timeline",),
+                    ),
+                )
+
+            observed = _observe_task(
+                state_root, task_id=task_id, expected_revision=2, event_limit=5
+            )
+            self.assertEqual(observed["kind"], "ordivon.host-task-observation")
+            self.assertEqual(observed["projection"]["revision"], 2)
+            self.assertGreaterEqual(observed["activityAgeMs"], 0)
+            self.assertEqual(
+                observed["workloadId"], "ordivon.host.external-continuity.v1"
+            )
+            self.assertTrue(observed["externalContinuity"])
+            self.assertIsNone(observed["recovery"])
+            self.assertEqual(observed["continuity"]["checkpointRevision"], 2)
+            self.assertEqual(observed["continuity"]["unresolved"]["total"], 1)
+            self.assertEqual(
+                observed["continuity"]["unresolved"]["items"][0]["text"],
+                "visibility gap",
+            )
+            self.assertEqual(observed["continuity"]["nextActions"]["total"], 1)
+            self.assertEqual(
+                observed["continuity"]["nextActions"]["items"][0]["text"],
+                "inspect timeline",
+            )
+            self.assertEqual(observed["head"]["eventKind"], "task.context-checkpointed")
+            self.assertEqual([e["revision"] for e in observed["recentEvents"]], [2, 1])
+            self.assertNotIn("data", observed["head"])
+            self.assertNotIn("data", str(observed["recentEvents"]))
+
+            with self.assertRaisesRegex(
+                Exception, "Task revision is 2, expected 1"
+            ):
+                _observe_task(
+                    state_root,
+                    task_id=task_id,
+                    expected_revision=1,
+                    event_limit=5,
+                )
+
+    def test_summary_and_task_reads_do_not_refresh_validation_cache(self) -> None:
+        import sqlite3
+
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / "state"
+            now = [2_500]
+
+            def clock() -> int:
+                now[0] += 1
+                return now[0]
+
+            task_id = "task:mcp:low-disturbance"
+            with HostStorage(state_root) as storage:
+                ExternalContinuityHost(storage, clock_ms=clock).adopt(
+                    task_id=task_id,
+                    goal_id="goal:mcp:low-disturbance",
+                    initial_checkpoint=WorkingCheckpoint(
+                        task_id=task_id,
+                        objective="observe without cache writes",
+                        frontier="baseline",
+                    ),
+                )
+            database = state_root / "host.sqlite3"
+            connection = sqlite3.connect(database)
+            try:
+                connection.execute("DELETE FROM object_validation")
+                connection.commit()
+                before = connection.execute(
+                    "SELECT COUNT(*) FROM object_validation"
+                ).fetchone()[0]
+            finally:
+                connection.close()
+            self.assertEqual(before, 0)
+
+            _host_status(state_root, detail="summary", recent_limit=2)
+            _observe_task(
+                state_root, task_id=task_id, expected_revision=2, event_limit=2
+            )
+            _list_host_tasks(state_root, goal_id=None, limit=10)
+
+            connection = sqlite3.connect(database)
+            try:
+                after = connection.execute(
+                    "SELECT COUNT(*) FROM object_validation"
+                ).fetchone()[0]
+            finally:
+                connection.close()
+            self.assertEqual(after, 0)
+
+    def test_checkpoint_patch_inherits_exact_revision_and_replays(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / "state"
+            now = [3_000]
+
+            def clock() -> int:
+                now[0] += 1
+                return now[0]
+
+            task_id = "task:mcp:patch"
+            with HostStorage(state_root) as storage:
+                ExternalContinuityHost(storage, clock_ms=clock).adopt(
+                    task_id=task_id,
+                    goal_id="goal:mcp:patch",
+                    initial_checkpoint=WorkingCheckpoint(
+                        task_id=task_id,
+                        objective="reduce checkpoint ceremony",
+                        frontier="baseline",
+                        established=("preserve this fact",),
+                        unresolved=("patch not proven",),
+                        constraints=("exact revision only",),
+                        next_actions=("try patch",),
+                    ),
+                )
+
+            patch = {
+                "frontier": "patch proven",
+                "unresolved": [],
+                "nextActions": ["continue with smaller requests"],
+            }
+            first = _checkpoint_task(
+                state_root,
+                task_id=task_id,
+                expected_revision=2,
+                checkpoint_value=patch,
+            )
+            self.assertEqual(first["admission"], "created")
+            self.assertEqual(first["projection"]["revision"], 3)
+            self.assertEqual(first["checkpoint"]["frontier"], "patch proven")
+            self.assertEqual(
+                first["checkpoint"]["established"], ["preserve this fact"]
+            )
+            self.assertEqual(first["checkpoint"]["constraints"], ["exact revision only"])
+            self.assertEqual(first["checkpoint"]["unresolved"], [])
+
+            replay = _checkpoint_task(
+                state_root,
+                task_id=task_id,
+                expected_revision=2,
+                checkpoint_value=patch,
+            )
+            self.assertEqual(replay["admission"], "existing")
+            self.assertEqual(replay["checkpointDigest"], first["checkpointDigest"])
+
+            with self.assertRaisesRegex(Exception, "Task revision is 3, expected 2"):
+                _checkpoint_task(
+                    state_root,
+                    task_id=task_id,
+                    expected_revision=2,
+                    checkpoint_value={"frontier": "different stale patch"},
+                )
+
+
+
 class HostMcpEndToEndTests(unittest.TestCase):
     def test_modern_mcp_auth_catalog_and_continuity_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -733,7 +978,14 @@ class HostMcpEndToEndTests(unittest.TestCase):
                 self.assertEqual(legacy["protocolVersion"], "2025-11-25")
                 self.assertEqual(
                     {tool["name"] for tool in legacy["tools"]},
-                    {"task.list", "task.resume", "task.adopt", "task.checkpoint"},
+                    {
+                        "host.status",
+                        "task.observe",
+                        "task.list",
+                        "task.resume",
+                        "task.adopt",
+                        "task.checkpoint",
+                    },
                 )
                 discovered = client.initialize()
                 self.assertEqual(discovered["protocolVersion"], "2026-07-28")
@@ -770,11 +1022,25 @@ class HostMcpEndToEndTests(unittest.TestCase):
                 tools = client.list_tools()
                 self.assertEqual(
                     {tool["name"] for tool in tools},
-                    {"task.list", "task.resume", "task.adopt", "task.checkpoint"},
+                    {
+                        "host.status",
+                        "task.observe",
+                        "task.list",
+                        "task.resume",
+                        "task.adopt",
+                        "task.checkpoint",
+                    },
                 )
                 for tool in tools:
                     self.assertIsInstance(tool.get("inputSchema"), dict)
                 by_name = {tool["name"]: tool for tool in tools}
+                status_schema = by_name["host.status"]["inputSchema"]
+                self.assertEqual(
+                    status_schema["properties"]["detail"]["enum"],
+                    ["summary", "integrity", "history"],
+                )
+                observe_schema = by_name["task.observe"]["inputSchema"]
+                self.assertIn("eventLimit", observe_schema["properties"])
                 list_schema = by_name["task.list"]["inputSchema"]
                 self.assertIn("cursor", list_schema["properties"])
                 self.assertIn("includeTerminal", list_schema["properties"])
@@ -784,10 +1050,15 @@ class HostMcpEndToEndTests(unittest.TestCase):
                     checkpoint_schema["properties"]["continuityDisposition"]["enum"],
                     ["continue", "complete", "abandon"],
                 )
-                for schema, field in (
-                    (adopt_schema, "initialCheckpoint"),
-                    (checkpoint_schema, "checkpoint"),
-                ):
+                update_schema = checkpoint_schema["properties"]["checkpoint"]
+                self.assertEqual(len(update_schema["oneOf"]), 2)
+                full_schema, patch_schema = update_schema["oneOf"]
+                self.assertFalse(full_schema["additionalProperties"])
+                self.assertFalse(patch_schema["additionalProperties"])
+                self.assertEqual(patch_schema["minProperties"], 1)
+                self.assertIn("frontier", patch_schema["properties"])
+                self.assertIn("nextActions", patch_schema["properties"])
+                for schema, field in ((adopt_schema, "initialCheckpoint"),):
                     definition = schema["properties"][field]
                     self.assertFalse(definition["additionalProperties"])
                     self.assertNotIn("$ref", definition)
