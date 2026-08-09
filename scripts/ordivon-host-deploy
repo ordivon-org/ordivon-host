@@ -508,7 +508,7 @@ def prepare_candidate(args: argparse.Namespace) -> dict[str, object]:
             dist = build_root / "dist"
             dist.mkdir()
             run([
-                str(args.uv), "build", "--wheel", "--python", str(args.python),
+                str(args.uv), "build", "--offline", "--wheel", "--python", str(args.python),
                 "--out-dir", str(dist), str(source),
             ], cwd=source, env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
             wheels = list(dist.glob("ordivon_host-*.whl"))

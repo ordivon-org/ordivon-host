@@ -36,6 +36,7 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 
 ### Fixed
 
+- release candidate wheel construction now runs the pinned `uv build` backend in offline mode, matching the frozen build contract and preventing network availability from entering release preparation;
 - schema-changing activation rollback now reconciles migration backup sidecars as part of the same provisional authority boundary: sidecars created only by the failed candidate are removed before the previous release restarts, while exact preactivation sidecars are preserved and any mutation of them fails rollback closed;
 - schema migration backups now treat the canonical `pre-schema-vN` path as the current attempt's rollback source: a valid but superseded backup is preserved under a digest-addressed archive before a fresh standalone SQLite snapshot replaces it, while corrupt backups or backups with pending WAL state still fail closed;
 - candidate deployment self-check now bootstraps its temporary build-local Host authority with the candidate CLI before invoking `ordivon-host-mcp --check`, so real prepare remains isolated from production without failing on an uninitialized temporary Journal;
