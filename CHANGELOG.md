@@ -37,6 +37,7 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 ### Fixed
 
 - schema-changing activation rollback now reconciles migration backup sidecars as part of the same provisional authority boundary: sidecars created only by the failed candidate are removed before the previous release restarts, while exact preactivation sidecars are preserved and any mutation of them fails rollback closed;
+- schema migration backups now treat the canonical `pre-schema-vN` path as the current attempt's rollback source: a valid but superseded backup is preserved under a digest-addressed archive before a fresh standalone SQLite snapshot replaces it, while corrupt backups or backups with pending WAL state still fail closed;
 - candidate deployment self-check now bootstraps its temporary build-local Host authority with the candidate CLI before invoking `ordivon-host-mcp --check`, so real prepare remains isolated from production without failing on an uninitialized temporary Journal;
 - release candidate construction is authority-pure: `prepare` now runs `ordivon-host-mcp --check` against an explicit temporary build-local state root and removes it afterward, preventing candidate validation from opening or migrating the default live Host authority;
 - canonical Host architecture and operations describe the post-H3 caller-neutral Harness boundary and derive the current Journal schema version from source rather than freezing an obsolete schema number in the documentation contract;

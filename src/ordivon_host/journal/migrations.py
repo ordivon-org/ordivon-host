@@ -274,31 +274,77 @@ def _ensure_backup(
     try:
         _write_backup(connection, temporary)
         _validate_backup(temporary, expected_version=expected_version)
+        temporary_digest = _sha256_file(temporary)
         if path.exists():
             _validate_backup(path, expected_version=expected_version)
-            if _sha256_file(path) != _sha256_file(temporary):
-                raise SchemaMigrationError(
-                    "existing schema migration backup does not match the current database"
-                )
-            return
+            existing_digest = _sha256_file(path)
+            if existing_digest == temporary_digest:
+                return
+            _archive_superseded_backup(
+                path,
+                expected_version=expected_version,
+                digest=existing_digest,
+            )
+        _remove_sqlite_sidecars(path)
         os.replace(temporary, path)
         _fsync(path)
     finally:
         temporary.unlink(missing_ok=True)
+        _remove_sqlite_sidecars(temporary)
+
+
+def _archive_superseded_backup(
+    path: Path,
+    *,
+    expected_version: int,
+    digest: str,
+) -> Path:
+    wal = Path(f"{path}-wal")
+    if wal.exists() and wal.stat().st_size != 0:
+        raise SchemaMigrationError(
+            "existing schema migration backup has pending WAL state"
+        )
+    archive = path.with_name(
+        f"{path.stem}.superseded-{digest[:16]}{path.suffix}"
+    )
+    if archive.exists():
+        _validate_backup(archive, expected_version=expected_version)
+        if _sha256_file(archive) != digest:
+            raise SchemaMigrationError(
+                "schema migration backup archive identity collision"
+            )
+        path.unlink()
+    else:
+        os.replace(path, archive)
+        _fsync(archive)
+    _remove_sqlite_sidecars(path)
+    return archive
+
+
+def _remove_sqlite_sidecars(path: Path) -> None:
+    for suffix in ("-wal", "-shm", "-journal"):
+        Path(f"{path}{suffix}").unlink(missing_ok=True)
 
 
 def _write_backup(connection: sqlite3.Connection, path: Path) -> None:
     backup = sqlite3.connect(path)
     try:
         connection.backup(backup)
+        mode = backup.execute("PRAGMA journal_mode = DELETE").fetchone()
+        if mode is None or str(mode[0]).lower() != "delete":
+            raise SchemaMigrationError(
+                "schema migration backup did not become standalone"
+            )
         if backup.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
             raise SchemaMigrationError("schema migration backup failed quick_check")
     except BaseException:
         backup.close()
         path.unlink(missing_ok=True)
+        _remove_sqlite_sidecars(path)
         raise
     else:
         backup.close()
+    _remove_sqlite_sidecars(path)
     _fsync(path)
 
 

@@ -73,6 +73,8 @@ Schema evolution is explicit:
 
 A v1 database advances through all migrations in order and records every transition in `schema_migrations`.
 
+Each `host.sqlite3.pre-schema-vN.sqlite3` path is the rollback source for the **current** attempt to enter schema `vN`, not a permanently frozen historical filename. Before migration, Host writes and validates a fresh standalone SQLite backup, forces it to `journal_mode=DELETE`, and removes WAL/SHM sidecars. If a valid older backup already occupies the canonical path but differs from the current pre-migration snapshot, Host preserves it as `host.sqlite3.pre-schema-vN.superseded-<digest>.sqlite3` and atomically installs the fresh snapshot at the canonical path. Corrupt backups, archive identity collisions, or an existing backup with pending non-empty WAL state fail closed. This preserves prior evidence without allowing an old snapshot to become rollback authority for newer Host facts.
+
 ## CAS validation modes
 
 Normal Host startup uses cached validation:

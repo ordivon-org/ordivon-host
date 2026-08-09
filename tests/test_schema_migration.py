@@ -209,7 +209,7 @@ class HostSchemaMigrationTests(unittest.TestCase):
             with self.assertRaisesRegex(JournalCorruption, "metadata is missing"):
                 HostStorage(directory)
 
-    def test_existing_migration_backup_must_match_current_database(self) -> None:
+    def test_valid_stale_migration_backup_is_archived_before_current_backup(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "host.sqlite3"
             connection = sqlite3.connect(database)
@@ -221,7 +221,54 @@ class HostSchemaMigrationTests(unittest.TestCase):
             other.execute("INSERT INTO host_metadata VALUES ('stale-marker', 'other')")
             other.commit()
             other.close()
-            with self.assertRaisesRegex(JournalCorruption, "does not match"):
+
+            with HostStorage(directory):
+                pass
+
+            archives = list(
+                Path(directory).glob(
+                    "host.sqlite3.pre-schema-v3.superseded-*.sqlite3"
+                )
+            )
+            self.assertEqual(len(archives), 1)
+            current = sqlite3.connect(stale)
+            try:
+                self.assertEqual(
+                    current.execute(
+                        "SELECT value FROM host_metadata WHERE key='schema_version'"
+                    ).fetchone()[0],
+                    "2",
+                )
+                self.assertIsNone(
+                    current.execute(
+                        "SELECT value FROM host_metadata WHERE key='stale-marker'"
+                    ).fetchone()
+                )
+                self.assertEqual(current.execute("PRAGMA journal_mode").fetchone()[0], "delete")
+            finally:
+                current.close()
+            archived = sqlite3.connect(archives[0])
+            try:
+                self.assertEqual(
+                    archived.execute(
+                        "SELECT value FROM host_metadata WHERE key='stale-marker'"
+                    ).fetchone()[0],
+                    "other",
+                )
+            finally:
+                archived.close()
+            self.assertFalse(Path(f"{stale}-wal").exists())
+            self.assertFalse(Path(f"{stale}-shm").exists())
+
+    def test_invalid_existing_migration_backup_still_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "host.sqlite3"
+            connection = sqlite3.connect(database)
+            connection.executescript(_V2)
+            connection.close()
+            stale = Path(f"{database}.pre-schema-v3.sqlite3")
+            stale.write_bytes(b"not-a-sqlite-database")
+            with self.assertRaisesRegex(JournalCorruption, "backup"):
                 HostStorage(directory)
 
     def test_unsupported_future_schema_fails_closed(self) -> None:
