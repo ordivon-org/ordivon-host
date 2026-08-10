@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import http.client
 import json
 import socket
@@ -13,6 +14,7 @@ import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 from anc_canonical import canonical_digest
@@ -21,6 +23,7 @@ from ordivon_host.continuity_models import WorkingCheckpoint
 from ordivon_host.domain import EventKind, TaskState
 from ordivon_host.kernel import HostKernel
 from ordivon_host.mcp_server import (
+    BearerAuthApp,
     HostMcpSettings,
     _checkpoint_task,
     _host_status,
@@ -31,6 +34,7 @@ from ordivon_host.mcp_server import (
 )
 from ordivon_host.runtime import McpRuntimeClient, RuntimeToolRejected, RuntimeTransportError
 from ordivon_host.storage import HostStorage
+from starlette.requests import ClientDisconnect
 
 
 def _port() -> int:
@@ -129,6 +133,76 @@ class HostMcpSettingsTests(unittest.TestCase):
                 token_file=Path("/tmp/token"),
                 trust_cf_access=True,
             )
+
+
+class BearerAuthDisconnectTests(unittest.IsolatedAsyncioTestCase):
+    def _app(self, inner: Any) -> BearerAuthApp:
+        return BearerAuthApp(
+            inner,
+            "host-mcp-test-token-0123456789abcdef",
+            body_limit_bytes=1_048_576,
+        )
+
+    async def _scope(self) -> dict[str, Any]:
+        return {
+            "type": "http",
+            "headers": [
+                (b"authorization", b"Bearer host-mcp-test-token-0123456789abcdef"),
+            ],
+        }
+
+    async def test_client_disconnect_mid_request_is_swallowed(self) -> None:
+        async def inner(scope, receive, send) -> None:
+            raise ClientDisconnect()
+
+        app = self._app(inner)
+        # Must not raise: a dropped peer is routine behind a flaky tunnel.
+        await app(await self._scope(), _noop_receive, _noop_send)
+
+    async def test_client_disconnect_after_auth_is_swallowed(self) -> None:
+        async def inner(scope, receive, send) -> None:
+            await _noop_receive()
+            raise ClientDisconnect()
+
+        app = self._app(inner)
+        await app(await self._scope(), _noop_receive, _noop_send)
+
+    async def test_unrelated_exception_still_propagates(self) -> None:
+        async def inner(scope, receive, send) -> None:
+            raise RuntimeError("boom")
+
+        app = self._app(inner)
+        with self.assertRaisesRegex(RuntimeError, "boom"):
+            await app(await self._scope(), _noop_receive, _noop_send)
+
+    async def test_unauthorized_still_returns_401(self) -> None:
+        sent: list[dict[str, Any]] = []
+
+        async def send(message: dict[str, Any]) -> None:
+            sent.append(message)
+
+        app = self._app(lambda scope, receive, send: _unreachable())
+        await app(
+            {
+                "type": "http",
+                "headers": [(b"authorization", b"Bearer wrong-token")],
+            },
+            _noop_receive,
+            send,
+        )
+        self.assertTrue(any(m.get("status") == 401 for m in sent))
+
+
+async def _noop_receive() -> dict[str, Any]:
+    return {"type": "http.disconnect"}
+
+
+async def _noop_send(message: dict[str, Any]) -> None:
+    return None
+
+
+async def _unreachable() -> None:
+    raise AssertionError("inner app must not run for unauthorized request")
 
 
 class HostMcpTaskDiscoveryTests(unittest.TestCase):

@@ -22,6 +22,7 @@ from mcp.server import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema
+from starlette.requests import ClientDisconnect
 
 from .config import load_config, read_private_token_file
 from .continuity import ExternalContinuityHost
@@ -339,7 +340,13 @@ class BearerAuthApp:
                 send, 401, "unauthorized", authenticate=True
             )
             return
-        await self.app(scope, receive, send)
+        try:
+            await self.app(scope, receive, send)
+        except ClientDisconnect:
+            # The peer hung up mid-request (common when the public tunnel
+            # flakes); there is no response to deliver, so swallow instead of
+            # letting uvicorn log a full ASGI traceback for a routine drop.
+            return
 
 
 async def _drain_http_request(receive: Receive, *, max_bytes: int) -> bool:
