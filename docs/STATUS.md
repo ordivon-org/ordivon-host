@@ -14,8 +14,8 @@ audience:
   - operator
   - user
   - agent
-updated: 2026-08-08
-summary: Stable maturity claim, support boundary, proven slices, known limits, and live-state verification path for Ordivon Host.
+updated: 2026-08-12
+summary: Stable maturity, supported environment, current continuity/commitment capabilities, known limits, and live-state verification route for Ordivon Host.
 evidence_status: verified
 readiness: READY
 applies_to:
@@ -31,78 +31,87 @@ related:
 
 ## Maturity
 
-Ordivon Host is an **operational engineering prototype for owner-trusted local work** and **pre-1.0 as a public product interface**.
+Ordivon Host is **operational for owner-trusted local engineering work** and **pre-1.0 as a public product interface**.
 
-Operational means the repository has a durable Journal/CAS, versioned schema migration, private state modes, exact Task revision and lease fencing, backup/restore, Doctor, conservative reconciliation, modern Runtime transport, deterministic tests, and live evidence for read, mutation, source-change, cognition, and restart scenarios.
-
-Pre-1.0 means public Python imports, object schemas, operational packaging, workload APIs, and deployment conventions may still change. Changes must preserve explicit decoder, migration, recovery, rollback, or major-cutover evidence. Pre-1.0 does not permit silent reinterpretation of durable Task history.
+Operational means the current repository has durable Journal/CAS state, exact Task revision/lease fencing, conservative recovery, backup/restore/Doctor, Runtime and external-executor boundaries, semantic external continuity, and receipt-bound local deployment. Pre-1.0 means public schemas, Python APIs, packaging, and workload boundaries may still change through explicit migration/cutover evidence; durable history may not be silently reinterpreted.
 
 ## Supported environment
 
-The canonical path currently supports:
+The canonical path currently assumes:
 
 - Python 3.12;
 - Linux trusted-local operation;
-- local SQLite and filesystem-backed immutable CAS;
-- a loopback or operator-tunneled Ordivon Runtime;
-- Runtime MCP `2026-07-28` as the default transport lifecycle;
-- explicit `2025-06-18` Session compatibility when selected;
-- owner-trusted repositories, external cognition executors, and participants.
+- local SQLite and immutable filesystem CAS;
+- a loopback or operator-tunneled Ordivon Runtime where a workload needs Runtime;
+- Runtime MCP `2026-07-28` as the default transport lifecycle, with explicit retained legacy compatibility;
+- owner-trusted repositories, cognition executors, participants, and state roots.
 
-Python 3.13+, hostile multi-tenancy, remote distributed consensus, a general scheduler, a hosted privacy boundary, and automatic recovery of unkeyed effects are not supported.
+Host does not currently provide hostile multi-tenancy, distributed consensus, a general scheduler, remote durable state ownership, or automatic recovery of unkeyed effects.
 
-## Proven capabilities
+## Current capability matrix
 
-| Area | Status |
-| --- | --- |
-| immutable TaskDescriptor and revisioned Task projection | operational |
-| exact lease-fenced event admission and causal edges | operational |
-| Journal/CAS integrity, schema migration, backup/restore, Doctor | operational |
-| schema-aware local release activation with preactivation Journal snapshot, activation-only authority rollback, and post-success backward-rollback refusal | operational deployment boundary |
-| deterministic Runtime repository read and independent verification | operational |
-| guarded mutation with UNKNOWN reconciliation and no redispatch | operational proof slice |
-| version-bound two-file source change and compare-and-close | operational proof slice |
-| closed-choice cognition | retained deterministic profile |
-| open ActionProposal with Host-owned lowering and DecisionRequest | experimental but verified |
-| Goal-scoped Task revision coordination | operational narrow slice |
-| generic extension event/CAS admission with schema-blind per-Task/per-namespace durable owner state, plus revision-coherent namespace snapshot metadata for owner-local inspectors | operational boundary |
-| external executor request, foreign Run binding, recovery and completion collection | operational P0 boundary; Task acceptance remains Host-owned |
-| external-continuity adoption with crash-safe initial semantic seed, bounded WorkingCheckpoint, revision-coherent discovery/resume, revision-fenced `extensionNamespaces` owner routing identity, terminal tracking disposition, and exact response-loss replay | operational local authority |
-| authenticated loopback Host MCP with Host/task observability, paginated external-continuity discovery, self-describing resume/adopt/checkpoint inputs, and exact-revision checkpoint patching | operational transport boundary |
-| general workflow engine or multi-Agent scheduler | not provided |
-| domain-world truth and semantic verification | domain-owned |
-| physical execution and process recovery | Runtime-owned |
-| Agent Run and Provider-loop recovery | Harness-owned |
+| Area | State | Boundary |
+| --- | --- | --- |
+| Task/Journal/CAS continuity | operational | Host-owned semantic work and evidence references; not domain or physical truth |
+| schema migration, backup/restore, Doctor | operational | exact Host authority/storage integrity |
+| deterministic Runtime read | operational proof slice | Runtime proves physical read; Host verifies/adjudicates Task progress |
+| guarded mutation and response-loss recovery | operational proof slice | keyed Dispatch + UNKNOWN + original-Job observation; never blind redispatch |
+| version-bound source change | operational proof slice | structured evidence + Runtime compare-and-close before Host acceptance |
+| closed-choice cognition | retained deterministic profile | external cognition result admitted against exact Context |
+| open ActionProposal + DecisionRequest | experimental but verified | Host lowers/adjudicates consequence; no generic planner |
+| opaque extension namespace continuity | operational boundary | Host preserves bytes/revision metadata without owning extension semantics |
+| external executor binding | operational boundary | foreign Run evidence can be referenced; Task acceptance remains Host-owned |
+| external semantic continuity | operational local authority | adopt/resume/checkpoint WorkingCheckpoint across Agent/session replacement |
+| Host MCP | operational transport boundary | six narrow Tools; no Runtime proxy, scheduler, Provider or cognition endpoint |
+| receipt-bound deployment/lifecycle | operational | physical release/rollback/retention evidence separate from Task semantics |
 
-## Current transport contract
+## External-continuity contract
 
-The default `McpRuntimeClient` uses stateless `server/discover`, verifies that Runtime supports `2026-07-28`, sends required per-request metadata, and binds method and Tool identity through headers. It rejects unexpected Session creation.
+`ordivon.host.external-continuity.v1` preserves a bounded WorkingCheckpoint across replaceable clients. The checkpoint is a semantic working claim containing objective, frontier, established/unresolved/rejected findings, constraints, next actions, and optional physical navigation hints.
 
-The legacy Session decoder remains because retained deployments and historical evidence may still require it. It is not used by default and must not become durable Task state.
+Important limits:
+
+- Runtime Workspace/Job/Git hints in the checkpoint are not current physical truth and must be revalidated with their owners;
+- `task.list` exposes bounded previews and revision/digest identity rather than raw checkpoint bodies;
+- `task.resume` returns one revision-coherent checkpoint;
+- `task.checkpoint` supports complete replacement or exact-revision patching;
+- response-loss replay converges only for the exact original claim/revision;
+- `complete`/`abandon` end Host tracking only and do not assert external domain outcomes.
+
+## Host MCP contract
+
+The current MCP surface is exactly:
+
+```text
+host.status
+task.observe
+task.list
+task.resume
+task.adopt
+task.checkpoint
+```
+
+Every Tool result carries a `serverInterface` identity derived from Tool names and schemas. Production deployment independently receipts the wire Tool catalog. This can prove that a client is using a stale/different schema after re-observation; Host does not claim to know a client's cached schema without that comparison.
+
+The service remains loopback-only. A canonical HTTPS public origin may be admitted behind an operator-owned authenticated tunnel. Optional Cloudflare Access trust is valid only under the configured loopback + Access-protected deployment precondition; arbitrary proxy headers do not become authority.
 
 ## Known limits
 
-- Host has no durable Goal event stream or Goal commitment object; Goal coordination is a snapshot over Task revisions.
-- Host MCP exposes a bounded read plane (`host.status`, `task.observe`, `task.list`, `task.resume`) plus external-continuity mutation (`task.adopt`, `task.checkpoint`). It is not a general remote Host administration API, Runtime proxy, scheduler, or cognition endpoint.
-- Every Host MCP Tool response carries a schema-only `serverInterface` identity computed from the registered Tool names and exact input/output schemas. Production deployment independently recomputes the same identity from wire `tools/list` and receipts it. This proves server-side interface identity; the client must still re-observe its own loaded Tool schema after reconnect/refresh before claiming convergence.
-- `WorkingCheckpoint.runtime` remains a single Runtime Workspace navigation hint rather than a copied physical-state graph. Runtime currently preserves closed-Workspace source identity in its tombstone but `workspace.get` reports a closed identity as not found; durable cross-session navigation after Workspace closure therefore requires a Runtime-owned projection improvement rather than Host shadow state.
-- Reverse-proxy deployment keeps the listener on loopback and requires one explicit canonical HTTPS `public_origin`; Host extends only the MCP SDK Host/Origin allowlist and keeps DNS-rebinding protection enabled.
-- The canonical remote-auth pattern matches Runtime: static local Bearer remains valid, while optional `trust_cf_access` admits a non-empty Cloudflare Access assertion only under the explicit loopback + Access-protected Tunnel deployment precondition.
-- The current official MCP SDK path publishes typed input schemas and structured success/error content, but does not publish explicit output schemas for these `CallToolResult` tools without coupling Host to SDK-private output-model plumbing. H-C2 leaves that as a measured Agent-UX limitation rather than adding a second schema system.
-- Host authority creation is a single-operator bootstrap: initialize the state root once before concurrent CLI/MCP consumers. H-C1/H-C2 concurrent adoption/checkpoint guarantees apply to an initialized authority, not simultaneous first-time SQLite schema creation.
-- Workload-specific hosts remain explicit state machines rather than a generic Effect lifecycle.
-- A successful Runtime Job or foreign executor Run is not Task completion.
-- External executor completion is retained only as a proposal until a Host-owned workload verifies and decides the Task outcome.
-- Recovery never authorizes blind redispatch after uncertain delivery.
-- Provider calls are external to Host. Host persists only a provider-neutral `CognitionWorkRequest` before execution and admits returned semantic results plus `CognitionExecutionEvidence`; it has no Provider-call schema or Provider execution package.
-- Domain systems must supply authoritative world-state and verification semantics.
-- Full-history Doctor is intentionally slower and explicit.
-- Live evidence covers the tested local Runtime and filesystem path, not host reboot, kernel failure, network partition across machines, or distributed scheduling.
-- Several workload modules are large, but forced splitting is deferred while each still owns one coherent vertical lifecycle and tests provide stronger safety than cosmetic decomposition.
+- Goal coordination is a snapshot over Task revisions rather than a durable Goal event stream.
+- Workload-specific state machines remain explicit; Host does not expose a generic executor-neutral Effect lifecycle.
+- Runtime Job success or external executor Run completion does not automatically complete a Task.
+- Provider execution remains outside Host. Host persists provider-neutral cognition work and returned evidence, not Provider call/session state.
+- Domain systems must supply authoritative world-state and domain verification semantics.
+- extension namespace identity/state proves retained owner bytes and provenance, not owner availability, external currentness, outstanding work, or authority.
+- `WorkingCheckpoint.runtime` is intentionally a navigation hint rather than a copied Runtime state graph.
+- concurrent first-time authority initialization is not supported; initialize one Host state root before concurrent consumers.
+- the official MCP SDK path does not currently expose explicit output schemas without coupling Host to SDK-private output-model plumbing; the measured limitation is retained rather than creating a second schema system.
+- full-history Doctor is explicit and slower than ordinary startup/Doctor.
+- live recovery evidence covers the tested local Runtime/filesystem/systemd path, not arbitrary host reboot, database corruption, remote partitions, or distributed scheduling.
 
 ## Live state is machine-owned
 
-This document does not copy current Task counts, schema files, active leases, object bytes, deployment revisions, or Runtime health. Query them:
+This page does not own current Task counts, active leases, exact CAS bytes, live Runtime health, deployed release identity, or schema files. Query Host and the relevant external owner:
 
 ```bash
 ordivon-host --state-root /var/lib/ordivon/host inspect
@@ -112,6 +121,8 @@ ordivon-host --config /etc/ordivon/host.toml \
   --state-root /var/lib/ordivon/host doctor --runtime
 ```
 
+For MCP deployments, `host.status` provides the bounded Host-owned projection. It never proxies Runtime.
+
 ## Reopen conditions
 
-Revisit this status when Host gains a durable Goal stream, remote/distributed state ownership, a new public workload abstraction, a hostile-code boundary, Python support changes, the legacy Runtime decoder is deleted, or the public interface reaches a declared 1.0 contract.
+Revisit this status when Host gains a durable Goal stream, remote/distributed state ownership, a new shared workload abstraction, a hostile-code boundary, Python support changes, the legacy Runtime decoder is removed, or the public interface reaches a declared 1.0 contract.
