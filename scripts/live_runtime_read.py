@@ -6,9 +6,9 @@ import os
 from pathlib import Path
 
 from ordivon_host import HostStorage
-from ordivon_host.engine import DeterministicReadHost, ReadTaskPlan
 from ordivon_host.domain import RepositoryRef, StaticRepositoryResolver
-from ordivon_host.runtime import RuntimeToolRejected
+from ordivon_host.engine import DeterministicReadHost, ReadTaskPlan
+from ordivon_host.runtime import RuntimeToolRejected, is_missing_workspace
 from ordivon_host.testing import (
     RuntimeClientFactory,
     ScenarioIdentity,
@@ -124,11 +124,7 @@ def main() -> None:
                     {"schemaVersion": 1, "workspaceId": plan.workspace_id},
                 )
             except RuntimeToolRejected as error:
-                runtime_workspace_closed = (
-                    error.detail.code == "INVALID_REQUEST"
-                    and error.detail.field == "workspaceId"
-                    and error.detail.commit_state == "not_committed"
-                )
+                runtime_workspace_closed = is_missing_workspace(error)
             else:
                 runtime_workspace_closed = False
             if not runtime_workspace_closed:
