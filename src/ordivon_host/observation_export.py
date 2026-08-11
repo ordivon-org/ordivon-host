@@ -3,20 +3,22 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
 import sqlite3
 import stat
 import sys
 import time
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from anc_canonical import canonical_digest as owner_digest, loads_strict
+from anc_canonical import canonical_digest as owner_digest
+from anc_canonical import loads_strict
+
+from .journal._schema import SCHEMA_VERSION
 
 MAPPING_VERSION = "host-observation-v1"
 PROJECT_ID = "ordivon-host"
 COMPONENT_ID = "host-journal"
-SCHEMA_VERSION = 4
 _TYPED_FIELDS = {
     "external-execution-request": (
         "requestId",
