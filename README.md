@@ -183,7 +183,7 @@ The MCP server does not proxy Runtime or Harness, call a Provider, run a schedul
 
 - Python 3.12;
 - Git and SQLite through Python;
-- the exact `ordivon-protocol` and MCP SDK revisions pinned by the repository;
+- the exact `ordivon-protocol` revision pinned by the repository, plus the exact MCP SDK revision pinned only in the optional `mcp` server extra; core Host/domain consumers do not need the server SDK;
 - Linux for the canonical trusted-local path;
 - a reachable Runtime only for workloads that actually need Runtime execution.
 
@@ -192,7 +192,7 @@ The MCP server does not proxy Runtime or Harness, call a Provider, run a schedul
 ```bash
 python3.12 -m venv .venv
 . .venv/bin/activate
-python -m pip install -e .
+python -m pip install -e '.[mcp]'
 python -m unittest discover -s tests -v
 python scripts/check_docs.py
 ```

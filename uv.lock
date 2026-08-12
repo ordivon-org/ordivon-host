@@ -243,15 +243,20 @@ name = "ordivon-host"
 version = "0.1.2"
 source = { editable = "." }
 dependencies = [
-    { name = "mcp" },
     { name = "ordivon-protocol" },
+]
+
+[package.optional-dependencies]
+mcp = [
+    { name = "mcp" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "mcp", specifier = "==2.0.0" },
+    { name = "mcp", marker = "extra == 'mcp'", specifier = "==2.0.0" },
     { name = "ordivon-protocol", git = "https://github.com/zycxfyh/ordivon-computing.git?subdirectory=packages%2Fordivon-protocol&rev=420dc356cb664d75db0f34f356156baebe5843db" },
 ]
+provides-extras = ["mcp"]
 
 [[package]]
 name = "ordivon-protocol"

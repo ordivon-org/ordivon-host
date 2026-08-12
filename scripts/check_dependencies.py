@@ -43,17 +43,29 @@ def main() -> int:
         )
         return 1
 
+    optional = data.get("project", {}).get("optional-dependencies", {})
+    if not isinstance(optional, dict) or set(optional) != {"mcp"}:
+        print("dependencies: Host optional dependencies must contain only the mcp server surface", file=sys.stderr)
+        return 1
+    mcp_dependencies = optional.get("mcp")
+    if not isinstance(mcp_dependencies, list) or not all(
+        isinstance(item, str) for item in mcp_dependencies
+    ):
+        print("dependencies: project.optional-dependencies.mcp must be a string list", file=sys.stderr)
+        return 1
+
     audited = [
         line.strip()
         for line in AUDIT_REQUIREMENTS.read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     ]
-    if sorted(audited) != sorted(third_party):
+    audited_third_party = [*third_party, *mcp_dependencies]
+    if sorted(audited) != sorted(audited_third_party):
         print(
-            "dependencies: requirements-audit.txt must exactly list third-party runtime dependencies",
+            "dependencies: requirements-audit.txt must exactly list base plus optional server third-party dependencies",
             file=sys.stderr,
         )
-        print(f"project={third_party!r} audit={audited!r}", file=sys.stderr)
+        print(f"project={audited_third_party!r} audit={audited!r}", file=sys.stderr)
         return 1
 
     build_requires = data.get("build-system", {}).get("requires")
@@ -63,7 +75,8 @@ def main() -> int:
 
     print(
         "dependency contract: valid "
-        f"protocol={protocol_pins[0]} third_party_runtime={len(third_party)} "
+        f"protocol={protocol_pins[0]} base_third_party={len(third_party)} "
+        f"mcp_server_third_party={len(mcp_dependencies)} "
         f"build_backend={EXPECTED_BUILD_REQUIRES[0]}"
     )
     return 0

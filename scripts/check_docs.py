@@ -241,8 +241,11 @@ def validate_public_contracts() -> list[str]:
     for marker in host_mcp_markers:
         if marker not in host_mcp:
             errors.append(f"Host MCP lacks transport boundary marker: {marker}")
-    if 'mcp==2.0.0' not in pyproject:
-        errors.append("pyproject.toml does not pin the reviewed Host MCP SDK revision")
+    if '[project.optional-dependencies]' not in pyproject or 'mcp = ["mcp==2.0.0"]' not in pyproject:
+        errors.append("pyproject.toml does not isolate and pin the reviewed Host MCP SDK extra")
+    project_dependencies = pyproject.split("[project.optional-dependencies]", 1)[0]
+    if '"mcp==2.0.0"' in project_dependencies:
+        errors.append("Host MCP SDK leaked back into base Host dependencies")
     for relative in (
         "packaging/systemd/ordivon-host-mcp.service",
         "packaging/systemd/ordivon-host-mcp.env.example",

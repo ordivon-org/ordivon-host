@@ -505,7 +505,7 @@ def prepare_candidate(args: argparse.Namespace) -> dict[str, object]:
                 "UV_PROJECT_ENVIRONMENT": str(venv),
             }
             run([
-                str(args.uv), "sync", "--offline", "--frozen", "--no-editable",
+                str(args.uv), "sync", "--offline", "--frozen", "--no-editable", "--extra", "mcp",
                 "--no-install-project", "--project", str(source), "--python", str(args.python),
                 "--link-mode", "copy", "--no-python-downloads",
             ], cwd=source, env=build_env)
