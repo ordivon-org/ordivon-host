@@ -4,6 +4,8 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 
 ## Unreleased
 
+## 0.2.0 — 2026-08-13
+
 ### Added
 
 - schema-v5 `task_extension_state` durability: each Task × extension namespace can retain one opaque content-addressed owner state independently of the current Task Event head, with `HostExtensionPort.load_namespace()` preserving the compatibility view and `load_namespace_snapshot(..., expected_revision=...)` exposing revision-coherent Host-owned namespace metadata without importing owner schemas;

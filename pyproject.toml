@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ordivon-host"
-version = "0.1.2"
+version = "0.2.0"
 description = "Persistent Agent coordination and commitment plane for Ordivon."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
