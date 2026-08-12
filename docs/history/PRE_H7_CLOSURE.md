@@ -1,6 +1,6 @@
 # Pre-H7 foundation closure
 
-> **Historical pre-H7 closure record:** This document preserves stage-specific decisions, measurements, or provenance. It is not a current Host architecture or operations source. Use [`../README.md`](../README.md), [`../ARCHITECTURE.md`](../ARCHITECTURE.md), [`OPERATIONS.md`](OPERATIONS.md), and [`authority.md`](authority.md) for the active boundary.
+> **Historical pre-H7 closure record:** This document preserves stage-specific decisions, measurements, or provenance. It is not a current Host architecture or operations source. Use [`../README.md`](../../README.md), [`../ARCHITECTURE.md`](../../ARCHITECTURE.md), [`OPERATIONS.md`](../OPERATIONS.md), and [`authority.md`](../authority.md) for the active boundary.
 
 This document freezes the independently extracted `ordivon-host` foundation before any H7 design or implementation. It is a closure record and audit starting point, not a claim that the Host is a production-ready general Agent platform.
 
@@ -287,7 +287,7 @@ This closure intentionally leaves a small, evidence-bound Host foundation rather
 
 ## Post-audit P0/P1 alignment addendum
 
-The first-principles audit identified correctness and stack-boundary work that was completed after this original closure. `docs/P0_P1_ALIGNMENT.md` is authoritative for those changes.
+The first-principles audit identified correctness and stack-boundary work that was completed after this original closure. `docs/history/P0_P1_ALIGNMENT.md` is authoritative for those changes.
 
 In particular, the updated tree now has unique process-instance lease owners, stricter Journal and migration invariants, persisted guarded-mutation failure, version-dispatched durable codecs, structured Runtime diff facts, logical RepositoryRef, a Computing-owned SourceChange Effect, explicit trusted-local CapabilityDecision, durable Model Invocation, a Provider Gateway port, and an explicit stateless Runtime MCP profile.
 

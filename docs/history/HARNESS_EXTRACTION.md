@@ -1,6 +1,6 @@
 # Ordivon Harness extraction
 
-> **Historical Harness extraction record:** This document preserves stage-specific decisions, measurements, or provenance. It is not a current Host architecture or operations source. Use [`../README.md`](../README.md), [`../ARCHITECTURE.md`](../ARCHITECTURE.md), [`OPERATIONS.md`](OPERATIONS.md), and [`authority.md`](authority.md) for the active boundary.
+> **Historical Harness extraction record:** This document preserves stage-specific decisions, measurements, or provenance. It is not a current Host architecture or operations source. Use [`../README.md`](../../README.md), [`../ARCHITECTURE.md`](../../ARCHITECTURE.md), [`OPERATIONS.md`](../OPERATIONS.md), and [`authority.md`](../authority.md) for the active boundary.
 
 Status: implemented, merged and independently published.
 

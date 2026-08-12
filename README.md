@@ -224,7 +224,7 @@ Normal operation uses short Host Journal transactions, immutable CAS objects, re
 | inspect release/deprecation contracts | [`docs/RELEASES.md`](docs/RELEASES.md) |
 | determine which document/source owns a Host claim | [`docs/authority.md`](docs/authority.md) |
 
-Phase reports, extraction records, remediation notes, and `evidence/` preserve derivation and receipts. They do not override current canonical documents or machine-owned state.
+Phase reports, extraction records, and remediation notes live under [`docs/history/`](docs/history/); they and `evidence/` preserve derivation and receipts. They do not override current canonical documents or machine-owned state.
 
 ## Security and data
 

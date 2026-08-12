@@ -1,6 +1,6 @@
 # P0/P1 Host stack alignment
 
-> **Historical P0/P1 alignment record:** This document preserves stage-specific decisions, measurements, or provenance. It is not a current Host architecture or operations source. Use [`../README.md`](../README.md), [`../ARCHITECTURE.md`](../ARCHITECTURE.md), [`OPERATIONS.md`](OPERATIONS.md), and [`authority.md`](authority.md) for the active boundary.
+> **Historical P0/P1 alignment record:** This document preserves stage-specific decisions, measurements, or provenance. It is not a current Host architecture or operations source. Use [`../README.md`](../../README.md), [`../ARCHITECTURE.md`](../../ARCHITECTURE.md), [`OPERATIONS.md`](../OPERATIONS.md), and [`authority.md`](../authority.md) for the active boundary.
 
 This document records the first implementation pass after the pre-H7 first-principles audit. It supersedes conflicting architectural descriptions in historical closure documents while preserving those documents as evidence of the earlier boundary.
 
@@ -151,7 +151,7 @@ resumable SSE: false
 
 The client validates the negotiated protocol version, caches initialization, and rejects multiple SSE data messages. This removes the prior ambiguity between a deliberately stateless Ordivon Runtime profile and complete stateful MCP support.
 
-> **Successor note:** Runtime later introduced a standard Session compatibility lifecycle and subsequently made the stateless `2026-07-28` discovery path canonical. Current Host transport behavior and its remaining compatibility debt are defined in [`../ARCHITECTURE.md`](../ARCHITECTURE.md); this paragraph remains the historical P1 boundary.
+> **Successor note:** Runtime later introduced a standard Session compatibility lifecycle and subsequently made the stateless `2026-07-28` discovery path canonical. Current Host transport behavior and its remaining compatibility debt are defined in [`../ARCHITECTURE.md`](../../ARCHITECTURE.md); this paragraph remains the historical P1 boundary.
 
 ## Compatibility boundary
 
@@ -183,4 +183,4 @@ The implementation is accepted locally only when:
 
 ## P2 successor note
 
-`docs/P2_P3_EXPLORATION.md` records the subsequent implementation. P2 migrated deterministic Read to `RepositoryRef` and trusted-local Authority, added a conservative one-shot Task Reconciler, and added explicit full-history Doctor validation. The P1 deferred list above remains the historical decision at revision `29b409f`; the P2 document is authoritative for these completed items.
+`docs/history/P2_P3_EXPLORATION.md` records the subsequent implementation. P2 migrated deterministic Read to `RepositoryRef` and trusted-local Authority, added a conservative one-shot Task Reconciler, and added explicit full-history Doctor validation. The P1 deferred list above remains the historical decision at revision `29b409f`; the P2 document is authoritative for these completed items.
