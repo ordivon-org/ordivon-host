@@ -56,6 +56,10 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 - migrated extension namespaces remain readable as legacy owner state, but ordinary mutation fails closed until that owner uses `recover_legacy_namespace()` with the exact legacy state digest and a complete replacement state; Host does not infer or reconstruct owner semantics lost before v5;
 - external executor and other extension owners remain schema-independent at the semantic layer: Host stores opaque extension bytes and does not acquire a Harness or domain dependency.
 
+### Removed
+
+- the standalone `observation_export` metadata-only Host→Computing observation bridge and its optional-contract test surface: the module was never wired into the CLI, `pyproject` entry points, the public package surface, or the documented capability matrix, depended on an undeclared optional package (`ordivon-observation-core`), and had no Host-internal consumer. Its three standard-environment-skipped tests and its acceptance receipt are removed with it.
+
 ## 0.1.2 — Extracted operational prototype
 
 - independent Host repository extracted with history from the Computing incubator;
