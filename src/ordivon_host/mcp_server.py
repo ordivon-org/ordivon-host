@@ -1509,7 +1509,7 @@ def _package_version() -> str:
     try:
         return importlib.metadata.version("ordivon-host")
     except importlib.metadata.PackageNotFoundError:  # pragma: no cover - source-only import
-        return "0.1.2"
+        return "0.2.0"
 
 
 def _bounded_message(error: Exception) -> str:

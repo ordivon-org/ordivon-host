@@ -112,7 +112,7 @@ class McpRuntimeClient:
         timeout_seconds: float = 45.0,
         max_response_bytes: int = 2_097_152,
         client_name: str = "ordivon-host",
-        client_version: str = "0.1.2",
+        client_version: str = "0.2.0",
         profile: McpTransportProfile = ORDIVON_MODERN_MCP_PROFILE,
     ) -> None:
         parsed = urllib.parse.urlparse(endpoint)

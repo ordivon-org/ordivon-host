@@ -158,7 +158,7 @@ def _runtime_check(config: HostConfig | None) -> DoctorCheck:
             token,
             timeout_seconds=config.runtime.timeout_seconds,
             max_response_bytes=config.runtime.max_response_bytes,
-            client_version="0.1.0",
+            client_version="0.2.0",
         )
         initialized = client.initialize()
         return DoctorCheck(

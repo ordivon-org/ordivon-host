@@ -23,7 +23,7 @@ class RuntimeClientFactory:
     endpoint: str
     token: str = field(repr=False)
     client_prefix: str
-    client_version: str = "0.1.0"
+    client_version: str = "0.2.0"
 
     def client(self, label: str, *, initialize: bool = False) -> McpRuntimeClient:
         client = McpRuntimeClient(

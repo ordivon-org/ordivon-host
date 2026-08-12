@@ -206,7 +206,7 @@ def _task(config: HostConfig, args: argparse.Namespace) -> dict[str, object]:
                 token,
                 timeout_seconds=config.runtime.timeout_seconds,
                 max_response_bytes=config.runtime.max_response_bytes,
-                client_version="0.1.0",
+                client_version="0.2.0",
             )
             result = TaskReconciler(
                 storage,
