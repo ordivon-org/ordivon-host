@@ -8,12 +8,12 @@ from ordivon_host import TaskProjection
 from ordivon_host.engine import DeterministicReadHost, GuardedMutationHost
 from ordivon_host.engine.mutation import GuardedMutationHost as MutationPackageHost
 from ordivon_host.runtime import RuntimeClient
-from ordivon_semantics import EffectState
+from anc_effect_ir import EffectMode
 
 
 class HostBoundaryTests(unittest.TestCase):
     def test_host_uses_promoted_protocol(self) -> None:
-        self.assertEqual(canonical_digest({"state": EffectState.UNKNOWN.value})[:7], "sha256:")
+        self.assertEqual(canonical_digest({"mode": EffectMode.CHANGE.value})[:7], "sha256:")
 
     def test_workload_implementations_are_explicit_engine_imports(self) -> None:
         self.assertIs(MutationPackageHost, GuardedMutationHost)
