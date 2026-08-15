@@ -7,7 +7,7 @@ usage: scripts/local-acceptance check|run
 
 check  validate that the Host portable and live acceptance contract is present
 run    execute portable checks and one read-only Host→Runtime journey
-       install the Host MCP surface first (for example: uv pip install --python <py312> -e '.[mcp]'); Ruff is executed as pinned uvx tooling
+       install the Host MCP surface first (for example: uv pip install --python <py312> -e '.[mcp]'); Ruff 0.15.17 may be preinstalled or supplied by uvx
 
 Environment:
   ORDIVON_PROTOCOL_SOURCE         optional local ordivon-protocol source directory
@@ -29,7 +29,6 @@ fi
 case "$mode" in
   check)
     test -n "$python_bin"
-    test -n "$uvx_bin"
     test -f "$repo/pyproject.toml"
     test -f "$repo/scripts/check_docs.py"
     test -f "$repo/scripts/check_dependencies.py"
@@ -69,15 +68,18 @@ case "$mode" in
     "$python_bin" scripts/check_docs.py
     "$python_bin" scripts/check_dependencies.py
     "$python_bin" -m compileall -q src tests scripts
-    if [[ -z "$uvx_bin" ]]; then
-      echo 'Host acceptance requires uvx for pinned Ruff tooling' >&2
-      exit 1
-    fi
     "$python_bin" -c 'import mcp' >/dev/null 2>&1 || {
       echo "Host acceptance requires the mcp optional dependency; install .[mcp] into the selected Python 3.12 environment" >&2
       exit 1
     }
-    "$uvx_bin" ruff==0.15.17 check src tests scripts
+    if "$python_bin" -c 'import ruff; assert ruff.__version__ == "0.15.17"' >/dev/null 2>&1; then
+      "$python_bin" -m ruff check src tests scripts
+    elif [[ -n "$uvx_bin" ]]; then
+      "$uvx_bin" ruff==0.15.17 check src tests scripts
+    else
+      echo 'Host acceptance requires Ruff 0.15.17 in the selected Python environment or uvx for the pinned fallback' >&2
+      exit 1
+    fi
     "$python_bin" -W error::ResourceWarning -m unittest discover -s tests -v
     "$python_bin" scripts/live_runtime_read.py \
       --endpoint "$endpoint" \
