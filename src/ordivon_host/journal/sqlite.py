@@ -558,6 +558,50 @@ class HostJournal:
         ).fetchall()
         return tuple(row["task_id"] for row in rows)
 
+    def task_projection_validation_rows(
+        self,
+    ) -> tuple[tuple[TaskProjection, TaskEventPointer], ...]:
+        # Projection and its exact event head must come from one SQLite statement.
+        # Separate SELECTs can legitimately observe different committed revisions when
+        # another Host process advances an independent Task during startup validation.
+        rows = self.connection.execute(
+            "SELECT p.task_id AS projection_task_id, p.goal_id, p.state, "
+            "p.active_node_id, p.ready_frontier_json, p.revision AS projection_revision, "
+            "p.updated_at_ms, e.event_id, e.stream_id, e.event_kind, "
+            "e.payload_digest, e.stream_revision "
+            "FROM task_projection p LEFT JOIN events e "
+            "ON e.stream_id = p.task_id AND e.stream_kind = ? "
+            "AND e.stream_revision = p.revision ORDER BY p.task_id",
+            (StreamKind.TASK.value,),
+        ).fetchall()
+        result: list[tuple[TaskProjection, TaskEventPointer]] = []
+        for row in rows:
+            if row["event_id"] is None:
+                raise JournalCorruption(
+                    f"Task projection has no matching event head: {row['projection_task_id']}"
+                )
+            try:
+                frontier = json.loads(row["ready_frontier_json"])
+                if not isinstance(frontier, list) or any(
+                    not isinstance(item, str) for item in frontier
+                ):
+                    raise ValueError("Task ready frontier is not a string list")
+                projection = TaskProjection(
+                    task_id=row["projection_task_id"],
+                    goal_id=row["goal_id"],
+                    state=TaskState(row["state"]),
+                    active_node_id=row["active_node_id"],
+                    ready_frontier=tuple(frontier),
+                    revision=int(row["projection_revision"]),
+                    updated_at_ms=int(row["updated_at_ms"]),
+                )
+            except (TypeError, ValueError, json.JSONDecodeError) as error:
+                raise JournalCorruption(
+                    f"Task projection is invalid: {row['projection_task_id']}"
+                ) from error
+            result.append((projection, self._task_event_pointer(row)))
+        return tuple(result)
+
     def tasks_for_goal(self, goal_id: str) -> tuple[TaskProjection, ...]:
         if not goal_id.startswith("goal:") or goal_id != goal_id.strip():
             raise ValueError("Goal identity must start with goal:")

@@ -175,19 +175,18 @@ class HostStorage:
         if update_cache:
             self.journal.record_object_validations(tuple(pending))
 
-        task_ids = self.journal.task_ids()
-        for task_id in task_ids:
-            materialized = self.journal.get_task(task_id)
-            rebuilt = self.rebuild_task(task_id)
+        task_rows = self.journal.task_projection_validation_rows()
+        for materialized, pointer in task_rows:
+            rebuilt = self._read_task_event_pointer(pointer).projection
             if materialized != rebuilt:
                 raise JournalCorruption(
-                    f"Task projection differs from event head: {task_id}"
+                    f"Task projection differs from event head: {materialized.task_id}"
                 )
         return ReferenceValidation(
             object_refs=total_objects,
             cached_objects=cached_objects,
             hashed_objects=hashed_objects,
-            task_heads=len(task_ids),
+            task_heads=len(task_rows),
             full=full,
         )
 

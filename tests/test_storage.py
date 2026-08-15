@@ -336,6 +336,51 @@ class HostStorageTests(unittest.TestCase):
                 with self.assertRaises(ObjectCorrupt):
                     storage.objects.get(stored.digest)
 
+    def test_projection_validation_rows_remain_self_consistent_after_concurrent_advance(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with HostStorage(directory) as reader:
+                reader.record_task_event(
+                    event_id="event:create",
+                    kind=EventKind.TASK_CREATED,
+                    payload={"revision": 1},
+                    projection=projection(1),
+                    expected_revision=0,
+                )
+                rows = reader.journal.task_projection_validation_rows()
+                self.assertEqual(len(rows), 1)
+
+                with HostStorage(directory) as writer:
+                    lease = writer.journal.acquire_lease(
+                        "task:journal-test",
+                        owner_id="host:test:writer",
+                        now_ms=10,
+                        ttl_ms=100,
+                    )
+                    writer.record_task_event(
+                        event_id="event:advance",
+                        kind=EventKind.TASK_STATE_CHANGED,
+                        payload={"revision": 2},
+                        projection=projection(
+                            2, state=TaskState.RUNNING, updated_at_ms=11
+                        ),
+                        expected_revision=1,
+                        expected_lease=lease,
+                        lease_checked_at_ms=11,
+                    )
+
+                materialized, pointer = rows[0]
+                self.assertEqual(materialized, projection(1))
+                self.assertEqual(pointer.revision, 1)
+                self.assertEqual(
+                    reader._read_task_event_pointer(pointer).projection, projection(1)
+                )
+
+            with HostStorage(directory) as reopened:
+                self.assertEqual(
+                    reopened.journal.get_task("task:journal-test"),
+                    projection(2, state=TaskState.RUNNING, updated_at_ms=11),
+                )
+
     def test_validation_cache_skips_unchanged_historical_object_hashes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             with HostStorage(directory) as storage:
