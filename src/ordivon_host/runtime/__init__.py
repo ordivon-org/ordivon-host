@@ -13,6 +13,7 @@ from .errors import (
     RuntimeTransportError,
 )
 from .jobs import find_jobs_by_client_request, tool_accepts_property
+from .semantics import classify_runtime_job_observation
 from .mcp import (
     DEFAULT_PROTOCOL_VERSION,
     LEGACY_PROTOCOL_VERSION,
@@ -53,6 +54,7 @@ __all__ = [
     "RuntimeProtocolError",
     "RuntimeToolRejected",
     "RuntimeTransportError",
+    "classify_runtime_job_observation",
     "discover_execution_runtime_catalog",
     "discover_runtime_catalog",
     "ensure_workspace",

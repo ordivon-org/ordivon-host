@@ -23,6 +23,7 @@ from ...runtime import (
     RuntimeClientError,
     RuntimeProtocolError,
     RuntimeToolRejected,
+    classify_runtime_job_observation,
     ensure_workspace,
     ensure_workspace_closed,
     find_jobs_by_client_request,
@@ -60,8 +61,6 @@ _REQUIRED_TOOLS = (
     "workspace.open",
     "workspace.read",
 )
-_ACTIVE_JOB_STATES = {"queued", "working"}
-_BLOCKED_JOB_STATES = {"failed", "timed_out", "cancelled", "lost", "orphaned", "unknown"}
 
 
 class CodeChangeHost:
@@ -746,17 +745,16 @@ class CodeChangeHost:
             if current.dispatch != prepared.dispatch:
                 raise CodeChangeSuperseded("prepared code-change Dispatch changed")
             data = require_object(locked.snapshot.data, "code-change Dispatch data")
-            if status == "succeeded":
+            runtime_state = classify_runtime_job_observation(payload)
+            if runtime_state == "succeeded":
                 state = TaskState.VERIFYING
                 stage = "verify"
-            elif status in _ACTIVE_JOB_STATES:
-                state = TaskState.WAITING
-                stage = "reconcile"
-            elif status in _BLOCKED_JOB_STATES:
+            elif runtime_state in {"failed", "unknown"}:
                 state = TaskState.BLOCKED
                 stage = "close"
             else:
-                raise RuntimeProtocolError(f"unsupported Runtime Job status: {status}")
+                state = TaskState.WAITING
+                stage = "reconcile"
             references = self._reference_objects(data) + (observation_object,)
             projection = locked.commit(
                 event_id=self._event_id(

@@ -27,6 +27,57 @@ from ordivon_host.runtime import (
 )
 
 
+def runtime_semantics(status: str, *, recovery_required: bool = False) -> dict[str, Any]:
+    if status in {"queued", "working"}:
+        return {
+            "executionTerminal": False,
+            "executionDisposition": None,
+            "deliveryDisposition": "in_progress",
+            "recoveryRequired": False,
+            "semanticCompletionEvaluated": False,
+            "resultAvailable": False,
+        }
+    if status == "succeeded":
+        return {
+            "executionTerminal": True,
+            "executionDisposition": "succeeded",
+            "deliveryDisposition": (
+                "reconciliation_required" if recovery_required else "committed"
+            ),
+            "recoveryRequired": recovery_required,
+            "semanticCompletionEvaluated": False,
+            "resultAvailable": True,
+        }
+    if status in {"failed", "timed_out", "cancelled"}:
+        return {
+            "executionTerminal": True,
+            "executionDisposition": status,
+            "deliveryDisposition": "committed",
+            "recoveryRequired": False,
+            "semanticCompletionEvaluated": False,
+            "resultAvailable": True,
+        }
+    if status == "lost":
+        return {
+            "executionTerminal": True,
+            "executionDisposition": "lost",
+            "deliveryDisposition": "unknown",
+            "recoveryRequired": False,
+            "semanticCompletionEvaluated": False,
+            "resultAvailable": True,
+        }
+    if status == "orphaned":
+        return {
+            "executionTerminal": True,
+            "executionDisposition": "orphaned",
+            "deliveryDisposition": "reconciliation_required",
+            "recoveryRequired": True,
+            "semanticCompletionEvaluated": False,
+            "resultAvailable": True,
+        }
+    raise AssertionError(f"unsupported fake Runtime status: {status}")
+
+
 def missing_workspace(operation: str) -> RuntimeToolRejected:
     return RuntimeToolRejected(
         operation,
@@ -94,6 +145,7 @@ class FakeCodeChangeRuntime:
         self.drop_first_response = False
         self.response_dropped = False
         self.fail_check = False
+        self.recovery_required = False
         self.catalog_generation = 1
         self.closed_source_digests: dict[str, str] = {}
 
@@ -251,6 +303,10 @@ class FakeCodeChangeRuntime:
                 "clientRequestId": client_request_id,
                 "workspaceId": workspace_id,
                 "status": "failed" if failed else "succeeded",
+                **runtime_semantics(
+                    "failed" if failed else "succeeded",
+                    recovery_required=self.recovery_required and not failed,
+                ),
                 "completedSteps": 1 if failed else len(steps),
                 "totalSteps": len(steps),
                 "failedStepId": steps[1]["id"] if failed else None,
@@ -419,6 +475,27 @@ class CodeChangeTests(unittest.TestCase):
                 self.assertEqual(outcome["status"], "completed")
             self.assertEqual(runtime.physical_deliveries, 1)
             self.assertNotIn(plan().workspace_id, runtime.workspaces)
+
+    def test_succeeded_status_waits_while_runtime_recovery_is_required(self) -> None:
+        runtime = FakeCodeChangeRuntime()
+        runtime.recovery_required = True
+        with tempfile.TemporaryDirectory() as directory:
+            with HostStorage(directory) as storage:
+                host = code_change_host(storage, runtime, self.clock)
+                host.create(plan())
+                host.open_workspace(plan().task_id)
+                prepared = host.prepare(plan().task_id)
+                waiting = host.deliver(prepared)
+                self.assertEqual(waiting.state, TaskState.WAITING)
+                self.assertTrue(waiting.frontier.endswith(":reconcile"))
+
+            runtime.recovery_required = False
+            runtime.jobs["job-1"].update(runtime_semantics("succeeded"))
+            with HostStorage(directory) as storage:
+                reconciled = code_change_host(storage, runtime, self.clock).reconcile(
+                    plan().task_id
+                )
+                self.assertEqual(reconciled.state, TaskState.VERIFYING)
 
     def test_response_loss_recovers_original_job_without_redispatch(self) -> None:
         runtime = FakeCodeChangeRuntime()

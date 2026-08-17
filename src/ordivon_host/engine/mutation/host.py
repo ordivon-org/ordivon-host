@@ -16,6 +16,7 @@ from ...runtime import (
     RuntimeClientError,
     RuntimeProtocolError,
     RuntimeToolRejected,
+    classify_runtime_job_observation,
     discover_execution_runtime_catalog,
     ensure_workspace,
     ensure_workspace_closed,
@@ -32,7 +33,6 @@ from .._serde import (
 )
 from .effect import mutation_effect
 from .models import (
-    _FAILED_JOB_STATES,
     DispatchIntent,
     GuardedMutationPlan,
     MutationStep,
@@ -518,10 +518,11 @@ class GuardedMutationHost:
                 observation.to_dict(), kind="runtime-job-observation"
             )
             data = require_object(locked.snapshot.data, "mutation Dispatch data")
-            if status == "succeeded":
+            runtime_state = classify_runtime_job_observation(payload)
+            if runtime_state == "succeeded":
                 state = TaskState.VERIFYING
                 frontier = "verify"
-            elif status in _FAILED_JOB_STATES:
+            elif runtime_state in {"failed", "unknown"}:
                 state = TaskState.BLOCKED
                 frontier = "close"
             else:

@@ -61,6 +61,57 @@ def descriptor(name: str) -> dict[str, Any]:
     }
 
 
+def runtime_semantics(status: str, *, recovery_required: bool = False) -> dict[str, Any]:
+    if status in {"queued", "working"}:
+        return {
+            "executionTerminal": False,
+            "executionDisposition": None,
+            "deliveryDisposition": "in_progress",
+            "recoveryRequired": False,
+            "semanticCompletionEvaluated": False,
+            "resultAvailable": False,
+        }
+    if status == "succeeded":
+        return {
+            "executionTerminal": True,
+            "executionDisposition": "succeeded",
+            "deliveryDisposition": (
+                "reconciliation_required" if recovery_required else "committed"
+            ),
+            "recoveryRequired": recovery_required,
+            "semanticCompletionEvaluated": False,
+            "resultAvailable": True,
+        }
+    if status in {"failed", "timed_out", "cancelled"}:
+        return {
+            "executionTerminal": True,
+            "executionDisposition": status,
+            "deliveryDisposition": "committed",
+            "recoveryRequired": False,
+            "semanticCompletionEvaluated": False,
+            "resultAvailable": True,
+        }
+    if status == "lost":
+        return {
+            "executionTerminal": True,
+            "executionDisposition": "lost",
+            "deliveryDisposition": "unknown",
+            "recoveryRequired": False,
+            "semanticCompletionEvaluated": False,
+            "resultAvailable": True,
+        }
+    if status == "orphaned":
+        return {
+            "executionTerminal": True,
+            "executionDisposition": "orphaned",
+            "deliveryDisposition": "reconciliation_required",
+            "recoveryRequired": True,
+            "semanticCompletionEvaluated": False,
+            "resultAvailable": True,
+        }
+    raise AssertionError(f"unsupported fake Runtime status: {status}")
+
+
 def missing_workspace(operation: str) -> RuntimeToolRejected:
     return RuntimeToolRejected(
         operation,
@@ -94,6 +145,7 @@ class FakeMutationRuntime:
         self.task_list_ignore_filter = False
         self.task_list_arguments: list[dict[str, Any]] = []
         self.terminal_status = "succeeded"
+        self.recovery_required = False
 
     def initialize(self) -> dict[str, Any]:
         self.calls.append("initialize")
@@ -181,6 +233,9 @@ class FakeMutationRuntime:
                     "clientRequestId": client_request_id,
                     "workspaceId": workspace_id,
                     "status": self.terminal_status,
+                    **runtime_semantics(
+                        self.terminal_status, recovery_required=self.recovery_required
+                    ),
                     "createdAtMs": 100 + self.physical_deliveries,
                     "artifacts": [],
                 }
@@ -278,6 +333,26 @@ class GuardedMutationHostTests(unittest.TestCase):
                 snapshot = storage.read_task_event(task_plan.task_id)
                 self.assertEqual(snapshot.projection.state, TaskState.FAILED)
                 self.assertEqual(snapshot.data["jobStatus"], "failed")
+
+    def test_succeeded_status_waits_while_runtime_recovery_is_required(self) -> None:
+        runtime = FakeMutationRuntime()
+        runtime.recovery_required = True
+        task_plan = plan("recovery-required")
+        with tempfile.TemporaryDirectory() as directory:
+            with HostStorage(directory) as storage:
+                runner = host(storage, runtime)
+                runner.create(task_plan)
+                runner.open_workspace(task_plan.task_id)
+                prepared = runner.prepare(task_plan.task_id)
+                waiting = runner.deliver(prepared)
+                self.assertEqual(waiting.state, TaskState.WAITING)
+                self.assertTrue(waiting.frontier.endswith(":reconcile"))
+
+            runtime.recovery_required = False
+            runtime.jobs["job-1"].update(runtime_semantics("succeeded"))
+            with HostStorage(directory) as storage:
+                reconciled = host(storage, runtime).reconcile(task_plan.task_id)
+                self.assertEqual(reconciled.state, TaskState.VERIFYING)
 
     def test_response_loss_reconciles_original_job_across_fresh_hosts(self) -> None:
         runtime = FakeMutationRuntime()
@@ -417,6 +492,7 @@ class GuardedMutationHostTests(unittest.TestCase):
                     "clientRequestId": prepared.dispatch.client_request_id,
                     "workspaceId": task_plan.workspace_id,
                     "status": "succeeded",
+                    **runtime_semantics("succeeded"),
                     "createdAtMs": created_at,
                     "artifacts": [],
                 }
@@ -453,6 +529,7 @@ class GuardedMutationHostTests(unittest.TestCase):
                 "clientRequestId": "request:unrelated",
                 "workspaceId": task_plan.workspace_id,
                 "status": "succeeded",
+                **runtime_semantics("succeeded"),
                 "createdAtMs": 500,
                 "artifacts": [],
             }
@@ -481,6 +558,7 @@ class GuardedMutationHostTests(unittest.TestCase):
                 "clientRequestId": "request:wrong",
                 "workspaceId": task_plan.workspace_id,
                 "status": "succeeded",
+                **runtime_semantics("succeeded"),
                 "createdAtMs": 500,
                 "artifacts": [],
             }
