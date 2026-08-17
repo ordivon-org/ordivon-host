@@ -254,14 +254,14 @@ mcp = [
 [package.metadata]
 requires-dist = [
     { name = "mcp", marker = "extra == 'mcp'", specifier = "==2.0.0" },
-    { name = "ordivon-protocol", git = "https://github.com/zycxfyh/ordivon-computing.git?subdirectory=packages%2Fordivon-protocol&rev=420dc356cb664d75db0f34f356156baebe5843db" },
+    { name = "ordivon-protocol", git = "https://github.com/zycxfyh/ordivon-computing.git?subdirectory=packages%2Fordivon-protocol&rev=5f9b418f1c366befa780f0ace1c6c8e64c721a3e" },
 ]
 provides-extras = ["mcp"]
 
 [[package]]
 name = "ordivon-protocol"
 version = "0.3.0"
-source = { git = "https://github.com/zycxfyh/ordivon-computing.git?subdirectory=packages%2Fordivon-protocol&rev=420dc356cb664d75db0f34f356156baebe5843db#420dc356cb664d75db0f34f356156baebe5843db" }
+source = { git = "https://github.com/zycxfyh/ordivon-computing.git?subdirectory=packages%2Fordivon-protocol&rev=5f9b418f1c366befa780f0ace1c6c8e64c721a3e#5f9b418f1c366befa780f0ace1c6c8e64c721a3e" }
 
 [[package]]
 name = "pycparser"

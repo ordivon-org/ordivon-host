@@ -13,6 +13,7 @@ from ..runtime import (
     RuntimeProtocolError,
     RuntimeToolRejected,
     RuntimeTransportError,
+    is_missing_workspace,
 )
 
 _SERVICE = re.compile(r"^[A-Za-z0-9_.@-]+$")
@@ -85,11 +86,7 @@ def workspace_absent(client: McpRuntimeClient, workspace_id: str) -> bool:
             {"schemaVersion": 1, "workspaceId": workspace_id},
         )
     except RuntimeToolRejected as error:
-        return (
-            error.detail.code == "INVALID_REQUEST"
-            and error.detail.field == "workspaceId"
-            and error.detail.commit_state == "not_committed"
-        )
+        return is_missing_workspace(error)
     return False
 
 
