@@ -40,7 +40,6 @@ from .journal.migrations import schema_version
 from .kernel import TaskRevisionMismatch
 from .objects import ObjectCorrupt
 from .ops import doctor_state, inspect_deployment
-from .recovery import assess_recovery
 from .storage import HostStorage
 
 DEFAULT_HOST_MCP_BIND = "127.0.0.1"
@@ -1038,8 +1037,6 @@ def _observe_task(
                     "nextActions": _item_previews(record.checkpoint.next_actions),
                     "unresolved": _item_previews(record.checkpoint.unresolved),
                 }
-        else:
-            recovery = assess_recovery(storage, task_id).to_dict()
 
         return {
             "schemaVersion": 1,

@@ -39,7 +39,6 @@ from .kernel import (
     TransitionReceipt,
 )
 from .objects import ContentAddressedStore
-from .recovery import RecoveryAction, RecoveryAssessment, assess_recovery
 from .storage import HostStorage, TaskEventSnapshot
 
 __all__ = [
@@ -66,8 +65,6 @@ __all__ = [
     "LockedTask",
     "ObservationEnvelope",
     "OperatorHandoffCapsule",
-    "RecoveryAction",
-    "RecoveryAssessment",
     "RevisionConflict",
     "StateRef",
     "TaskDescriptor",
@@ -86,7 +83,6 @@ __all__ = [
     "WorkingCheckpoint",
     "WorkingCheckpointRecord",
     "WorkingCheckpointRuntime",
-    "assess_recovery",
     "load_config",
     "operator_handoff",
 ]

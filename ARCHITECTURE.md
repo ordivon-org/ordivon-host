@@ -34,7 +34,7 @@ related:
 
 Preserve semantic work across replaceable Agent sessions and execution processes while refusing to mirror owner-current Runtime, Git, Provider, Harness, or domain state into a second authority.
 
-Host 0.3.x is intentionally smaller than historical Host designs. The current architecture is the engineering result of the Host Deep Foundations and subsequent destructive ownership falsifiers.
+Host 0.4.x is intentionally smaller than historical Host designs. The current architecture is the engineering result of the Host Deep Foundations and subsequent destructive ownership falsifiers.
 
 ## Identity and ontology
 
@@ -88,7 +88,6 @@ The production implementation consists of:
 - generic extension admission with opaque namespace state;
 - bounded context-selection structures retained for the Security consumer;
 - a small set of typed compatibility value objects retained for real consumers;
-- read-only conservative recovery assessment;
 - Doctor, full-history validation, backup/restore, GC planning, and receipt-bound deployment;
 - one authenticated six-Tool MCP projection.
 
@@ -254,12 +253,6 @@ TaskOutcome              != domain completion oracle
 ```
 
 The owner interpreting a value remains responsible for its domain semantics.
-
-## Recovery projection
-
-`assess_recovery` is intentionally small and read-only. It can report that a terminal Task needs no recovery or that a nonterminal unsupported workload requires owner re-observation. It does not invoke Runtime, redispatch external work, or perform automatic cross-owner reconciliation.
-
-This is conservative operator ergonomics, not a hidden reconciliation engine.
 
 ## Failure modes
 

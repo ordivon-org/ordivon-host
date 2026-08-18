@@ -104,8 +104,7 @@ When physical execution state matters, query Ordivon Runtime directly with its n
 ```bash
 ordivon-host --state-root /var/lib/ordivon/host task list
 ordivon-host --state-root /var/lib/ordivon/host task handoff TASK_ID --expected-revision REVISION
-ordivon-host --state-root /var/lib/ordivon/host task assess TASK_ID
 ordivon-host --state-root /var/lib/ordivon/host doctor --history
 ```
 
-`task assess` is a read-only conservative Host-local projection; it never invokes Runtime or another owner. Back up before migration or administrative repair. See [`OPERATIONS.md`](OPERATIONS.md) and [`DATA_AND_PRIVACY.md`](DATA_AND_PRIVACY.md).
+Back up before migration or administrative repair. See [`OPERATIONS.md`](OPERATIONS.md) and [`DATA_AND_PRIVACY.md`](DATA_AND_PRIVACY.md).

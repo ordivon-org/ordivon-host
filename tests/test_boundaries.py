@@ -16,12 +16,16 @@ class HostBoundaryTests(unittest.TestCase):
         source = Path(__file__).resolve().parents[1] / "src" / "ordivon_host"
         self.assertFalse((source / "harness").exists())
         self.assertFalse((source / "engine").exists())
+        self.assertFalse((source / "recovery.py").exists())
         import ordivon_host
         for name in (
             "HarnessHost",
             "EffectLifecycleHost",
             "TaskReconciler",
             "RecoveryResult",
+            "RecoveryAction",
+            "RecoveryAssessment",
+            "assess_recovery",
             "ExternalExecutorCoordinator",
             "GoalCoordinatorHost",
         ):

@@ -22,7 +22,6 @@ from .ops import (
     restore_backup,
     verify_backup,
 )
-from .recovery import assess_recovery
 from .storage import HostStorage
 
 
@@ -58,8 +57,6 @@ def build_parser() -> argparse.ArgumentParser:
     task_checkpoint.add_argument("task_id")
     task_checkpoint.add_argument("--expected-revision", type=int, required=True)
     task_checkpoint.add_argument("--checkpoint-file", type=Path, required=True)
-    task_assess = task_commands.add_parser("assess")
-    task_assess.add_argument("task_id")
     doctor = commands.add_parser("doctor")
     doctor.add_argument("--history", action="store_true")
     backup = commands.add_parser("backup")
@@ -186,8 +183,6 @@ def _task(config: HostConfig, args: argparse.Namespace) -> dict[str, object]:
                 expected_revision=args.expected_revision,
                 checkpoint=_working_checkpoint(args.checkpoint_file),
             ).to_dict()
-        if args.task_command == "assess":
-            return assess_recovery(storage, args.task_id).to_dict()
     raise ValueError("unsupported Task command")
 
 

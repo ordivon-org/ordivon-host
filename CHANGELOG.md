@@ -4,42 +4,64 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 
 ## Unreleased
 
-### Changed
+No unreleased changes.
 
-- **0.3.1 identity/documentation patch:** canonical README, architecture and quick start now describe the actually deployed 0.3.x Host boundary: durable semantic Task continuity + Host-owned Journal/CAS authority, not the removed Goal coordination, cognition execution/proposal, Runtime client/read/mutation/code-change, foreign executor, or capability-policy responsibilities;
-- `Host` is explicitly defined as the stable product/compatibility proper noun for that narrowed responsibility, not a universal Host ontology or central coordinator;
-- documentation validation now fails closed if removed C1–C5 ownership claims such as `CognitionWorkRequest`, `DecisionRequest`, `DeterministicReadHost`, product Runtime clients, or guarded mutation slices reappear in canonical identity documents;
-- Runtime remains an external owner and is no longer described as a Host installation prerequisite.
-
-### Compatibility
-
-- no Python product implementation, MCP Tool schema, Host Journal schema, state format, package root API, CLI, config, or deployment semantics change in 0.3.1;
-- package/service/state identities remain `ordivon-host` / `ordivon_host` / Ordivon Host. This patch intentionally rejects a rename because alternative labels either omit current responsibilities or imply stronger authority than Host actually owns.
-
-### Changed
-
-- **0.3.0 Major-class pre-1.0 contraction candidate:** Host is narrowed to durable semantic continuity, Host-owned Journal/CAS authority, exact Task revision/lease admission, bounded handoff/inspection, opaque extension durability, the Security-consumed context-selection surface, and local integrity/deployment operations;
-- Runtime, Harness, World, Security and other owners are observed directly when their current physical/domain truth matters. `WorkingCheckpoint.runtime` remains a navigation hint and does not make Host a Runtime proxy;
-- release acceptance now tests Host-owned behavior plus named real consumers and receipt-bound deployment preparation/planning instead of requiring a Host→Runtime workload journey that Host no longer owns;
-- remove the un-runnable GitHub self-hosted system-acceptance workflow: the repository has no registered self-hosted runner, while local system/deployment evidence is already owned by operator-run `local-acceptance` and receipt-bound deployment `prepare`/`plan`;
-- the package description and active architecture/operations/status documents now reflect the contracted responsibility rather than the falsified primitive coordination/execution ontology.
+## 0.4.0 — 2026-08-18
 
 ### Removed
 
-- shared Goal coordination (`GoalCoordinatorHost`, `GoalSnapshot`, `TaskRevisionRef`, coordination errors);
-- caller-neutral ExternalExecutor request/binding/observation/coordinator APIs;
-- Host read, guarded-mutation and code-change engines and their historical live workload scripts;
-- Host cognition execution/proposal/decision-request/provenance orchestration, while retaining bounded context-selection semantics with a real Security consumer;
-- automatic `TaskReconciler`, `RecoveryResult`, and CLI `task reconcile`;
-- the generic Host capability-authority policy module;
-- product `ordivon_host.runtime`, `McpRuntimeClient`, Runtime catalogs/helpers, `RuntimeSettings`, `[runtime]` Host configuration, and CLI `doctor --runtime`; the bounded MCP client needed to test Host MCP wire behavior is test-only equipment under `ordivon_host.testing`.
+- remove the public `RecoveryAction`, `RecoveryAssessment`, and `assess_recovery` compatibility exports, the `ordivon_host.recovery` module, and CLI `task assess`;
+- remove four unreachable historical recovery actions (`advance-read`, `observe-runtime-dispatch`, `cognition-result-required`, `manual-stage`) that survived after their owning engines were deleted.
+
+### Changed
+
+- `task.observe` keeps its existing `recovery` response field for wire-schema stability, but current Host production continuity Tasks continue to project it as `null`; owner-native continuation remains `task.resume` / handoff plus direct owner revalidation;
+- boundary tests and documentation checks now fail closed if the removed recovery compatibility surface returns.
 
 ### Compatibility
 
-- **Breaking pre-1.0 cutover:** the 26 removed package-root exports, deleted submodules, `[runtime]` config table, `task reconcile`, and `doctor --runtime` are intentionally not aliased. Current consumer scans found no production caller that requires them;
-- durable Host Journal/CAS schema remains **v5** and no migration is introduced by the contraction. Historical Events/CAS bytes remain validated without requiring deleted historical execution policies;
-- World and Security remain named compatibility consumers and must pass against the candidate before activation;
-- activation must bind the exact currently deployed `8d7e58a0511734a454805e29d10e7d3bb754d2da` release as rollback peer.
+- **Breaking pre-1.0 cleanup:** removing the package-root recovery exports and `task assess` is Major-class under Host policy, so `0.3.x` advances to `0.4.0`;
+- retained production state contains 497/497 Tasks under `ordivon.host.external-continuity.v1`, for which MCP `task.observe` already bypassed the generic recovery projection; no durable state migration is required;
+- exact scans found no external production import/caller of the removed recovery API or CLI;
+- the six-Tool MCP catalog and its schema are intentionally unchanged.
+
+## 0.3.1 — 2026-08-18
+
+### Changed
+
+- canonical README, architecture and quick start were reconstructed around the actually deployed Host boundary: durable semantic Task continuity + Host-owned Journal/CAS authority, not the removed Goal coordination, cognition execution/proposal, Runtime client/read/mutation/code-change, foreign executor, or capability-policy responsibilities;
+- `Host` is explicitly the stable product/compatibility proper noun for that narrowed responsibility, not a universal Host ontology or central coordinator;
+- documentation validation fails closed if removed C1–C5 ownership claims return;
+- Runtime is an external owner and is not a Host installation prerequisite.
+
+### Compatibility
+
+- 0.3.1 changed no product implementation, MCP Tool schema, Host Journal schema, state format, package-root API, CLI, config, or deployment semantics;
+- package/service/state identities remain `ordivon-host` / `ordivon_host` / Ordivon Host.
+
+## 0.3.0 — 2026-08-18
+
+### Changed
+
+- Major-class contraction narrowed Host to durable semantic continuity, Host-owned Journal/CAS authority, exact Task revision/lease admission, bounded handoff/inspection, opaque extension durability, the Security-consumed context-selection surface, and local integrity/deployment operations;
+- Runtime, Harness, World, Security and other owners are observed directly when their current physical/domain truth matters;
+- release acceptance was rebuilt around Host-owned behavior, named real consumers and receipt-bound deployment rather than deleted Host→Runtime workload ownership.
+
+### Removed
+
+- shared Goal coordination;
+- caller-neutral ExternalExecutor coordination;
+- Host read, guarded-mutation and code-change engines;
+- Host cognition execution/proposal/decision orchestration;
+- automatic `TaskReconciler` and `RecoveryResult`;
+- generic Host capability-authority policy;
+- product Runtime client/config/catalog/health integration.
+
+### Compatibility
+
+- the removed package exports/submodules, `[runtime]` config, `task reconcile`, and `doctor --runtime` were intentionally not aliased;
+- durable Host Journal/CAS schema remained v5 with no migration;
+- World and Security remained named compatibility consumers.
 
 ## 0.2.0 — 2026-08-13
 

@@ -272,6 +272,10 @@ def validate_public_contracts() -> list[str]:
         "## Deterministic Runtime read slice",
         "## Semantic cognition request and admission",
         "## Guarded mutation and uncertain delivery",
+        "RecoveryAction",
+        "RecoveryAssessment",
+        "assess_recovery",
+        "task assess",
     )
     for relative, text in current_identity_docs.items():
         for stale in forbidden_current_claims:

@@ -73,7 +73,7 @@ class HostCliTests(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertEqual(result["error"], "ValueError")
 
-    def test_history_doctor_and_recovery_assessment_commands(self) -> None:
+    def test_history_doctor_command(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory) / "state"
             with HostStorage(state) as storage:
@@ -100,16 +100,6 @@ class HostCliTests(unittest.TestCase):
                 item for item in result["checks"] if item["name"] == "journal.history"
             )
             self.assertEqual(history["status"], "ok")
-            code, result = self.invoke(
-                "--state-root",
-                str(state),
-                "task",
-                "assess",
-                "task:cli-assess",
-            )
-            self.assertEqual(code, 0)
-            self.assertEqual(result["action"], "unsupported")
-            self.assertFalse(result["automatic"])
 
     def test_task_list_and_missing_task(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

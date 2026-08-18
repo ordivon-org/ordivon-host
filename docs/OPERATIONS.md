@@ -118,7 +118,6 @@ ordivon-host task handoff TASK_ID [--expected-revision N]
 ordivon-host task adopt TASK_ID GOAL_ID --checkpoint-file CHECKPOINT.json
 ordivon-host task resume TASK_ID [--expected-revision N]
 ordivon-host task checkpoint TASK_ID --expected-revision N --checkpoint-file CHECKPOINT.json
-ordivon-host task assess TASK_ID
 ordivon-host doctor [--history]
 ordivon-host backup DESTINATION
 ordivon-host verify-backup BACKUP
@@ -325,5 +324,3 @@ Backup verification is full and read-only: it disables validation-cache writes s
 The local doctor checks SQLite integrity, schema compatibility, exact private state modes, Journal invariants including causal-link integrity, full CAS content integrity, orphan objects, and lease state. It is intentionally Host-local and does not proxy or health-check Runtime or another owner.
 
 `--history` decodes every historical Event payload and verifies its row identity, projection revision, known CAS references, and retained Effect/Binding/Authority links. It is intentionally explicit: at 100,000 Events it increased measured Doctor latency from 10.3 seconds to 18.5 seconds, while normal startup and normal Doctor remain unchanged.
-
-`task assess` is local and read-only. Terminal Tasks report no recovery need; nonterminal Tasks that require another owner report a conservative unsupported/re-observe-owner result. Host does not load Runtime credentials or invoke another owner during assessment.
