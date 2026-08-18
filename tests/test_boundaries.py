@@ -41,8 +41,6 @@ class HostBoundaryTests(unittest.TestCase):
         self.assertFalse(hasattr(ordivon_host, "HarnessHost"))
         self.assertFalse(hasattr(ordivon_host, "EffectLifecycleHost"))
         self.assertFalse(hasattr(ordivon_host, "owner_of"))
-        self.assertTrue(hasattr(ordivon_host, "ExternalExecutorCoordinator"))
-        self.assertTrue(hasattr(ordivon_host, "ExternalRunBinding"))
 
     def test_legacy_mutation_module_is_removed(self) -> None:
         source = Path(__file__).resolve().parents[1] / "src" / "ordivon_host" / "engine"

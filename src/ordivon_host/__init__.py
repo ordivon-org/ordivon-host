@@ -25,21 +25,6 @@ from .extensions import (
     HostExtensionPort,
     HostExtensionSnapshot,
 )
-from .external_executor import (
-    ExternalCompletionConflict,
-    ExternalCompletionProposal,
-    ExternalExecutionMissing,
-    ExternalExecutionRequest,
-    ExternalExecutionSnapshot,
-    ExternalExecutorAdapter,
-    ExternalExecutorCoordinator,
-    ExternalExecutorError,
-    ExternalObservationConflict,
-    ExternalRequestConflict,
-    ExternalRunBinding,
-    ExternalRunObservation,
-    ExternalRunStatus,
-)
 from .handoff import OperatorHandoffCapsule, operator_handoff
 from .journal import HostJournal, LeaseHeld, RevisionConflict
 from .kernel import (
@@ -79,21 +64,8 @@ __all__ = [
     "EventKind",
     "ExecutionRuntimeCatalog",
     "EXTERNAL_CONTINUITY_WORKLOAD_ID",
-    "ExternalCompletionConflict",
     "ExternalContinuityHost",
     "ExternalContinuityResume",
-    "ExternalCompletionProposal",
-    "ExternalExecutionMissing",
-    "ExternalExecutionRequest",
-    "ExternalExecutionSnapshot",
-    "ExternalExecutorAdapter",
-    "ExternalExecutorCoordinator",
-    "ExternalExecutorError",
-    "ExternalObservationConflict",
-    "ExternalRequestConflict",
-    "ExternalRunBinding",
-    "ExternalRunObservation",
-    "ExternalRunStatus",
     "HostConfig",
     "HostExtensionError",
     "HostExtensionLegacyStateUnknown",
