@@ -9,6 +9,7 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 - **0.3.0 Major-class pre-1.0 contraction candidate:** Host is narrowed to durable semantic continuity, Host-owned Journal/CAS authority, exact Task revision/lease admission, bounded handoff/inspection, opaque extension durability, the Security-consumed context-selection surface, and local integrity/deployment operations;
 - Runtime, Harness, World, Security and other owners are observed directly when their current physical/domain truth matters. `WorkingCheckpoint.runtime` remains a navigation hint and does not make Host a Runtime proxy;
 - release acceptance now tests Host-owned behavior plus named real consumers and receipt-bound deployment preparation/planning instead of requiring a Host→Runtime workload journey that Host no longer owns;
+- remove the un-runnable GitHub self-hosted system-acceptance workflow: the repository has no registered self-hosted runner, while local system/deployment evidence is already owned by operator-run `local-acceptance` and receipt-bound deployment `prepare`/`plan`;
 - the package description and active architecture/operations/status documents now reflect the contracted responsibility rather than the falsified primitive coordination/execution ontology.
 
 ### Removed
