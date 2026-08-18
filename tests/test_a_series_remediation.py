@@ -9,19 +9,13 @@ import tempfile
 import threading
 import unittest
 
-from anc_canonical import canonical_digest
-
 from ordivon_host import (
-    CoordinationError,
     EventKind,
-    GoalCoordinatorHost,
     HostKernel,
     HostStorage,
     TaskDescriptor,
     TaskProjection,
     TaskState,
-    VerificationReceipt,
-    VerificationResultItem,
 )
 from ordivon_host.config import read_token_file
 from ordivon_host.journal import EventConflict, LeaseConflict
@@ -222,77 +216,40 @@ class ASeriesRemediationTests(unittest.TestCase):
                 workload_id="audit.terminal.v1",
             )
             with HostStorage(directory) as storage:
-                create_descriptor_task(
+                created = create_descriptor_task(
                     storage, descriptor, "node:terminal-fence:start", clock
                 )
-                coordinator = GoalCoordinatorHost(storage, clock_ms=clock)
-                first = coordinator.snapshot(descriptor.goal_id).task(descriptor.task_id)
-                completed = coordinator.transition_task(
-                    task_ref=first,
-                    event_id="event:terminal-fence:complete",
-                    kind=EventKind.TASK_STATE_CHANGED,
-                    payload={},
-                    state=TaskState.COMPLETED,
-                    frontier=(),
+                kernel = HostKernel(
+                    storage, clock_ms=clock, owner_id="host:test:terminal-fence"
                 )
-                terminal = coordinator.snapshot(descriptor.goal_id).task(descriptor.task_id)
-                with self.assertRaisesRegex(TaskStateMismatch, "terminal Task"):
-                    coordinator.transition_task(
-                        task_ref=terminal,
-                        event_id="event:terminal-fence:reopen",
+                with kernel.locked_task(
+                    created.task_id,
+                    expected_revision=created.revision,
+                    expected_state=TaskState.READY,
+                    expected_frontier=created.ready_frontier,
+                ) as locked:
+                    completed = locked.commit(
+                        event_id="event:terminal-fence:complete",
                         kind=EventKind.TASK_STATE_CHANGED,
                         payload={},
-                        state=TaskState.READY,
-                        frontier=("node:terminal-fence:again",),
-                    )
-                current = storage.journal.get_task(descriptor.task_id)
-                self.assertEqual(current, completed)
-
-    def test_rejected_joint_verification_cannot_advance_actor_task(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            clock = itertools.count(1).__next__
-            descriptor = TaskDescriptor(
-                task_id="task:coordination-rejected",
-                goal_id="goal:coordination-rejected",
-                workload_id="audit.coordination.v1",
-            )
-            with HostStorage(directory) as storage:
-                create_descriptor_task(
-                    storage, descriptor, "node:coordination-rejected:start", clock
-                )
-                coordinator = GoalCoordinatorHost(storage, clock_ms=clock)
-                task_ref = coordinator.snapshot(descriptor.goal_id).task(
-                    descriptor.task_id
-                )
-                receipt = VerificationReceipt(
-                    dispatch_id="dispatch:coordination-rejected",
-                    method="audit.joint-verification.v1",
-                    accepted=False,
-                    observation_digest=canonical_digest({"observation": 1}),
-                    result_items=(
-                        VerificationResultItem(
-                            subject_ref=descriptor.task_id,
-                            decision_digest=canonical_digest({"decision": 1}),
-                            status="succeeded",
-                            reason=None,
-                            evidence_digest=canonical_digest({"evidence": 1}),
-                        ),
-                    ),
-                )
-                with self.assertRaisesRegex(
-                    CoordinationError,
-                    "rejected joint Verification",
-                ):
-                    coordinator.apply_verification_result(
-                        task_ref=task_ref,
-                        verification=receipt,
-                        next_frontier="node:coordination-rejected:next",
-                        event_id="event:coordination-rejected:apply",
-                    )
-                self.assertEqual(
-                    storage.journal.get_task(descriptor.task_id).revision,
-                    task_ref.revision,
-                )
+                        state=TaskState.COMPLETED,
+                        frontier=(),
+                    ).projection
+                with self.assertRaisesRegex(TaskStateMismatch, "terminal Task"):
+                    with kernel.locked_task(
+                        completed.task_id,
+                        expected_revision=completed.revision,
+                        expected_state=TaskState.COMPLETED,
+                        expected_frontier=(),
+                    ) as locked:
+                        locked.commit(
+                            event_id="event:terminal-fence:reopen",
+                            kind=EventKind.TASK_STATE_CHANGED,
+                            payload={},
+                            state=TaskState.READY,
+                            frontier=("node:terminal-fence:again",),
+                        )
+                self.assertEqual(storage.journal.get_task(descriptor.task_id), completed)
 
     def test_dangling_causal_event_is_rejected_before_history_admission(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

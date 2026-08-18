@@ -8,13 +8,6 @@ from .continuity_models import (
     WorkingCheckpointRecord,
     WorkingCheckpointRuntime,
 )
-from .coordination import (
-    CoordinationError,
-    CoordinationSuperseded,
-    GoalCoordinatorHost,
-    GoalSnapshot,
-    TaskRevisionRef,
-)
 from .domain import EventAdmission, EventKind, TaskDescriptor, TaskProjection, TaskState
 from .effects import (
     ArtifactRef,
@@ -81,8 +74,6 @@ __all__ = [
     "ArtifactRef",
     "CheckpointReceipt",
     "ContentAddressedStore",
-    "CoordinationError",
-    "CoordinationSuperseded",
     "DispatchEnvelope",
     "EventAdmission",
     "EventKind",
@@ -103,8 +94,6 @@ __all__ = [
     "ExternalRunBinding",
     "ExternalRunObservation",
     "ExternalRunStatus",
-    "GoalCoordinatorHost",
-    "GoalSnapshot",
     "HostConfig",
     "HostExtensionError",
     "HostExtensionLegacyStateUnknown",
@@ -136,7 +125,6 @@ __all__ = [
     "TaskProjectionDrift",
     "TaskReconciler",
     "TaskRevisionMismatch",
-    "TaskRevisionRef",
     "TaskState",
     "TaskStateMismatch",
     "TransitionReceipt",
