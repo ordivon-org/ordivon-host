@@ -46,7 +46,7 @@ No single SemVer value replaces the stronger identities needed for migration, re
 
 ## Current stage
 
-Host is pre-1.0. Package `0.1.x` identifies an extracted operational prototype, not permanent stability of every import or object field.
+Host is pre-1.0. Package `0.2.x` is the currently deployed compatibility line. Pre-1.0 does not make breaking changes implicit: Host still classifies removals/reinterpretations as Major-class changes. Until 1.0, a Major-class cutover advances the minor version (for example `0.2.x` → `0.3.0`) and must satisfy the full Major obligations below.
 
 Pre-1.0 changes still require:
 
@@ -54,7 +54,6 @@ Pre-1.0 changes still require:
 - explicit compatibility impact;
 - decoder or migration handling for retained state;
 - no silent reinterpretation of Events or CAS objects;
-- modern and legacy Runtime transport tests when transport changes;
 - portable and live evidence appropriate to the affected boundary;
 - a deletion trigger for retained compatibility code.
 
@@ -84,10 +83,10 @@ A releasable commit requires:
 6. secret scanning and CodeQL;
 7. Changelog entry;
 8. exact Protocol dependency pin;
-9. read-only live Host→Runtime acceptance when transport, Runtime catalog, read verification, recovery, or configuration changes;
-10. additional mutation or source-change receipts when those state machines change.
+9. named consumer validation when a supported cross-repository surface changes, using each real owner/consumer rather than a Host proxy;
+10. retained production state/history validation plus receipt-bound deployment `prepare`/`plan` evidence for Major-class cutovers, with an exact rollback peer named before activation.
 
-A hosted CI run cannot prove local Runtime/systemd behavior unless it executes against an operator-owned acceptance environment and retains the receipt.
+A hosted CI run cannot prove local deployment/systemd behavior. Major local activation therefore requires operator-owned deployment preparation/planning and retained receipts in addition to portable CI.
 
 ## Dependency policy
 
@@ -109,7 +108,6 @@ A decoder, migration, compatibility profile, import alias, or fallback may be re
 - the Changelog records the removal;
 - rollback does not depend on the old contract.
 
-The `2025-06-18` Session transport remains a compatibility decoder under this rule. Its existence does not authorize new architecture on the legacy lifecycle.
 
 ## Local deployment and publication
 

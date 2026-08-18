@@ -2,20 +2,16 @@
 set -euo pipefail
 
 usage() {
-  cat <<'EOF'
+  cat <<'TXT'
 usage: scripts/local-acceptance check|run
 
-check  validate that the Host portable and live acceptance contract is present
-run    execute portable checks and one read-only Host→Runtime journey
-       install the Host MCP surface first (for example: uv pip install --python <py312> -e '.[mcp]'); Ruff 0.15.17 may be preinstalled or supplied by uvx
+check  validate that the Host-owned portable acceptance contract is present
+run    execute Host-owned portable checks plus isolated state/Doctor/history smoke
 
 Environment:
   ORDIVON_PROTOCOL_SOURCE         optional local ordivon-protocol source directory
-  ORDIVON_MCP_ENDPOINT            Runtime endpoint; default http://127.0.0.1:8897/mcp
-  ORDIVON_BEARER_TOKEN_FILE       private Runtime token file
-  ORDIVON_BEARER_TOKEN            direct token for ephemeral acceptance only
   ORDIVON_HOST_ACCEPTANCE_OUTPUT  optional JSON receipt output path
-EOF
+TXT
 }
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -29,95 +25,66 @@ fi
 case "$mode" in
   check)
     test -n "$python_bin"
-    test -f "$repo/pyproject.toml"
-    test -f "$repo/scripts/check_docs.py"
-    test -f "$repo/scripts/check_dependencies.py"
-    test -f "$repo/requirements-audit.txt"
-    test -f "$repo/scripts/live_runtime_read.py"
-    test -f "$repo/src/ordivon_host/runtime/mcp.py"
-    test -f "$repo/src/ordivon_host/mcp_server.py"
-    test -f "$repo/packaging/systemd/ordivon-host-mcp.service"
-    test -f "$repo/packaging/systemd/ordivon-host-mcp.env.example"
-    grep -q 'MODERN_PROTOCOL_VERSION = "2026-07-28"' \
-      "$repo/src/ordivon_host/runtime/mcp.py"
-    grep -q 'ordivon-host-mcp = "ordivon_host.mcp_server:entrypoint"' \
-      "$repo/pyproject.toml"
+    for path in \
+      pyproject.toml uv.lock requirements-audit.txt \
+      scripts/check_docs.py scripts/check_dependencies.py scripts/ordivon-host-deploy \
+      src/ordivon_host/continuity.py src/ordivon_host/mcp_server.py \
+      packaging/systemd/ordivon-host-mcp.service packaging/systemd/ordivon-host-mcp.env.example
+    do
+      test -f "$repo/$path"
+    done
+    grep -q 'ordivon-host-mcp = "ordivon_host.mcp_server:entrypoint"' "$repo/pyproject.toml"
     grep -q 'stateless_http=True' "$repo/src/ordivon_host/mcp_server.py"
     "$python_bin" "$repo/scripts/check_docs.py"
-    printf '%s\n' \
-      'local acceptance contract: present' \
-      'run with: scripts/local-acceptance run'
+    printf '%s\n' 'local acceptance contract: present' 'run with: scripts/local-acceptance run'
     ;;
   run)
-    if [[ -z "$python_bin" ]]; then
-      echo 'Python 3.12 is required' >&2
-      exit 1
-    fi
+    [[ -n "$python_bin" ]] || { echo 'Python 3.12 is required' >&2; exit 1; }
     protocol_source=${ORDIVON_PROTOCOL_SOURCE:-/root/projects/ordivon-computing/packages/ordivon-protocol/src}
     python_path="$repo/src"
-    if [[ -d "$protocol_source" ]]; then
-      python_path="$python_path:$protocol_source"
-    fi
+    [[ -d "$protocol_source" ]] && python_path="$python_path:$protocol_source"
     export PYTHONPATH="${python_path}${PYTHONPATH:+:$PYTHONPATH}"
-    endpoint=${ORDIVON_MCP_ENDPOINT:-http://127.0.0.1:8897/mcp}
     revision=$(git -C "$repo" rev-parse HEAD)
-    receipt=$(mktemp)
-    trap 'rm -f "$receipt"' EXIT
-
+    version=$(awk -F'"' '/^version = / {print $2; exit}' "$repo/pyproject.toml")
     cd "$repo"
     "$python_bin" scripts/check_docs.py
     "$python_bin" scripts/check_dependencies.py
     "$python_bin" -m compileall -q src tests scripts
-    "$python_bin" -c 'import mcp' >/dev/null 2>&1 || {
-      echo "Host acceptance requires the mcp optional dependency; install .[mcp] into the selected Python 3.12 environment" >&2
-      exit 1
-    }
     if "$python_bin" -c 'import ruff; assert ruff.__version__ == "0.15.17"' >/dev/null 2>&1; then
       "$python_bin" -m ruff check src tests scripts
     elif [[ -n "$uvx_bin" ]]; then
       "$uvx_bin" ruff==0.15.17 check src tests scripts
     else
-      echo 'Host acceptance requires Ruff 0.15.17 in the selected Python environment or uvx for the pinned fallback' >&2
+      echo 'Host acceptance requires Ruff 0.15.17 or uvx' >&2
       exit 1
     fi
     "$python_bin" -W error::ResourceWarning -m unittest discover -s tests -v
-    "$python_bin" scripts/live_runtime_read.py \
-      --endpoint "$endpoint" \
-      --source-repo "$repo" \
-      --source-revision "$revision" \
-      --relative-path README.md >"$receipt"
-    "$python_bin" - "$receipt" "$revision" <<'PY'
+    receipt=$(mktemp)
+    trap 'rm -f "$receipt"' EXIT
+    "$python_bin" - "$revision" "$version" "$receipt" <<'PY'
 from __future__ import annotations
-
-import json
+import contextlib, io, json, sys, tempfile
 from pathlib import Path
-import sys
-
-path = Path(sys.argv[1])
-expected_revision = sys.argv[2]
-receipt = json.loads(path.read_text(encoding="utf-8"))
-assert receipt.get("kind") == "ordivon.host-live-read-receipt"
-assert receipt.get("sourceRevision") == expected_revision
-assert receipt.get("finalState") == "completed"
-assert receipt.get("runtimeWorkspaceClosed") is True
-assert receipt.get("freshStorageOpenPerStep") is True
-assert receipt.get("providerSessionPersisted") is False
-integrity = receipt.get("integrity")
-assert isinstance(integrity, dict)
-assert isinstance(integrity.get("payloadDigest"), str)
-print(
-    json.dumps(
-        {
-            "status": "passed",
-            "hostRevision": expected_revision,
-            "taskId": receipt.get("taskId"),
-            "finalRevision": receipt.get("finalRevision"),
-            "runtimeWorkspaceClosed": True,
-            "payloadDigest": integrity["payloadDigest"],
-        },
-        sort_keys=True,
-    )
-)
+from ordivon_host.cli import main
+revision, version, receipt_path = sys.argv[1:]
+with tempfile.TemporaryDirectory(prefix="ordivon-host-acceptance-") as directory:
+    root = Path(directory) / "state"
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        assert main(["--state-root", str(root), "init"]) == 0
+        assert main(["--state-root", str(root), "doctor"]) == 0
+        assert main(["--state-root", str(root), "doctor", "--history"]) == 0
+    receipt = {
+        "schemaVersion": 1,
+        "kind": "ordivon.host-local-acceptance",
+        "status": "passed",
+        "hostRevision": revision,
+        "packageVersion": version,
+        "runtimeContacted": False,
+        "isolatedStateDoctor": True,
+        "isolatedHistoryDoctor": True,
+    }
+Path(receipt_path).write_text(json.dumps(receipt, sort_keys=True) + "\n", encoding="utf-8")
+print(json.dumps(receipt, sort_keys=True))
 PY
     if [[ -n ${ORDIVON_HOST_ACCEPTANCE_OUTPUT:-} ]]; then
       mkdir -p "$(dirname "$ORDIVON_HOST_ACCEPTANCE_OUTPUT")"
@@ -125,11 +92,6 @@ PY
     fi
     cat "$receipt"
     ;;
-  --help|-h)
-    usage
-    ;;
-  *)
-    usage >&2
-    exit 2
-    ;;
+  --help|-h) usage ;;
+  *) usage >&2; exit 2 ;;
 esac

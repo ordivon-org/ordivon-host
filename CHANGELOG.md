@@ -4,6 +4,30 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 
 ## Unreleased
 
+### Changed
+
+- **0.3.0 Major-class pre-1.0 contraction candidate:** Host is narrowed to durable semantic continuity, Host-owned Journal/CAS authority, exact Task revision/lease admission, bounded handoff/inspection, opaque extension durability, the Security-consumed context-selection surface, and local integrity/deployment operations;
+- Runtime, Harness, World, Security and other owners are observed directly when their current physical/domain truth matters. `WorkingCheckpoint.runtime` remains a navigation hint and does not make Host a Runtime proxy;
+- release acceptance now tests Host-owned behavior plus named real consumers and receipt-bound deployment preparation/planning instead of requiring a Host→Runtime workload journey that Host no longer owns;
+- the package description and active architecture/operations/status documents now reflect the contracted responsibility rather than the falsified primitive coordination/execution ontology.
+
+### Removed
+
+- shared Goal coordination (`GoalCoordinatorHost`, `GoalSnapshot`, `TaskRevisionRef`, coordination errors);
+- caller-neutral ExternalExecutor request/binding/observation/coordinator APIs;
+- Host read, guarded-mutation and code-change engines and their historical live workload scripts;
+- Host cognition execution/proposal/decision-request/provenance orchestration, while retaining bounded context-selection semantics with a real Security consumer;
+- automatic `TaskReconciler`, `RecoveryResult`, and CLI `task reconcile`;
+- the generic Host capability-authority policy module;
+- product `ordivon_host.runtime`, `McpRuntimeClient`, Runtime catalogs/helpers, `RuntimeSettings`, `[runtime]` Host configuration, and CLI `doctor --runtime`; the bounded MCP client needed to test Host MCP wire behavior is test-only equipment under `ordivon_host.testing`.
+
+### Compatibility
+
+- **Breaking pre-1.0 cutover:** the 26 removed package-root exports, deleted submodules, `[runtime]` config table, `task reconcile`, and `doctor --runtime` are intentionally not aliased. Current consumer scans found no production caller that requires them;
+- durable Host Journal/CAS schema remains **v5** and no migration is introduced by the contraction. Historical Events/CAS bytes remain validated without requiring deleted historical execution policies;
+- World and Security remain named compatibility consumers and must pass against the candidate before activation;
+- activation must bind the exact currently deployed `8d7e58a0511734a454805e29d10e7d3bb754d2da` release as rollback peer.
+
 ## 0.2.0 — 2026-08-13
 
 ### Added

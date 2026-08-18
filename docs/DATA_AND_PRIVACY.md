@@ -44,7 +44,6 @@ Host does not automatically detect or redact credentials, personal data, proprie
 | operator receipts | configured receipt root or explicit output | backup, restore, Doctor, acceptance, handoff, and administrative evidence | operator policy; inspect before sharing |
 | backups | operator-selected directory | complete recovery snapshot | operator-owned; verification required before reliance |
 | repository evidence | `evidence/` | immutable historical engineering receipts | repository history; must contain no live secrets |
-| Runtime token | configured external file | authenticate Host to Runtime | never copied into Host state or receipts |
 
 A specific deployment's configuration and filesystem are authoritative for exact paths.
 

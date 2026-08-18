@@ -95,22 +95,16 @@ The default config path is `/etc/ordivon/host.toml`:
 root = "/var/lib/ordivon/host"
 receipt_root = "/var/lib/ordivon/host/receipts"
 
-[runtime]
-endpoint = "http://127.0.0.1:8897/mcp"
-token_file = "/etc/ordivon/runtime-mcp.token"
-timeout_seconds = 45.0
-max_response_bytes = 2097152
-
 [repositories]
 "repository:ordivon-host" = "/root/projects/ordivon-host"
 "repository:ordivon-computing" = "/root/projects/ordivon-computing"
 ```
 
-The `[runtime]` table configures the canonical modern MCP client. Host uses `2026-07-28` `server/discover`, verifies Runtime support, sends per-request client metadata, and binds method or Tool identity through `Mcp-Method` and `Mcp-Name`. The retained `2025-06-18` Session profile is available only when explicitly selected in code; configuration does not silently downgrade the lifecycle.
+Host has no `[runtime]` configuration surface. Runtime credentials and endpoint selection belong to Runtime consumers/operators; Runtime identities retained in `WorkingCheckpoint.runtime` are navigation hints only.
 
 `[providers]` is not a Host configuration surface. Provider and model configuration belongs to the cognition executor, normally `ordivon-harness`; a `[providers]` table now fails as an unsupported Host config field.
 
-`ORDIVON_HOST_STATE_ROOT`, `ORDIVON_HOST_RECEIPT_ROOT`, `ORDIVON_MCP_ENDPOINT`, and `ORDIVON_BEARER_TOKEN_FILE` may override non-secret configuration. The bearer token itself is read from a regular non-symlink `token_file` with no group/other permission bits; the CLI exposes no token argument.
+`ORDIVON_HOST_STATE_ROOT` and `ORDIVON_HOST_RECEIPT_ROOT` may override Host state configuration. Host MCP bearer configuration is owned by the MCP service environment/template, not by Host Runtime configuration; the CLI exposes no bearer-token argument.
 
 ## CLI
 
@@ -312,17 +306,9 @@ A dropped HTTP response does not create a second replay protocol. After uncertai
 
 Tool failures use MCP `isError=true` plus a structured error object carrying `code`, `field` when attribution is exact, `retryable`, `retryClass`, `commitState`, and `origin=host-mcp`. Python tracebacks are not returned to the Agent.
 
-## Read-only live acceptance
+## Release acceptance
 
-Portable tests use deterministic fake Runtime clients. The explicit live gate proves the current Host client, modern Runtime transport, catalog binding, durable read Task, independent verification, and Workspace closure against a reachable Runtime:
-
-```bash
-ORDIVON_BEARER_TOKEN_FILE=/etc/ordivon/runtime-mcp.token \
-ORDIVON_MCP_ENDPOINT=http://127.0.0.1:8897/mcp \
-  scripts/local-acceptance run
-```
-
-The journey reads a tracked file from an exact source revision through a disposable Runtime Workspace and emits a digest-bound JSON receipt. It invokes no Provider and performs no source mutation. A transport, catalog, Runtime-read, verification, or recovery change is not release-ready until this gate passes on the supported local environment.
+`scripts/local-acceptance run` executes the portable Host-owned checks plus an isolated local state init/Doctor/history smoke test. It does not contact Runtime or another owner. Major-class cutovers additionally require named real-consumer suites and `ordivon-host-deploy prepare` + `plan` against the exact candidate commit before activation.
 
 ## Backup and restore
 
