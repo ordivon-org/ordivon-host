@@ -125,8 +125,7 @@ ordivon-host task adopt TASK_ID GOAL_ID --checkpoint-file CHECKPOINT.json
 ordivon-host task resume TASK_ID [--expected-revision N]
 ordivon-host task checkpoint TASK_ID --expected-revision N --checkpoint-file CHECKPOINT.json
 ordivon-host task assess TASK_ID
-ordivon-host task reconcile TASK_ID [--wait-ms N]
-ordivon-host doctor [--runtime] [--history]
+ordivon-host doctor [--history]
 ordivon-host backup DESTINATION
 ordivon-host verify-backup BACKUP
 ordivon-host restore BACKUP [--replace]
@@ -299,7 +298,7 @@ ORDIVON_HOST_MCP_TOKEN_FILE=/etc/ordivon/host-mcp.token \
   ordivon-host-mcp --check
 ```
 
-The default endpoint is `http://127.0.0.1:8898/mcp`. `ordivon-host-mcp` accepts only a literal loopback bind address. The bearer token must be in a regular non-symlink file with no group/other permission bits and at least 32 characters; the token value has no CLI or direct environment-variable form. This token is separate from the Runtime MCP bearer token.
+The default endpoint is `http://127.0.0.1:8898/mcp`. `ordivon-host-mcp` accepts only a literal loopback bind address. The bearer token must be in a regular non-symlink file with no group/other permission bits and at least 32 characters; the token value has no CLI or direct environment-variable form. Host does not consume or store Runtime MCP credentials.
 
 When a reverse proxy or tunnel presents a different public Host header, set one canonical HTTPS origin with `ORDIVON_HOST_MCP_PUBLIC_ORIGIN` (or `--public-origin`), for example `https://host-mcp.ordivon.com`. This does **not** change the listener: Host MCP remains loopback-only. It extends the pinned MCP SDK's DNS-rebinding allowlist with exactly that public Host and Origin while retaining the local Host/Origin allowlist. Do not disable DNS-rebinding protection merely to make a proxy work.
 
@@ -337,8 +336,8 @@ Backup verification is full and read-only: it disables validation-cache writes s
 
 ## Doctor
 
-The local doctor checks SQLite integrity, schema compatibility, exact private state modes, Journal invariants including causal-link integrity, full CAS content integrity, orphan objects, and lease state. `--runtime` additionally loads the token from its file and performs modern MCP discovery and validates Runtime identity and protocol support.
+The local doctor checks SQLite integrity, schema compatibility, exact private state modes, Journal invariants including causal-link integrity, full CAS content integrity, orphan objects, and lease state. It is intentionally Host-local and does not proxy or health-check Runtime or another owner.
 
 `--history` decodes every historical Event payload and verifies its row identity, projection revision, known CAS references, and retained Effect/Binding/Authority links. It is intentionally explicit: at 100,000 Events it increased measured Doctor latency from 10.3 seconds to 18.5 seconds, while normal startup and normal Doctor remain unchanged.
 
-`task assess` is local and read-only. `task reconcile` performs at most one conservative step: replayable deterministic Read progress or observation of an already-persisted keyed Runtime Dispatch. Package-scoped experimental Effect lifecycles are reported as manual because executor and domain observation authority are not reconstructible from the generic Host alone. It never creates or redispatches an Effect and never invokes a Provider. Non-automatic Tasks return a no-op without loading Runtime credentials.
+`task assess` is local and read-only. Terminal Tasks report no recovery need; nonterminal Tasks that require another owner report a conservative unsupported/re-observe-owner result. Host does not load Runtime credentials or invoke another owner during assessment.

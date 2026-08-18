@@ -4,20 +4,20 @@ from dataclasses import dataclass
 from typing import Any
 
 
-class RuntimeClientError(RuntimeError):
+class McpClientError(RuntimeError):
     pass
 
 
-class RuntimeTransportError(RuntimeClientError):
+class McpTransportError(McpClientError):
     pass
 
 
-class RuntimeProtocolError(RuntimeClientError):
+class McpProtocolError(McpClientError):
     pass
 
 
 @dataclass(frozen=True, slots=True)
-class RuntimeErrorDetail:
+class McpErrorDetail:
     code: str
     message: str
     field: str | None
@@ -29,8 +29,8 @@ class RuntimeErrorDetail:
     raw: dict[str, Any]
 
 
-class RuntimeToolRejected(RuntimeClientError):
-    def __init__(self, operation: str, detail: RuntimeErrorDetail) -> None:
+class McpToolRejected(McpClientError):
+    def __init__(self, operation: str, detail: McpErrorDetail) -> None:
         super().__init__(f"{operation} rejected [{detail.code}]: {detail.message}")
         self.operation = operation
         self.detail = detail

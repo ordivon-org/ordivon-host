@@ -8,11 +8,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from .errors import (
-    RuntimeErrorDetail,
-    RuntimeProtocolError,
-    RuntimeToolRejected,
-    RuntimeTransportError,
+from .mcp_errors import (
+    McpErrorDetail,
+    McpProtocolError,
+    McpToolRejected,
+    McpTransportError,
 )
 
 MODERN_PROTOCOL_VERSION = "2026-07-28"
@@ -68,11 +68,11 @@ ORDIVON_SESSION_MCP_PROFILE = ORDIVON_LEGACY_SESSION_MCP_PROFILE
 
 def parse_http_response(content_type: str, body: bytes) -> dict[str, Any]:
     if not body:
-        raise RuntimeProtocolError("MCP response body is empty")
+        raise McpProtocolError("MCP response body is empty")
     try:
         text = body.decode("utf-8")
     except UnicodeDecodeError as error:
-        raise RuntimeProtocolError("MCP response is not UTF-8") from error
+        raise McpProtocolError("MCP response is not UTF-8") from error
     if "text/event-stream" in content_type.lower():
         events: list[str] = []
         current: list[str] = []
@@ -88,22 +88,22 @@ def parse_http_response(content_type: str, body: bytes) -> dict[str, Any]:
             events.append("\n".join(current))
         events = [event for event in events if event.strip()]
         if not events:
-            raise RuntimeProtocolError("SSE response contained no non-empty data event")
+            raise McpProtocolError("SSE response contained no non-empty data event")
         if len(events) != 1:
-            raise RuntimeProtocolError(
+            raise McpProtocolError(
                 "Ordivon bounded MCP profile requires exactly one SSE data event"
             )
         text = events[0]
     try:
         value = json.loads(text)
     except json.JSONDecodeError as error:
-        raise RuntimeProtocolError("MCP response is not valid JSON") from error
+        raise McpProtocolError("MCP response is not valid JSON") from error
     if not isinstance(value, dict):
-        raise RuntimeProtocolError("MCP response envelope must be an object")
+        raise McpProtocolError("MCP response envelope must be an object")
     return value
 
 
-class McpRuntimeClient:
+class McpTestClient:
     def __init__(
         self,
         endpoint: str,
@@ -111,7 +111,7 @@ class McpRuntimeClient:
         *,
         timeout_seconds: float = 45.0,
         max_response_bytes: int = 2_097_152,
-        client_name: str = "ordivon-host",
+        client_name: str = "ordivon-host-test",
         client_version: str = "0.2.0",
         profile: McpTransportProfile = ORDIVON_MODERN_MCP_PROFILE,
     ) -> None:
@@ -125,7 +125,7 @@ class McpRuntimeClient:
         if not client_name or not client_version:
             raise ValueError("MCP client identity is required")
         if profile.server_initiated_requests or profile.multi_message_sse or profile.resumable_sse:
-            raise ValueError("McpRuntimeClient supports bounded request/response MCP only")
+            raise ValueError("McpTestClient supports bounded request/response MCP only")
         if profile.protocol_version == MODERN_PROTOCOL_VERSION and profile.stateful_sessions:
             raise ValueError("modern MCP profile cannot require transport Sessions")
         self.endpoint = endpoint
@@ -153,19 +153,19 @@ class McpRuntimeClient:
             if not isinstance(supported, list) or not all(
                 isinstance(version, str) for version in supported
             ):
-                raise RuntimeProtocolError("server/discover omitted supportedVersions")
+                raise McpProtocolError("server/discover omitted supportedVersions")
             if self.profile.protocol_version not in supported:
-                raise RuntimeProtocolError(
+                raise McpProtocolError(
                     "Runtime discovery does not support the requested MCP protocol version"
                 )
             metadata = discovered.get("_meta")
             if not isinstance(metadata, dict):
-                raise RuntimeProtocolError("server/discover omitted response metadata")
+                raise McpProtocolError("server/discover omitted response metadata")
             server_info = metadata.get("io.modelcontextprotocol/serverInfo")
             if not isinstance(server_info, dict):
-                raise RuntimeProtocolError("server/discover omitted serverInfo metadata")
+                raise McpProtocolError("server/discover omitted serverInfo metadata")
             if self._session_id is not None:
-                raise RuntimeProtocolError("modern Runtime discovery created a Session")
+                raise McpProtocolError("modern Runtime discovery created a Session")
             normalized = dict(discovered)
             normalized["protocolVersion"] = self.profile.protocol_version
             normalized["serverInfo"] = dict(server_info)
@@ -185,11 +185,11 @@ class McpRuntimeClient:
         )
         server_info = result.get("serverInfo")
         if not isinstance(server_info, dict):
-            raise RuntimeProtocolError("initialize omitted serverInfo")
+            raise McpProtocolError("initialize omitted serverInfo")
         if result.get("protocolVersion") != self.profile.protocol_version:
-            raise RuntimeProtocolError("Runtime negotiated another MCP protocol version")
+            raise McpProtocolError("Runtime negotiated another MCP protocol version")
         if self.profile.stateful_sessions and self._session_id is None:
-            raise RuntimeProtocolError("Runtime initialize omitted MCP Session identity")
+            raise McpProtocolError("Runtime initialize omitted MCP Session identity")
         self._notify_initialized()
         self._initialized = dict(result)
         return dict(result)
@@ -198,11 +198,11 @@ class McpRuntimeClient:
         result = self.request("tools/list", {})
         raw_tools = result.get("tools")
         if not isinstance(raw_tools, list):
-            raise RuntimeProtocolError("tools/list omitted the Tool array")
+            raise McpProtocolError("tools/list omitted the Tool array")
         tools: list[dict[str, Any]] = []
         for raw in raw_tools:
             if not isinstance(raw, dict):
-                raise RuntimeProtocolError("Tool catalog contains a non-object descriptor")
+                raise McpProtocolError("Tool catalog contains a non-object descriptor")
             tools.append(dict(raw))
         return tuple(tools)
 
@@ -214,10 +214,10 @@ class McpRuntimeClient:
         if result.get("isError") is True:
             raw_error = structured.get("error") if isinstance(structured, dict) else None
             if not isinstance(raw_error, dict):
-                raise RuntimeProtocolError(f"Tool {name} returned an unstructured error")
-            raise RuntimeToolRejected(name, _error_detail(raw_error))
+                raise McpProtocolError(f"Tool {name} returned an unstructured error")
+            raise McpToolRejected(name, _error_detail(raw_error))
         if not isinstance(structured, dict):
-            raise RuntimeProtocolError(f"Tool {name} returned no structuredContent object")
+            raise McpProtocolError(f"Tool {name} returned no structuredContent object")
         return structured
 
     def request(
@@ -254,29 +254,29 @@ class McpRuntimeClient:
                 session_id = response.headers.get("Mcp-Session-Id")
         except urllib.error.HTTPError as error:
             detail = error.read(4096).decode("utf-8", errors="replace")
-            raise RuntimeTransportError(f"HTTP {error.code}: {detail}") from error
+            raise McpTransportError(f"HTTP {error.code}: {detail}") from error
         except (urllib.error.URLError, TimeoutError, OSError) as error:
-            raise RuntimeTransportError(str(error)) from error
+            raise McpTransportError(str(error)) from error
         if len(body) > self.max_response_bytes:
-            raise RuntimeProtocolError("MCP response exceeds the configured byte limit")
+            raise McpProtocolError("MCP response exceeds the configured byte limit")
         if self.modern and session_id is not None:
-            raise RuntimeProtocolError("modern Runtime response unexpectedly created a Session")
+            raise McpProtocolError("modern Runtime response unexpectedly created a Session")
         if not self.modern and method == "initialize" and session_id is not None:
             if not session_id or session_id != session_id.strip():
-                raise RuntimeProtocolError("Runtime returned an invalid MCP Session identity")
+                raise McpProtocolError("Runtime returned an invalid MCP Session identity")
             self._session_id = session_id
         message = parse_http_response(content_type, body)
         if message.get("jsonrpc") != "2.0":
-            raise RuntimeProtocolError("MCP response has an invalid JSON-RPC version")
+            raise McpProtocolError("MCP response has an invalid JSON-RPC version")
         if message.get("id") != request_id:
-            raise RuntimeProtocolError(
+            raise McpProtocolError(
                 f"MCP response id differs for {method}: {message.get('id')!r}"
             )
         if "error" in message:
-            raise RuntimeProtocolError(f"MCP {method} failed: {message['error']!r}")
+            raise McpProtocolError(f"MCP {method} failed: {message['error']!r}")
         result = message.get("result")
         if not isinstance(result, dict):
-            raise RuntimeProtocolError(f"MCP {method} returned no object result")
+            raise McpProtocolError(f"MCP {method} returned no object result")
         return result
 
     def _metadata(self) -> dict[str, Any]:
@@ -325,17 +325,17 @@ class McpRuntimeClient:
                 status = response.status
         except urllib.error.HTTPError as error:
             detail = error.read(4096).decode("utf-8", errors="replace")
-            raise RuntimeTransportError(
+            raise McpTransportError(
                 f"MCP initialized notification HTTP {error.code}: {detail}"
             ) from error
         except (urllib.error.URLError, TimeoutError, OSError) as error:
-            raise RuntimeTransportError(str(error)) from error
+            raise McpTransportError(str(error)) from error
         if status not in {200, 202, 204}:
-            raise RuntimeProtocolError(
+            raise McpProtocolError(
                 f"MCP initialized notification returned HTTP {status}"
             )
         if len(body) > self.max_response_bytes:
-            raise RuntimeProtocolError(
+            raise McpProtocolError(
                 "MCP initialized notification exceeds the configured byte limit"
             )
 
@@ -345,12 +345,12 @@ class McpRuntimeClient:
             return self._request_id
 
 
-def _error_detail(raw: dict[str, Any]) -> RuntimeErrorDetail:
+def _error_detail(raw: dict[str, Any]) -> McpErrorDetail:
     def optional_string(name: str) -> str | None:
         value = raw.get(name)
         return value if isinstance(value, str) else None
 
-    return RuntimeErrorDetail(
+    return McpErrorDetail(
         code=str(raw.get("code", "TOOL_ERROR")),
         message=str(raw.get("message", "Runtime Tool failed")),
         field=optional_string("field"),

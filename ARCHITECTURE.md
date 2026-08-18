@@ -154,7 +154,7 @@ Expected consequences:
 
 ## Minimal HostKernel
 
-Read, cognition, guarded mutation, and open proposal workloads share one mechanical transition kernel. The Kernel owns only the invariants independently repeated by those workloads:
+All current Host Task transitions share one mechanical transition kernel. The Kernel owns only the persistence/admission invariants required by durable Host continuity:
 
 ```text
 read current Task projection and event head
@@ -165,7 +165,7 @@ read current Task projection and event head
 → atomically consume the lease on success, or release it on an uncommitted exit
 ```
 
-`HostKernel` and `LockedTask` therefore own lease lifetime, monotonic timestamps, current-state admission, one-transition-per-lock enforcement, and atomic event/projection commit. Workload code still owns Context compilation, proposal lowering or candidate admission, Effect and Binding construction, Runtime calls, delivery classification, reconciliation, independent verification, and TaskOutcome semantics.
+`HostKernel` and `LockedTask` therefore own lease lifetime, monotonic timestamps, current-state admission, one-transition-per-lock enforcement, and atomic event/projection commit. Consumers and external owners still own domain interpretation, physical execution, external currentness, authorization, reconciliation, and completion semantics. HostKernel only admits the resulting Host-local continuity transition.
 
 The Kernel preserves these boundaries:
 
@@ -317,51 +317,21 @@ The mutation boundary preserves these invariants:
 
 The workload deliberately allows only one root-level file created with `O_EXCL`. This is a falsifiable recovery slice, not a general mutation DSL or shell workflow engine.
 
-## Version-bound source-change completion
+## External execution and owner observation
 
-Code-change completion uses a two-event verification boundary rather than treating a successful check process as final truth:
+Host does not own a Runtime client, Runtime credential, Runtime Tool catalog, source-read engine, mutation engine, code-change engine, foreign executor, or automatic cross-owner reconciler. Physical execution belongs to Runtime or another explicit execution owner. Host may retain opaque foreign references and semantic navigation hints, but those references do not make the external owner available, current, healthy, authorized, or complete.
 
-```text
-Runtime Job succeeds
-→ Host collects exact file and structured diff evidence
-→ workspace.get sourceStateDigest is stable before and after collection
-→ Host persists VERIFICATION_RECORDED while Task remains VERIFYING
-→ workspace.close(expectedSourceStateDigest) compare-and-closes under Runtime lifecycle lock
-→ Runtime tombstone retains the exact digest for response-loss replay
-→ Host admits VERIFICATION_ACCEPTED
-→ terminal TaskOutcome is recorded without another mutable Workspace read
-```
+When a consumer needs physical truth it queries the relevant owner directly and then decides locally whether that owner evidence satisfies the consumer's own precondition. Host does not proxy Runtime health through `host.status` or Doctor, and a Runtime outage does not make an otherwise healthy Host authority unhealthy.
 
-The Runtime digest commits HEAD, Git index state, tracked and untracked source bytes, file modes, symlinks, and nested worktrees. Runtime owns the physical compare-and-close; Host owns whether the retained evidence is semantically sufficient. A mismatch preserves the Workspace and leaves the Task at the prepared verification frontier so evidence can be recollected. Extending a Task lease across Runtime calls is deliberately not used as a world-version substitute.
+`WorkingCheckpoint.runtime` remains only a navigation hint: Workspace and Job identities must be revalidated against Runtime before use. This preserves cross-session continuity without copying Runtime state into Host or creating a second execution authority.
 
 ## Effect lifecycle ownership
 
-Host does not expose a generic executor-neutral Effect lifecycle. The former candidate duplicated the specialized read, mutation, code-change, and Harness paths without an external consumer, so it was removed. Shared Host responsibility stops at durable Task state, explicit commitment and uncertainty, referenced evidence, and terminal admission; each workload owns the narrow lifecycle required to produce those facts.
+Host does not expose a generic executor-neutral Effect lifecycle. Historical read, mutation, code-change, cognition-execution and foreign-executor paths were retained as evidence but removed from the contracted implementation after current consumer and retained-state falsifiers. Shared Host responsibility stops at durable semantic continuity, exact Task revision admission, referenced evidence, bounded inspection/handoff, and terminal continuity disposition.
 
-## MCP transport lifecycle
+## Historical Runtime evidence
 
-The default Host `McpRuntimeClient` uses Runtime's canonical stateless MCP `2026-07-28` lifecycle:
-
-```text
-server/discover
-→ verify supportedVersions and server identity
-→ send protocol, clientInfo, and clientCapabilities metadata on every request
-→ bind method identity with Mcp-Method and Tool identity with Mcp-Name
-→ bounded request/response operations without a transport Session
-```
-
-Modern responses that attempt to create an MCP Session fail closed. Empty SSE heartbeat data frames are ignored, while multiple non-empty JSON-RPC messages remain outside the bounded Host profile. The retained `2025-06-18` `initialize` / `Mcp-Session-Id` path is available only through an explicit legacy compatibility profile for retained deployments and evidence. Neither modern request metadata nor legacy Session identity is persisted in Goal, Task, Context, Effect, Dispatch, verification, or recovery state. A fresh Host process rediscovers Runtime and continues from durable Host and Runtime identities.
-
-## Empirical recovery boundary
-
-Repeated live work exposed mechanisms not visible from unit tests alone:
-
-1. Runtime Job reconstruction should use an exact durable `clientRequestId` filter when published by the Tool contract rather than scanning all history.
-2. `systemctl is-active` is not a readiness proof; recovery waits for both service activity and successful modern MCP discovery.
-3. Millisecond timestamps are ordering hints, not unique identities; live workload identities include an independent nonce.
-4. Production MCP may emit an empty SSE heartbeat before the JSON-RPC response; ignoring the empty frame preserves strict single-response semantics.
-
-These results prove the tested local systemd/SQLite/Workspace path only. They do not establish arbitrary host reboot recovery, remote Runtime recovery, database corruption recovery, distributed scheduling, or automatic redispatch safety for unkeyed Effects.
+Earlier Host experiments established useful facts about Runtime response loss, exact `clientRequestId` recovery, Workspace compare-and-close, MCP framing, and service restart behavior. Those findings remain in `docs/history/`; they no longer justify a Host-owned Runtime client or current Host workload engine. Runtime's present protocol and durable state are owned and documented by Runtime itself.
 
 ## Promotion rule
 

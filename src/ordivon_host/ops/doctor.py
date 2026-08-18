@@ -7,9 +7,7 @@ import sqlite3
 import stat
 import time
 
-from ..config import HostConfig, read_token_file
 from ..journal.migrations import schema_version
-from ..runtime import McpRuntimeClient
 from ..storage import HostStorage
 from .gc import plan_gc
 from .history import validate_history
@@ -28,8 +26,6 @@ class DoctorCheck:
 def doctor_state(
     root: str | Path,
     *,
-    config: HostConfig | None = None,
-    check_runtime: bool = False,
     check_history: bool = False,
     now_ms: int | None = None,
 ) -> dict[str, object]:
@@ -143,31 +139,7 @@ def doctor_state(
         checks.append(
             DoctorCheck("host.open", "error", f"{type(error).__name__}: {error}")
         )
-    if check_runtime:
-        checks.append(_runtime_check(config))
     return _result(state_root, checks)
-
-
-def _runtime_check(config: HostConfig | None) -> DoctorCheck:
-    if config is None:
-        return DoctorCheck("runtime", "error", "Host config is required")
-    try:
-        token = read_token_file(config.runtime.token_file)
-        client = McpRuntimeClient(
-            config.runtime.endpoint,
-            token,
-            timeout_seconds=config.runtime.timeout_seconds,
-            max_response_bytes=config.runtime.max_response_bytes,
-            client_version="0.2.0",
-        )
-        initialized = client.initialize()
-        return DoctorCheck(
-            "runtime",
-            "ok",
-            json.dumps(initialized.get("serverInfo"), sort_keys=True),
-        )
-    except BaseException as error:
-        return DoctorCheck("runtime", "error", f"{type(error).__name__}: {error}")
 
 
 def _result(state_root: Path, checks: list[DoctorCheck]) -> dict[str, object]:

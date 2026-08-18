@@ -1,4 +1,4 @@
-from .config import HostConfig, RuntimeSettings, load_config
+from .config import HostConfig, load_config
 from .continuity import ExternalContinuityHost
 from .continuity_models import (
     EXTERNAL_CONTINUITY_WORKLOAD_ID,
@@ -40,13 +40,6 @@ from .kernel import (
 )
 from .objects import ContentAddressedStore
 from .recovery import RecoveryAction, RecoveryAssessment, assess_recovery
-from .runtime import (
-    ExecutionRuntimeCatalog,
-    McpRuntimeClient,
-    RuntimeCatalog,
-    discover_execution_runtime_catalog,
-    discover_runtime_catalog,
-)
 from .storage import HostStorage, TaskEventSnapshot
 
 __all__ = [
@@ -56,7 +49,6 @@ __all__ = [
     "DispatchEnvelope",
     "EventAdmission",
     "EventKind",
-    "ExecutionRuntimeCatalog",
     "EXTERNAL_CONTINUITY_WORKLOAD_ID",
     "ExternalContinuityHost",
     "ExternalContinuityResume",
@@ -72,14 +64,11 @@ __all__ = [
     "HostStorage",
     "LeaseHeld",
     "LockedTask",
-    "McpRuntimeClient",
     "ObservationEnvelope",
     "OperatorHandoffCapsule",
     "RecoveryAction",
     "RecoveryAssessment",
     "RevisionConflict",
-    "RuntimeCatalog",
-    "RuntimeSettings",
     "StateRef",
     "TaskDescriptor",
     "TaskEventSnapshot",
@@ -98,8 +87,6 @@ __all__ = [
     "WorkingCheckpointRecord",
     "WorkingCheckpointRuntime",
     "assess_recovery",
-    "discover_execution_runtime_catalog",
-    "discover_runtime_catalog",
     "load_config",
     "operator_handoff",
 ]

@@ -133,13 +133,9 @@ The current product includes:
 
 - immutable TaskDescriptor identity, revisioned projections, lease/revision fencing, and irreversible terminal state;
 - schema-v5 SQLite Journal/CAS with migration, backup/restore, Doctor, full-history validation, and opaque per-Task/per-namespace extension-state durability;
-- deterministic Runtime read and source-change proof slices;
-- guarded mutation with durable Dispatch identity, response-loss `UNKNOWN`, original-Job reconciliation, and no blind redispatch;
-- provider-neutral cognition requests plus externally executed ActionSelection/ActionProposal admission;
-- participant-aware DecisionRequests for consequences that should not self-authorize;
-- external-executor binding without importing Harness;
+- semantic external continuity through `WorkingCheckpoint`, exact revision patching, deterministic handoff, and exact response-loss replay;
+- bounded context-selection data structures retained for the current Security consumer, without Host-owned cognition execution;
 - authenticated loopback Host MCP with `host.status`, `task.observe`, `task.list`, `task.resume`, `task.adopt`, and `task.checkpoint`;
-- revision-coherent WorkingCheckpoint patching and exact response-loss replay;
 - receipt-bound local deployment, schema-aware activation rollback, release lifecycle/GC planning, and external substrate retention projections.
 
 Exact support claims and known limits live in [`docs/STATUS.md`](docs/STATUS.md).

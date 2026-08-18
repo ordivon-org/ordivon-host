@@ -10,7 +10,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = ROOT / ".ordivon/project.yaml"
 PYPROJECT = ROOT / "pyproject.toml"
-RUNTIME_CLIENT = ROOT / "src/ordivon_host/runtime/mcp.py"
 HOST_MCP_SERVER = ROOT / "src/ordivon_host/mcp_server.py"
 HOST_SCHEMA = ROOT / "src/ordivon_host/journal/_schema.py"
 
@@ -209,19 +208,6 @@ def validate_public_contracts() -> list[str]:
         errors.append("pyproject.toml does not pin ordivon-protocol to an exact commit")
     if 'requires-python = ">=3.12,<3.13"' not in pyproject:
         errors.append("pyproject.toml Python support boundary changed without review")
-
-    client = RUNTIME_CLIENT.read_text(encoding="utf-8")
-    required_markers = (
-        'MODERN_PROTOCOL_VERSION = "2026-07-28"',
-        'LEGACY_PROTOCOL_VERSION = "2025-06-18"',
-        "profile: McpTransportProfile = ORDIVON_MODERN_MCP_PROFILE",
-        'self.request("server/discover", {})',
-        'headers["Mcp-Method"] = method',
-        'headers["Mcp-Name"] = name',
-    )
-    for marker in required_markers:
-        if marker not in client:
-            errors.append(f"Runtime client lacks modern transport marker: {marker}")
 
     host_mcp = HOST_MCP_SERVER.read_text(encoding="utf-8")
     host_mcp_markers = (

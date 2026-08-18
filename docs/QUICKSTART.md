@@ -87,48 +87,18 @@ ordivon-host --state-root /var/lib/ordivon/host doctor
 
 Host creates `host.sqlite3`, immutable CAS objects, validation metadata, and migration backups inside the state root. Private modes are enforced and checked by Doctor.
 
-## Configure Runtime access
+## Observe external owners directly
 
-Create `/etc/ordivon/host.toml` and a private Runtime token file as described in [`OPERATIONS.md`](OPERATIONS.md). The token file must be regular, non-symlink, and inaccessible to group and other users.
+Host does not configure, proxy, or health-check Ordivon Runtime. Runtime Workspace/Job identities that appear in a `WorkingCheckpoint` are navigation hints only and must be revalidated with Runtime's own MCP surface. Runtime credentials remain Runtime/operator configuration rather than Host configuration.
 
-The default client uses:
-
-```text
-MCP 2026-07-28
-server/discover
-stateless per-request metadata
-Mcp-Method and Mcp-Name identity
-```
-
-The legacy `2025-06-18` Session profile remains available only when explicitly selected by code.
-
-Verify connectivity:
+Use Host Doctor only for Host-owned state:
 
 ```bash
-ordivon-host --config /etc/ordivon/host.toml \
-  --state-root /var/lib/ordivon/host doctor --runtime
+ordivon-host --state-root /var/lib/ordivon/host doctor
+ordivon-host --state-root /var/lib/ordivon/host doctor --history
 ```
 
-## Run read-only live acceptance
-
-```bash
-ORDIVON_BEARER_TOKEN_FILE=/etc/ordivon/runtime-mcp.token \
-ORDIVON_MCP_ENDPOINT=http://127.0.0.1:8897/mcp \
-  scripts/local-acceptance run
-```
-
-The live path:
-
-1. binds the exact Host source revision;
-2. creates a disposable Runtime Workspace;
-3. persists a Host read Task;
-4. discovers the modern Runtime lifecycle and Tool catalog;
-5. reads `README.md`;
-6. independently verifies content and digest;
-7. closes the Runtime Workspace;
-8. emits a JSON receipt with integrity metadata.
-
-It does not invoke a Provider, modify the source repository, or claim general mutation recovery.
+When physical execution state matters, query Ordivon Runtime directly with its native Tools such as `workspace.get`, `workspace.list`, `task.get`, or `task.list`.
 
 ## Operate and recover
 
@@ -136,8 +106,7 @@ It does not invoke a Provider, modify the source repository, or claim general mu
 ordivon-host --state-root /var/lib/ordivon/host task list
 ordivon-host --state-root /var/lib/ordivon/host task handoff TASK_ID --expected-revision REVISION
 ordivon-host --state-root /var/lib/ordivon/host task assess TASK_ID
-ordivon-host --state-root /var/lib/ordivon/host task reconcile TASK_ID
 ordivon-host --state-root /var/lib/ordivon/host doctor --history
 ```
 
-`task reconcile` performs at most one conservative step and never creates a new Effect or invokes a Provider. Back up before migration or administrative repair. See [`OPERATIONS.md`](OPERATIONS.md) and [`DATA_AND_PRIVACY.md`](DATA_AND_PRIVACY.md).
+`task assess` is a read-only conservative Host-local projection; it never invokes Runtime or another owner. Back up before migration or administrative repair. See [`OPERATIONS.md`](OPERATIONS.md) and [`DATA_AND_PRIVACY.md`](DATA_AND_PRIVACY.md).

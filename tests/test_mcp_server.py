@@ -31,7 +31,8 @@ from ordivon_host.mcp_server import (
     _tool_schema_identity,
     check_settings,
 )
-from ordivon_host.runtime import McpRuntimeClient, RuntimeToolRejected, RuntimeTransportError
+from ordivon_host.testing.mcp_client import McpTestClient
+from ordivon_host.testing.mcp_errors import McpToolRejected, McpTransportError
 from ordivon_host.storage import HostStorage
 from starlette.requests import ClientDisconnect
 
@@ -1207,7 +1208,7 @@ class HostMcpEndToEndTests(unittest.TestCase):
                         "semantic-working-claim",
                     )
 
-                with self.assertRaises(RuntimeToolRejected) as invalid_checkpoint:
+                with self.assertRaises(McpToolRejected) as invalid_checkpoint:
                     client.call_tool(
                         "task.adopt",
                         {
@@ -1236,7 +1237,7 @@ class HostMcpEndToEndTests(unittest.TestCase):
                 mismatch = _checkpoint(
                     "task:mcp:checkpoint-inner-other", "mismatched inner Task"
                 )
-                with self.assertRaises(RuntimeToolRejected) as mismatched_checkpoint:
+                with self.assertRaises(McpToolRejected) as mismatched_checkpoint:
                     client.call_tool(
                         "task.adopt",
                         {
@@ -1267,7 +1268,7 @@ class HostMcpEndToEndTests(unittest.TestCase):
                         "initialCheckpoint": valid_for_bad_disposition,
                     },
                 )
-                with self.assertRaises(RuntimeToolRejected) as bad_disposition:
+                with self.assertRaises(McpToolRejected) as bad_disposition:
                     client.call_tool(
                         "task.checkpoint",
                         {
@@ -1399,7 +1400,7 @@ class HostMcpEndToEndTests(unittest.TestCase):
                 self.assertEqual(replay["admission"], "existing")
                 self.assertEqual(replay["projection"]["revision"], 3)
 
-                with self.assertRaises(RuntimeToolRejected) as captured:
+                with self.assertRaises(McpToolRejected) as captured:
                     client.call_tool(
                         "task.checkpoint",
                         {
@@ -1490,7 +1491,7 @@ class HostMcpEndToEndTests(unittest.TestCase):
                 )
 
                 def compete(label: str) -> str:
-                    contender = McpRuntimeClient(
+                    contender = McpTestClient(
                         endpoint,
                         token,
                         timeout_seconds=2.0,
@@ -1507,7 +1508,7 @@ class HostMcpEndToEndTests(unittest.TestCase):
                                 "checkpoint": _checkpoint(race_task, f"winner-{label}"),
                             },
                         )
-                    except RuntimeToolRejected as error:
+                    except McpToolRejected as error:
                         return error.detail.code
                     return result["admission"]
 
@@ -1687,7 +1688,7 @@ class HostMcpEndToEndTests(unittest.TestCase):
     @staticmethod
     def _wait_for_server(
         process: subprocess.Popen[str], endpoint: str, token: str
-    ) -> McpRuntimeClient:
+    ) -> McpTestClient:
         deadline = time.monotonic() + 10
         last_error: Exception | None = None
         while time.monotonic() < deadline:
@@ -1696,7 +1697,7 @@ class HostMcpEndToEndTests(unittest.TestCase):
                 raise AssertionError(
                     f"Host MCP exited before readiness: stdout={stdout!r} stderr={stderr!r}"
                 )
-            client = McpRuntimeClient(
+            client = McpTestClient(
                 endpoint,
                 token,
                 timeout_seconds=1.0,
@@ -1706,7 +1707,7 @@ class HostMcpEndToEndTests(unittest.TestCase):
             try:
                 client.initialize()
                 return client
-            except RuntimeTransportError as error:
+            except McpTransportError as error:
                 last_error = error
                 time.sleep(0.05)
         raise AssertionError(f"Host MCP did not become ready: {last_error}")

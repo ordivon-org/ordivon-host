@@ -39,8 +39,6 @@ Host has several independent compatibility identities:
 | Host schema and migration history | interpretation of SQLite state |
 | durable object `kind` and `schemaVersion` | interpretation of CAS bytes |
 | pinned `ordivon-protocol` commit | promoted shared contract dependency |
-| Runtime MCP profile | transport lifecycle used for discovery and Tool calls |
-| Runtime Tool catalog digest | physical Tool schema bound by a workload |
 | workload Effect/Dispatch/Verification identities | semantic commitment and completion evidence |
 | live receipt | exact tested revisions, assertions, and environment boundary |
 

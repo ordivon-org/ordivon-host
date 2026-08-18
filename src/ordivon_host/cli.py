@@ -61,7 +61,6 @@ def build_parser() -> argparse.ArgumentParser:
     task_assess = task_commands.add_parser("assess")
     task_assess.add_argument("task_id")
     doctor = commands.add_parser("doctor")
-    doctor.add_argument("--runtime", action="store_true")
     doctor.add_argument("--history", action="store_true")
     backup = commands.add_parser("backup")
     backup.add_argument("destination", type=Path)
@@ -103,7 +102,6 @@ def _config(args: argparse.Namespace) -> HostConfig:
     return HostConfig(
         state_root=args.state_root,
         receipt_root=args.state_root / "receipts",
-        runtime=config.runtime,
         repositories=config.repositories,
     )
 
@@ -124,8 +122,6 @@ def _dispatch(config: HostConfig, args: argparse.Namespace) -> dict[str, object]
     if args.command == "doctor":
         return doctor_state(
             config.state_root,
-            config=config,
-            check_runtime=args.runtime,
             check_history=args.history,
         )
     if args.command == "backup":

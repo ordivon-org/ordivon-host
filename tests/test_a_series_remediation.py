@@ -17,7 +17,7 @@ from ordivon_host import (
     TaskProjection,
     TaskState,
 )
-from ordivon_host.config import read_token_file
+from ordivon_host.config import read_private_token_file
 from ordivon_host.journal import EventConflict, LeaseConflict
 from ordivon_host.kernel import TaskStateMismatch
 
@@ -311,9 +311,9 @@ class ASeriesRemediationTests(unittest.TestCase):
             token.write_text("secret-token\n")
             token.chmod(0o644)
             with self.assertRaises(PermissionError):
-                read_token_file(token)
+                read_private_token_file(token)
             token.chmod(0o600)
-            self.assertEqual(read_token_file(token), "secret-token")
+            self.assertEqual(read_private_token_file(token), "secret-token")
 
 
 if __name__ == "__main__":

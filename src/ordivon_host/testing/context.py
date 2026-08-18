@@ -12,7 +12,7 @@ from typing import Mapping
 
 from anc_canonical import JsonValue, canonical_digest
 
-from ..config import read_token_file
+from ..config import read_private_token_file
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,7 +84,7 @@ def load_scenario_token(
         return token
     token_file = env.get("ORDIVON_BEARER_TOKEN_FILE")
     if token_file:
-        return read_token_file(token_file)
+        return read_private_token_file(token_file, label="Scenario bearer token")
     raise RuntimeError(
         "ORDIVON_BEARER_TOKEN_FILE or ORDIVON_BEARER_TOKEN is required"
     )

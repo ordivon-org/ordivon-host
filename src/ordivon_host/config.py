@@ -9,31 +9,11 @@ from typing import Mapping
 
 DEFAULT_CONFIG_PATH = Path("/etc/ordivon/host.toml")
 DEFAULT_STATE_ROOT = Path("/var/lib/ordivon/host")
-DEFAULT_RUNTIME_ENDPOINT = "http://127.0.0.1:8897/mcp"
-DEFAULT_TOKEN_FILE = Path("/etc/ordivon/runtime-mcp.token")
-
-
-@dataclass(frozen=True, slots=True)
-class RuntimeSettings:
-    endpoint: str = DEFAULT_RUNTIME_ENDPOINT
-    token_file: Path = DEFAULT_TOKEN_FILE
-    timeout_seconds: float = 45.0
-    max_response_bytes: int = 2_097_152
-
-    def __post_init__(self) -> None:
-        if not self.endpoint.startswith(("http://", "https://")):
-            raise ValueError("Runtime endpoint must be HTTP(S)")
-        if not self.token_file.is_absolute():
-            raise ValueError("Runtime token file must be absolute")
-        if self.timeout_seconds <= 0 or self.max_response_bytes < 1:
-            raise ValueError("Runtime bounds must be positive")
-
 
 @dataclass(frozen=True, slots=True)
 class HostConfig:
     state_root: Path = DEFAULT_STATE_ROOT
     receipt_root: Path | None = None
-    runtime: RuntimeSettings = RuntimeSettings()
     repositories: tuple[tuple[str, Path], ...] = ()
 
     def __post_init__(self) -> None:
@@ -55,12 +35,6 @@ class HostConfig:
         return {
             "stateRoot": str(self.state_root),
             "receiptRoot": str(self.receipt_root),
-            "runtime": {
-                "endpoint": self.runtime.endpoint,
-                "tokenFile": str(self.runtime.token_file),
-                "timeoutSeconds": self.runtime.timeout_seconds,
-                "maxResponseBytes": self.runtime.max_response_bytes,
-            },
             "repositories": {
                 identity: str(path) for identity, path in self.repositories
             },
@@ -82,16 +56,10 @@ def load_config(
         raw = value
     elif path is not None:
         raise FileNotFoundError(config_path)
-    _check_keys(raw, {"state", "runtime", "repositories"}, "Host config")
+    _check_keys(raw, {"state", "repositories"}, "Host config")
     state = _table(raw.get("state"), "state")
-    runtime = _table(raw.get("runtime"), "runtime")
     repositories = _table(raw.get("repositories"), "repositories")
     _check_keys(state, {"root", "receipt_root"}, "state")
-    _check_keys(
-        runtime,
-        {"endpoint", "token_file", "timeout_seconds", "max_response_bytes"},
-        "runtime",
-    )
     state_root = Path(
         env.get("ORDIVON_HOST_STATE_ROOT", str(state.get("root", DEFAULT_STATE_ROOT)))
     )
@@ -100,23 +68,6 @@ def load_config(
     return HostConfig(
         state_root=state_root,
         receipt_root=receipt_root,
-        runtime=RuntimeSettings(
-            endpoint=env.get(
-                "ORDIVON_MCP_ENDPOINT",
-                str(runtime.get("endpoint", DEFAULT_RUNTIME_ENDPOINT)),
-            ),
-            token_file=Path(
-                env.get(
-                    "ORDIVON_BEARER_TOKEN_FILE",
-                    str(runtime.get("token_file", DEFAULT_TOKEN_FILE)),
-                )
-            ),
-            timeout_seconds=float(runtime.get("timeout_seconds", 45.0)),
-            max_response_bytes=_strict_int(
-                runtime.get("max_response_bytes", 2_097_152),
-                "runtime.max_response_bytes",
-            ),
-        ),
         repositories=tuple(
             sorted(
                 (
@@ -151,12 +102,6 @@ def read_private_token_file(
     if not token or any(character.isspace() for character in token):
         raise ValueError(f"{label} file must contain one non-whitespace token")
     return token
-
-
-def read_token_file(path: str | Path, *, max_bytes: int = 16_384) -> str:
-    return read_private_token_file(
-        path, label="Runtime token", max_bytes=max_bytes
-    )
 
 
 def _table(value: object, label: str) -> dict[str, object]:

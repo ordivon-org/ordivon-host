@@ -6,15 +6,11 @@ import unittest
 from anc_canonical import canonical_digest
 from anc_effect_ir import EffectMode
 from ordivon_host import TaskProjection
-from ordivon_host.runtime import RuntimeClient
 
 
 class HostBoundaryTests(unittest.TestCase):
     def test_host_uses_promoted_protocol(self) -> None:
         self.assertEqual(canonical_digest({"mode": EffectMode.CHANGE.value})[:7], "sha256:")
-
-    def test_runtime_protocol_remains_available_for_operator_diagnostics(self) -> None:
-        self.assertTrue(hasattr(RuntimeClient, "call_tool"))
 
     def test_historical_execution_owners_are_not_bundled_in_host_surface(self) -> None:
         source = Path(__file__).resolve().parents[1] / "src" / "ordivon_host"
