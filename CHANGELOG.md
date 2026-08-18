@@ -6,6 +6,18 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 
 ### Changed
 
+- **0.3.1 identity/documentation patch:** canonical README, architecture and quick start now describe the actually deployed 0.3.x Host boundary: durable semantic Task continuity + Host-owned Journal/CAS authority, not the removed Goal coordination, cognition execution/proposal, Runtime client/read/mutation/code-change, foreign executor, or capability-policy responsibilities;
+- `Host` is explicitly defined as the stable product/compatibility proper noun for that narrowed responsibility, not a universal Host ontology or central coordinator;
+- documentation validation now fails closed if removed C1–C5 ownership claims such as `CognitionWorkRequest`, `DecisionRequest`, `DeterministicReadHost`, product Runtime clients, or guarded mutation slices reappear in canonical identity documents;
+- Runtime remains an external owner and is no longer described as a Host installation prerequisite.
+
+### Compatibility
+
+- no Python product implementation, MCP Tool schema, Host Journal schema, state format, package root API, CLI, config, or deployment semantics change in 0.3.1;
+- package/service/state identities remain `ordivon-host` / `ordivon_host` / Ordivon Host. This patch intentionally rejects a rename because alternative labels either omit current responsibilities or imply stronger authority than Host actually owns.
+
+### Changed
+
 - **0.3.0 Major-class pre-1.0 contraction candidate:** Host is narrowed to durable semantic continuity, Host-owned Journal/CAS authority, exact Task revision/lease admission, bounded handoff/inspection, opaque extension durability, the Security-consumed context-selection surface, and local integrity/deployment operations;
 - Runtime, Harness, World, Security and other owners are observed directly when their current physical/domain truth matters. `WorkingCheckpoint.runtime` remains a navigation hint and does not make Host a Runtime proxy;
 - release acceptance now tests Host-owned behavior plus named real consumers and receipt-bound deployment preparation/planning instead of requiring a Host→Runtime workload journey that Host no longer owns;

@@ -34,7 +34,8 @@ REQUIRED_README_HEADINGS = {
     "Purpose",
     "Responsibility boundary",
     "Status",
-    "Runtime transport",
+    "Identity meaning",
+    "External-owner references",
     "Requirements",
     "Quick start",
     "Operations",
@@ -252,6 +253,40 @@ def validate_public_contracts() -> list[str]:
     readme_stale = "| Assignment, Agent Run, Provider adapter, model–Tool loop"
     if readme_stale in readme:
         errors.append("README.md still advertises the removed Host-backed Assignment boundary")
+
+    quickstart = (ROOT / "docs/QUICKSTART.md").read_text(encoding="utf-8")
+    current_identity_docs = {
+        "README.md": readme,
+        "ARCHITECTURE.md": architecture,
+        "docs/QUICKSTART.md": quickstart,
+    }
+    forbidden_current_claims = (
+        "Goal-scoped coordination over Task revisions",
+        "CognitionWorkRequest",
+        "DecisionRequest",
+        "ActionProposal",
+        "DeterministicReadHost",
+        "Runtime clients",
+        "Host may call Runtime for workloads",
+        "live Task progress requires Runtime",
+        "## Deterministic Runtime read slice",
+        "## Semantic cognition request and admission",
+        "## Guarded mutation and uncertain delivery",
+    )
+    for relative, text in current_identity_docs.items():
+        for stale in forbidden_current_claims:
+            if stale in text:
+                errors.append(f"{relative} retains removed Host ownership claim: {stale}")
+
+    identity_markers = (
+        "Host is a product name, not a claim that Ordivon has one universal Host ontology",
+        "Compatibility is not ontology",
+        "There is no product Runtime client",
+    )
+    combined_identity = readme + "\n" + architecture
+    for marker in identity_markers:
+        if marker not in combined_identity:
+            errors.append(f"canonical identity docs lack contraction marker: {marker}")
 
     schema_source = HOST_SCHEMA.read_text(encoding="utf-8")
     schema_match = re.search(r"(?m)^SCHEMA_VERSION = (\d+)$", schema_source)

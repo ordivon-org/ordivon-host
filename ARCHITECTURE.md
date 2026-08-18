@@ -13,8 +13,8 @@ audience:
   - builder
   - operator
   - agent
-updated: 2026-08-08
-summary: Canonical Host architecture for durable Task state, commitment, verification, uncertainty, extension admission, and recovery above Runtime.
+updated: 2026-08-18
+summary: Canonical architecture for durable semantic Task continuity, Host-owned Journal/CAS authority, bounded handoff/inspection, opaque extension durability, and local operational integrity.
 evidence_status: verified
 readiness: READY
 applies_to:
@@ -32,309 +32,293 @@ related:
 
 ## Purpose
 
-Preserve durable work, commitments, uncertainty, evidence, and terminal outcomes while treating cognition sessions and physical Runtime processes as replaceable dependencies. The architecture was falsified and reduced in the Computing incubator before extraction into this repository.
+Preserve semantic work across replaceable Agent sessions and execution processes while refusing to mirror owner-current Runtime, Git, Provider, Harness, or domain state into a second authority.
 
-## Boundaries
+Host 0.3.x is intentionally smaller than historical Host designs. The current architecture is the engineering result of the Host Deep Foundations and subsequent destructive ownership falsifiers.
 
-Host owns Task continuity and external commitment admission. Runtime owns physical execution, domain systems own authoritative world state and domain verification, Harness owns caller-neutral Agent Run semantics, Computing owns promoted contracts, and Git owns source history. A universal scheduler remains deliberately frozen.
+## Identity and ontology
 
-### Component responsibility matrix
+`Host` is the stable product/compatibility name of this component. It is **not** a primitive universal Host ontology, central coordinator, global scheduler, or cross-owner truth service.
+
+The current identity law is:
+
+```text
+Host
+= durable semantic Task continuity
++ Host-owned Journal/CAS admission
++ bounded handoff/inspection
++ opaque extension durability
++ local operational integrity
+```
+
+and explicitly not:
+
+```text
+Host
+= universal coordination
++ foreign execution
++ Runtime proxying
++ cognition execution
++ source mutation
++ capability/validity oracle
+```
+
+A stable package or service name may survive an ontology contraction. Compatibility is not ontology.
+
+## Responsibility matrix
 
 | Component | Owns | Explicitly does not own |
 | --- | --- | --- |
-| Runtime | Workspace lifecycle, physical Jobs and Attempts, process trees, bounded Artifacts, cancellation, and physical reconciliation | Task semantics, Assignment/Run policy, Provider behavior, or domain completion |
-| Host | durable Task continuity, Journal/CAS, generic extension admission, commitment identities, verification records, and Task outcomes | Harness-specific schemas, model–Tool execution, physical process truth, or domain-world truth |
-| Harness | caller-neutral Agent Runs, Provider adapters and calls, model–Tool execution, Tool-step checkpoints, Run-local recovery, Trace/Receipt evidence, and completion proposals | caller Task authority, generic Host persistence, Runtime supervision, promoted protocol, or final domain authority |
+| Host | durable Task identity/projection, Journal/CAS admission, WorkingCheckpoint continuity, Host leases/revisions, opaque extension durability, bounded Host inspection, Host operations | model cognition, Runtime state, source currentness, domain truth, generic coordination, generic execution, global authority |
+| Runtime | Workspace lifecycle, Jobs/Attempts, process trees, Artifacts, cancellation, physical reconciliation | Task semantics, Agent Run policy, domain completion |
+| Harness | Agent Runs, Provider adapters/calls, model–Tool execution, Run-local continuity/recovery, Trace/Receipt evidence | Host Task authority, Runtime supervision, domain authority |
+| Git/repository owner | repository history and source currentness | Host Task continuity |
+| Domain owner | domain state, transition meaning, domain policy, verification sufficiency | Host Journal authority |
+| Computing | promoted cross-project contracts and conformance evidence | owner-local runtime/domain truth |
 
-## Components
+## Current components
 
-The current system consists of one Host Journal and materialized Task projection, immutable CAS objects, a minimal transition kernel, bounded cognition profiles, workload-specific Effect lifecycles, generic extension admission, Runtime clients, verification receipts, and operational recovery surfaces.
+The production implementation consists of:
+
+- one schema-v5 SQLite Host Journal;
+- one materialized `TaskProjection` checked against Event history;
+- immutable typed CAS objects;
+- a minimal `HostKernel` for lease/revision-fenced local admission;
+- `ExternalContinuityHost` plus `WorkingCheckpoint` models;
+- generic extension admission with opaque namespace state;
+- bounded context-selection structures retained for the Security consumer;
+- a small set of typed compatibility value objects retained for real consumers;
+- read-only conservative recovery assessment;
+- Doctor, full-history validation, backup/restore, GC planning, and receipt-bound deployment;
+- one authenticated six-Tool MCP projection.
+
+There is no product Runtime client, source-read engine, mutation engine, code-change engine, cognition execution host, foreign executor coordinator, automatic Task reconciler, shared Goal coordinator, or generic capability-policy module.
 
 ## External continuity
 
-`ordivon.host.external-continuity.v1` is a narrow Host workload for work driven by an external Agent surface such as ChatGPT. It does not execute cognition, mirror conversation state, or proxy Runtime. While tracking remains active, the Task stays `READY` at one stable `continue` frontier and Host records bounded `WorkingCheckpoint` objects as semantic working claims. A final checkpoint may set the **continuity-tracking** disposition to `complete` or `abandon`, which atomically moves the Host Task to `COMPLETED` or `CANCELLED` with an empty frontier. Those terminal states describe only whether Host should keep presenting the work as active continuity; they do not assert success or failure in an external domain.
+`ordivon.host.external-continuity.v1` is the current first-class continuity workload. It is designed for work driven by replaceable Agent surfaces such as ChatGPT without turning conversation state into authority.
 
-A `WorkingCheckpoint` records the current objective/frontier, established and unresolved claims, rejected routes, constraints, next actions, and optional Runtime navigation references. It explicitly has `truthRole = semantic-working-claim`: the checkpoint tells a future Agent where to revalidate truth; Runtime, Git, and domain authorities remain the source of current physical/domain facts. The Runtime reference is a navigation hint rather than copied Runtime truth.
+A `WorkingCheckpoint` stores:
 
-Checkpoint bytes live in immutable CAS. For new adoption, revision 1 atomically references both the immutable `TaskDescriptor` and the initial checkpoint seed; the normal adoption path then records the same initial checkpoint as `task.context-checkpointed` at revision 2. This preserves the established revision cadence while eliminating the crash window in which a Task identity could survive without any semantic working claim. Historical descriptor-only revision-1 Tasks remain readable and can still be completed by exact adopt replay. Full-history Doctor validates a seeded creation checkpoint with the same semantic identity checks as later checkpoint events.
+- objective;
+- current frontier;
+- established claims;
+- unresolved claims;
+- rejected routes;
+- constraints;
+- next actions;
+- optional Runtime/Git navigation hints.
 
-Checkpoint mutation is revision-safe. If `expectedRevision = r` commits at `r+1` and the response is lost, retrying the same checkpoint **and continuity disposition** returns `existing`; a different checkpoint, a different terminal disposition, or a Task that advanced beyond that exact transition fails with a revision conflict. Competing external sessions therefore coordinate through Task revision rather than conversation ownership or a distributed lock.
+Its `truthRole = semantic-working-claim`. Navigation hints point a future Agent toward revalidation; they are not copied physical truth.
 
-`task.resume` combines one revision-coherent `TaskProjection`, `OperatorHandoffCapsule`, checkpoint, and `extensionNamespaces` projection from that exact Task revision. `extensionNamespaces` means only that, by this revision, those extension namespaces had durable owner state retained; it does **not** mean an owner is available, current, outstanding, authorized, reachable, or successful, and it never embeds owner state fields. The routing projection is revision-fenced against first appearance and later owner updates, so a concurrent future namespace cannot leak backward into an older resume. `task.resume` never invokes Runtime, Harness, an owner inspector, or a Provider. READY external-continuity handoff projects the semantic action `continue-external-work` rather than leaking the internal `node:...:continue` frontier identity; terminal continuity has no next Host action. The intended recovery loop is: Host semantic checkpoint → intersect durable owner namespaces with currently available owner-specific inspection capabilities → Runtime/Git/domain revalidation → continued work → new semantic checkpoint.
+### Adoption and crash safety
 
-H-C2 exposes this authority through a compact Host MCP surface. The MCP server is loopback-only, bearer-authenticated, stateless at the transport layer, and opens fresh Host authority state per request. Its six Tools separate observation from mutation: `host.status` and `task.observe` expose Host-owned operational/task state; `task.list` and `task.resume` expose external-continuity discovery and full semantic recovery; only `task.adopt` and `task.checkpoint` write continuity state. `host.status` deliberately does not proxy Runtime and binds installed deployment identity only when the running MCP module actually comes from the current release tree. `task.observe` exposes bounded head/timeline metadata rather than raw Event payloads. `task.list` remains an external-continuity discovery projection rather than a generic Host Task dump: active tracking is the default, terminal history is opt-in, immutable creation order drives query-bound cursor pagination, and each row carries only a bounded semantic preview plus the exact checkpoint digest/revision needed to decide whether to call `task.resume`. `task.checkpoint` accepts either a complete WorkingCheckpoint or a patch inherited from one exact expected revision; durable storage still contains a complete canonical checkpoint. Transport sessions, HTTP connections, client identity, and MCP request state are never persisted into Task continuity. The official MCP SDK owns protocol lifecycle while Host owns the semantic/read projections and exact revision admission.
+New adoption revision 1 atomically references the immutable `TaskDescriptor` and initial checkpoint seed. The normal path then records the same initial semantic checkpoint at revision 2. A crash therefore cannot leave a newly admitted continuity Task with identity but no recoverable semantic seed.
+
+### Exact response-loss replay
+
+If `expectedRevision = r` commits a checkpoint at `r+1` but delivery is lost, replaying the identical checkpoint and continuity disposition against the same `r` returns `admission=existing`. A different claim, different terminal disposition, or later Task revision fails closed.
+
+This is revision coordination, not a distributed lock and not a general Coordination project.
+
+### Resume boundary
+
+`task.resume` returns one revision-coherent projection containing the Task, handoff, WorkingCheckpoint, and revision-bounded extension namespace metadata. It never calls Runtime, Harness, Git, a Provider, or a domain owner.
+
+The consumer loop is:
 
 ```text
-external Agent / ChatGPT
-        │
-        ▼
-Host MCP  (auth + protocol only)
-        │
-        ▼
-ExternalContinuityHost
-        │
-        ▼
-Journal / CAS
-        │
-        └── navigation refs ──> Runtime / Git / domain truth
+Host semantic checkpoint
+→ owner-native revalidation
+→ continued external work
+→ new Host semantic checkpoint
 ```
 
-## Data flow
+## Host MCP
 
-Participant or application intent becomes a durable Task and Context; replaceable cognition proposes or selects work; Host validates and commits Effect identity before delivery; Runtime executes; observations are independently verified; Host admits a terminal Task outcome or retains explicit uncertainty for reconciliation.
+The MCP server is loopback-only, bearer-authenticated, stateless at the transport layer, and opens Host authority state per request.
 
-## Failure modes
+Exactly six Tools are public:
 
-Host fails closed on stale revisions, invalid leases, terminal reopening, missing or corrupt CAS objects, causal gaps, ambiguous external delivery, unsupported extension semantics, insufficient verification, and attempts to make transport or Provider state the owner of Task continuity. Deployment also treats executable bytes and durable authority schema as one compatibility boundary: a forward Journal migration has an exact preactivation SQLite snapshot for activation-only recovery, while a successfully accepted schema migration cannot be reversed by merely switching to an older release because that would either strand the newer authority or discard post-deployment facts.
+```text
+host.status
+task.observe
+task.list
+task.resume
+task.adopt
+task.checkpoint
+```
 
-## Verification
+Observation and mutation are separated:
 
-Exact behavior is verified by source, schema migrations, deterministic tests, live Runtime scenarios, fault injection, full-history Doctor, immutable evidence receipts, and version-bound source-change acceptance. The operational procedures are in [`docs/OPERATIONS.md`](docs/OPERATIONS.md), and the authority boundary is recorded in [`docs/authority.md`](docs/authority.md). Phase and closeout documents preserve the evidence behind this boundary but are not alternate current architectures.
+- `host.status` reports Host-owned operational/integrity state only;
+- `task.observe` is a bounded Host Task projection;
+- `task.list` discovers external-continuity Tasks with stable pagination;
+- `task.resume` recovers one exact semantic continuation point;
+- `task.adopt` creates/replays one explicit continuity Task;
+- `task.checkpoint` admits one revision-bound semantic checkpoint.
 
-## Ownership
-
-- **Host** owns Tasks, Goal-scoped Task coordination, generic Host events and projections, Context compilation, semantic `CognitionWorkRequest` identity, proposal compilation or closed-choice admission, Effect commitments, Tool bindings, verification receipts, participant-routed decisions, and Task outcomes. It does not yet own a durable Goal stream or Goal commitment object. It admits immutable references and extension event kinds outside reserved Host namespaces without importing extension-specific schemas.
-- **Runtime** owns Workspaces, committed physical Jobs, Runtime Attempts, process state, retained output, Artifacts, cancellation, and physical recovery.
-- **Harness** owns caller-neutral Agent Runs, Provider adapters and calls, model–Tool execution, Run-local continuity and recovery, Trace/Receipt evidence, and completion proposals. Host is an optional caller, not Harness persistence authority.
-- **Domain systems** own authoritative world state, transition rules, domain coordination policy, and domain-specific verification sufficiency.
-- **Computing** owns promoted protocol definitions, reference behavior, conformance vectors, experiments, and evidence.
-- **Provider and MCP sessions** are replaceable transport state and never own Task continuity.
-- **Git** owns repository history and source revisions.
-
-The Host controls durable work and external commitments. It does not own model intelligence, domain truth, physical execution, or a permanent hierarchy among participants.
-
-## v0 constraints retained
-
-- one SQLite Host journal;
-- one materialized Task projection derived in the same transaction;
-- immutable objects written before journal references are committed;
-- every non-creation Task transition is fenced by one exact live lease generation and stream revision;
-- terminal Task identities are irreversible;
-- Task-local frontier state; `RUNNING` and `activeNodeId` remain legacy-readable but are not a current workload lifecycle;
-- deterministic progress before external cognition execution;
-- no automatic redispatch after an uncertain external Effect;
-- TaskCapsule is an export/checkpoint, not the primary database;
-- no independent Semantic Journal;
-- no distributed scheduler, provider router, Web UI, or general workflow DSL.
+The server does not proxy Runtime/Harness, invoke Providers, execute model loops, schedule work, or infer foreign currentness.
 
 ## Durable state protocol
 
-The Host state root contains exactly two durable mechanisms:
+The Host state root has two durable mechanisms:
 
 ```text
-objects/       typed, immutable, content-addressed JSON envelopes
-host.sqlite3   event admission, stream heads, materialized projections,
-               object validation, schema migrations, and short leases
+objects/       typed immutable content-addressed JSON envelopes
+host.sqlite3   Event admission, stream heads, Task projection,
+               object validation, schema migrations, short leases,
+               opaque extension namespace pointers
 ```
 
-A Task state change follows this order:
+A Host Task transition follows:
 
 ```text
-1. canonicalize the typed event payload;
-2. fsync the immutable object and its directory entry;
-3. acquire a SQLite IMMEDIATE transaction;
-4. compare the expected stream revision and exact lease owner/generation/expiry;
-5. reject terminal reopening and dangling causal references;
-6. admit the object reference, event, stream head, and Task projection;
-7. consume the lease and commit them together.
+1. canonicalize typed payload/object bytes;
+2. fsync immutable objects before reference admission;
+3. acquire SQLite IMMEDIATE transaction;
+4. compare exact stream revision and lease owner/generation/expiry;
+5. reject terminal reopening and invalid causal/reference state;
+6. append Event + stream head + object refs + resulting projection atomically;
+7. consume the exact lease generation and commit.
 ```
 
-The event payload binds the complete resulting `TaskProjection`. A new Host process validates every referenced CAS object and rebuilds each Task from its event head before accepting work. The materialized projection is therefore a checked cache, not an independent source of truth.
+The materialized Task projection is a checked cache, not a second truth store. Full-history Doctor revalidates retained object bytes and semantic history.
 
-Expected consequences:
+Expected invariants include:
 
-- a failed SQLite commit may leave an unreferenced immutable object, but cannot leave a partial semantic commit;
-- two writers racing the same stream revision cannot both commit;
-- a repeated identical event identity is idempotent;
-- a repeated event identity with different payload or resulting projection fails closed;
-- event-history gaps, stream-kind drift, projection drift, missing objects, and object corruption prevent startup;
-- a lease and stream revision CAS are complementary admission predicates; neither can be bypassed for a non-creation transition;
-- successful admission consumes the exact lease generation, while a lost or expired lease cannot write;
-- terminal Tasks cannot be reopened under the same identity.
+- failed SQLite commit cannot create a partial semantic commit;
+- two writers on the same stream revision cannot both commit;
+- identical Event replay is idempotent;
+- Event identity reuse with different bytes fails closed;
+- history gaps, projection drift, missing objects, and object corruption fail closed;
+- successful non-creation transition consumes the exact lease generation;
+- terminal Task identity cannot be reopened.
 
 ## Minimal HostKernel
 
-All current Host Task transitions share one mechanical transition kernel. The Kernel owns only the persistence/admission invariants required by durable Host continuity:
+`HostKernel` owns only local persistence/admission mechanics:
 
 ```text
-read current Task projection and event head
-→ acquire the short Task lease
-→ recheck revision, state, frontier, and projection equality
-→ let the workload build semantic objects and the next event payload
-→ append at most one event and resulting projection with lease + revision CAS
-→ atomically consume the lease on success, or release it on an uncommitted exit
+read current Task projection and Event head
+→ acquire short Task lease
+→ recheck revision/state/frontier/projection
+→ workload builds bounded Host-local semantic objects
+→ append at most one Event + resulting projection
+→ consume lease on success or release on uncommitted exit
 ```
 
-`HostKernel` and `LockedTask` therefore own lease lifetime, monotonic timestamps, current-state admission, one-transition-per-lock enforcement, and atomic event/projection commit. Consumers and external owners still own domain interpretation, physical execution, external currentness, authorization, reconciliation, and completion semantics. HostKernel only admits the resulting Host-local continuity transition.
+It is not a workflow DSL, planner, scheduler, Runtime adapter, Provider router, or policy engine. It never invokes a Provider or Runtime Tool.
 
-The Kernel preserves these boundaries:
+## Opaque extension durability
 
-- it is not a workflow DSL, scheduler, DAG engine, provider router, Runtime adapter, or policy engine;
-- it never invokes a Provider or Runtime Tool;
-- workload-specific public exceptions are preserved through explicit error mapping;
-- Provider invocation and effectful Runtime delivery remain outside the Task lease;
-- external observations are collected outside the lease and must carry an independently recheckable version when the observed world can change before admission;
-- only bounded deterministic state readers may run inside a short transition;
-- one locked transition may append at most one Host event;
-- existing workloads remain regression specifications for Kernel behavior.
+Schema v5 separates current Task Event head from current opaque extension-owner state.
 
-## Deterministic Runtime read slice
+For each Task × namespace, Host may retain one content-addressed owner-state object plus the exact Event/revision metadata that authored it. `HostExtensionPort` preserves and fences those bytes without understanding owner-specific schemas.
 
-The first vertical slice contains no model call. It advances one durable frontier per Host step:
+The existence of namespace state means only:
 
 ```text
-open-or-reconcile Workspace
-→ bind and execute workspace.read
-→ verify returned content independently
-→ close-or-reconcile Workspace
-→ completed TaskOutcome
+Host durably retained owner bytes by this Task revision.
 ```
 
-The lifecycle Tools (`workspace.get`, `workspace.open`, and `workspace.close`) are deterministic coordination operations. `workspace.read` is the only semantic Effect in this slice and produces separate immutable objects for the Effect, current Tool contract snapshot, EffectBinding, Observation, VerificationReceipt, and terminal TaskOutcome.
+It does **not** mean the owner is current, reachable, healthy, authorized, outstanding, or successful.
 
-The slice preserves these invariants:
+World is a real direct consumer of the Host extension/value compatibility surface. Harness remains independent and does not require Host as its persistence authority.
 
-- every frontier transition is committed before the next Runtime action;
-- a new Host process can advance the next frontier without provider or process memory;
-- a stable Workspace identity reconciles a crash after `workspace.open` but before Host commit;
-- the Runtime Tool catalog is rediscovered and must match the bound catalog before the read;
-- returned content is hashed independently and must match the Runtime digest;
-- a failed read or failed verification leaves the Task at its prior revision;
-- closing an already absent Workspace is reconciled as complete;
-- presentation-only Tool metadata does not change catalog identity, while schemas and execution metadata do;
-- semantic objects are admitted into the Host Journal transaction as references, not copied into the projection.
+## Context-selection compatibility
 
-This slice deliberately does not admit a reusable Fact. A verified read completes with a `VerificationReceipt` and `TaskOutcome`; Fact promotion remains a separate cross-Task decision.
+The historical cognition execution/proposal stack was removed. The surviving `ordivon_host.cognition` surface is bounded context-selection data/compilation semantics consumed by Security.
 
-## Semantic cognition request and admission
+This retained surface does not select a Provider, execute a model, lower proposals, authorize consequences, or own an Agent Run.
 
-Host has one durable pre-execution cognition boundary:
+The rule is:
 
 ```text
-READY Task + exact frontier
-→ compile bounded semantic Context
-→ persist CognitionWorkRequest(resultKind, Context, exact resulting Task revision)
-→ move Task to WAITING
-→ execute cognition outside the Host lease
-→ return semantic result + CognitionExecutionEvidence
-→ reacquire the exact Task revision
-→ re-read current authority/world state
-→ admit, lower, route to DecisionRequest, or reject
+useful context representation may remain
+without preserving historical cognition execution ownership.
 ```
 
-`CognitionWorkRequest` deliberately contains no Provider, gateway, Adapter, session, model, process, retry, or transport identity. Those are execution facts owned by the executor, normally Harness. Host needs only enough durable state to answer **what semantic result is currently authorized for this Task revision?**
+## Compatibility value types
 
-For closed-choice work, `resultKind=action-selection`. Context contains two to eight exact `CandidateAction` values. The executor returns an `ActionSelection`; Host rechecks Context identity, current world digest, completed Effects, unresolved Dispatches, and the exact allowed action before advancing the frontier. Invented actions, stale world requirements, duplicate Effects, and stale Task revisions fail closed.
+A small set of generic value classes remains exported because real consumers use them, including references/envelopes and verification/outcome records.
 
-For open work, `resultKind=action-proposal`. Context contains resources, constraints, capability profile, participant responsibility, and a proposal contract, but no prebuilt action menu. The executor returns an `ActionProposal`; Host checks identity, revision, ownership, reversibility, consequence, and authority before lowering it, creating a `DecisionRequest`, or rejecting it.
-
-Only one lowerer is currently proven:
+These types are data compatibility surfaces, not lifecycle claims. In particular:
 
 ```text
-private reversible repository-file observation
-→ existing DeterministicReadHost
-→ verified workspace.read
+ArtifactRef              != Host Artifact authority
+DispatchEnvelope         != Host foreign-executor coordinator
+ObservationEnvelope      != Host external currentness authority
+VerificationReceipt      != universal verification sufficiency
+TaskOutcome              != domain completion oracle
 ```
 
-Shared, foreign-owned, irreversible, and unknown-consequence proposals do not self-authorize. They create a `DecisionRequest` addressed to the responsible participant. A human is one possible participant, not a universal hard-coded recipient.
+The owner interpreting a value remains responsible for its domain semantics.
 
-The durability invariant is intentionally smaller than the H2 design: if execution fails, the Task remains on exactly one `cognition.requested` head. Host does not persist a second model-invocation intent, does not select a Provider, and does not perform Provider retry. Harness Run/Provider continuity supplies execution-side crash recovery without duplicating that authority in Host.
+## Recovery projection
 
-## Independent Harness extension boundary
+`assess_recovery` is intentionally small and read-only. It can report that a terminal Task needs no recovery or that a nonterminal unsupported workload requires owner re-observation. It does not invoke Runtime, redispatch external work, or perform automatic cross-owner reconciliation.
 
-Agent Harness implementation no longer lives in this repository. It was extracted with source history into the independently versioned `ordivon-harness` repository.
+This is conservative operator ergonomics, not a hidden reconciliation engine.
 
-The dependency direction is deliberately one-way:
+## Failure modes
 
-```text
-ordivon-harness / another external cognition executor
-  Agent Run / Provider execution / model–Tool lifecycle
-             ↓ semantic result + evidence
-ordivon-host
-  Task / Context / CognitionWorkRequest / admission / commitment / verification
-             ↓
-ordivon-runtime / ordivon-protocol as required by their own boundaries
-```
+Host fails closed on:
 
-Host does not import `ordivon-harness`. The Host kernel accepts immutable lowercase dotted event kinds outside reserved Host namespaces, stores them exactly in the Journal and event payload, and reconstructs one thread-stable interned `EventKind` value after process restart. Misspellings under `task.*`, `cognition.*`, `effect.*`, `verification.*`, `runtime.*`, or `wakeup.*` fail closed. Generic Host Doctor validates event continuity, payload bytes, Task projections and every referenced CAS object. It deliberately does not decode Harness Assignment, Run or Recovery semantics.
+- stale revisions;
+- invalid/expired lease identity;
+- terminal reopening;
+- missing/corrupt CAS objects;
+- Event/history gaps;
+- projection drift;
+- invalid extension-state fences;
+- incompatible retained schema/history;
+- attempts to treat foreign navigation hints as Host-owned current truth.
 
-Schema v5 also separates the **current Task Event head** from **current opaque extension-owner state**. Each Task × extension namespace may retain one content-addressed state object and the exact Event/revision that authored it. `HostExtensionPort.load_namespace(taskId, namespace)` preserves the compatibility view of owner state plus current `TaskProjection`; `load_namespace_snapshot(taskId, namespace, expected_revision=...)` is the stronger read boundary for owner inspection, returning the same opaque state together with Host-owned namespace metadata (`owner_event_id`, Event kind, state digest, owner revision, legacy bit) under one optimistic Task-revision fence. A later Host core Event or a write from another namespace cannot erase that retained state or be silently mixed into an older inspection snapshot. Host preserves and fences these bytes without understanding their field names. Namespace state and metadata are durability/routing evidence only: their existence does not imply that an owner is currently available, that its state is externally current, that work is outstanding, or that any authority has been granted.
+An external owner outage is not automatically a Host health failure.
 
-The Harness extension owns:
+## Verification
 
-- its event-kind constants;
-- Task Contract, Attempt, Assignment, Tool Grant and Run Contract models;
-- Provider adapters and the first-party bare-model loop;
-- Harness-aware operator handoff;
-- Harness semantic history validation and its own Doctor command;
-- Harness-specific tests, fixtures, live scripts, documents and evidence.
+Current behavior is verified by source, deterministic tests, schema/migration tests, full-history Doctor, retained production-state verification, named real-consumer tests, MCP wire acceptance, and receipt-bound deployment evidence.
 
-Retained legacy Harness extension objects may still exist in Host CAS and remain readable through generic extension admission. New independent Harness Runs own their own Journal/CAS and appear to Host only through external-executor request, binding, observation, and completion-proposal references. Host Task continuity therefore does not imply ownership of Harness Run bytes.
+Historical Runtime/mutation/cognition experiments remain in `docs/history/` as research evidence. They are not alternate current architecture.
 
-This split does not add a second Host Task projection or require Host to import Harness.
+## Ownership
 
-## Capability and consequence separation
+- **Host** owns its Journal/CAS, Task revisions/projections, lease admission, external-continuity WorkingCheckpoints, bounded Host handoff/inspection, opaque extension durability, and Host-local operations.
+- **Runtime** owns physical execution and current Job/Workspace truth.
+- **Harness** owns caller-neutral Agent Run and Provider/model–Tool execution semantics.
+- **Git/repository owners** own source history/currentness.
+- **Domain owners** own domain state, rules, policy, and verification sufficiency.
+- **Computing** owns promoted cross-project contracts after cross-owner proof.
+- **Provider/MCP sessions** are replaceable transport state and never own Host Task continuity.
 
-Capability profiles express the semantic and resource reach available to a participant. Consequence admission decides whether that reach may be committed for the current proposal.
-
-```text
-physical credentials
-+ capability profile
-≠ automatic permission for every external consequence
-```
-
-`owner_trusted` admits Agent semantic actions on private repository resources. `public_bounded` admits repository-file observation only. Both still pass through proposal consequence classification and domain verification.
-
-## Guarded mutation and uncertain delivery
-
-The first changing vertical slice uses one keyed `workspace.exec` Dispatch to create one exact proof file in a disposable Runtime Workspace. The Host persists the Effect, current `workspace.exec` Tool contract, EffectBinding, stable `clientRequestId`, and Dispatch intent before crossing the Runtime boundary.
-
-```text
-open-or-reconcile Workspace
-→ persist Effect + Binding + Dispatch intent
-→ release the Task lease
-→ deliver workspace.exec once
-→ classify a lost response as UNKNOWN
-→ find the original Job by clientRequestId
-→ observe that exact Job to terminal state
-→ verify the changed file independently with workspace.read
-→ force-close the dirty disposable Workspace
-→ completed TaskOutcome
-```
-
-The mutation boundary preserves these invariants:
-
-- the external call never occurs before its exact Dispatch identity and request digest are durable;
-- the Task lease is not held during `workspace.exec` or asynchronous Job observation;
-- a transport or protocol failure with uncertain commit state becomes UNKNOWN;
-- an explicit `not_committed` Tool rejection remains distinguishable from UNKNOWN;
-- a fresh Host process only searches for and observes the original keyed Runtime Job;
-- failure to find that Job never authorizes automatic redispatch;
-- one `clientRequestId` resolving to conflicting Job identities fails closed;
-- Runtime success alone does not complete the Task;
-- exact content and digest verification must succeed before TaskOutcome;
-- the dirty test Workspace is force-closed only after evidence is retained.
-
-The workload deliberately allows only one root-level file created with `O_EXCL`. This is a falsifiable recovery slice, not a general mutation DSL or shell workflow engine.
-
-## External execution and owner observation
-
-Host does not own a Runtime client, Runtime credential, Runtime Tool catalog, source-read engine, mutation engine, code-change engine, foreign executor, or automatic cross-owner reconciler. Physical execution belongs to Runtime or another explicit execution owner. Host may retain opaque foreign references and semantic navigation hints, but those references do not make the external owner available, current, healthy, authorized, or complete.
-
-When a consumer needs physical truth it queries the relevant owner directly and then decides locally whether that owner evidence satisfies the consumer's own precondition. Host does not proxy Runtime health through `host.status` or Doctor, and a Runtime outage does not make an otherwise healthy Host authority unhealthy.
-
-`WorkingCheckpoint.runtime` remains only a navigation hint: Workspace and Job identities must be revalidated against Runtime before use. This preserves cross-session continuity without copying Runtime state into Host or creating a second execution authority.
-
-## Effect lifecycle ownership
-
-Host does not expose a generic executor-neutral Effect lifecycle. Historical read, mutation, code-change, cognition-execution and foreign-executor paths were retained as evidence but removed from the contracted implementation after current consumer and retained-state falsifiers. Shared Host responsibility stops at durable semantic continuity, exact Task revision admission, referenced evidence, bounded inspection/handoff, and terminal continuity disposition.
-
-## Historical Runtime evidence
-
-Earlier Host experiments established useful facts about Runtime response loss, exact `clientRequestId` recovery, Workspace compare-and-close, MCP framing, and service restart behavior. Those findings remain in `docs/history/`; they no longer justify a Host-owned Runtime client or current Host workload engine. Runtime's present protocol and durable state are owned and documented by Runtime itself.
+No component becomes authoritative for another owner merely by persisting a reference to it.
 
 ## Promotion rule
 
-A Host-local concept moves toward shared Protocol only after at least two materially different workloads demonstrate the same non-bypassable invariant. Open ActionProposal, capability profiles, and participant DecisionRequest remain Host-local until that threshold is met.
+A Host-local concept moves toward a shared Protocol or shared project only after materially different consumers reproduce the same non-bypassable responsibility and local/source-owner alternatives measurably fail.
 
-A mechanism that adds ambiguity or cost without increasing accepted verified outcomes should be deleted rather than promoted.
+The default is therefore:
+
+```text
+source owner
+or consumer-local adapter
+before shared Coordination ownership
+```
+
+A mechanism that adds ambiguity or cost without increasing accepted verified outcomes should be contracted rather than promoted.
+
+## Historical ownership removals
+
+The following historical Host responsibilities are intentionally absent from current production:
+
+- shared Goal coordination;
+- caller-neutral ExternalExecutor coordination;
+- Runtime read/mutation/code-change workloads;
+- cognition execution/proposal/decision orchestration;
+- automatic `TaskReconciler`;
+- generic capability authorization policy;
+- product Runtime client/config/catalog/health proxy.
+
+Their evidence remains in `docs/history/`. Reintroducing any of them requires a new concrete ownership falsifier/reopen condition; historical existence alone is not justification.

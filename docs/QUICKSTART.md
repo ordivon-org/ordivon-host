@@ -13,8 +13,8 @@ audience:
   - builder
   - operator
   - agent
-updated: 2026-08-04
-summary: Minimal path from a clean checkout to deterministic checks, a private Host state root, Runtime health, and read-only live acceptance.
+updated: 2026-08-18
+summary: Minimal path from a clean checkout to deterministic Host checks, a private Host state root, continuity operations, and direct owner revalidation.
 evidence_status: verified
 readiness: READY
 applies_to:
@@ -35,9 +35,8 @@ related:
 - SQLite supplied by Python;
 - Git;
 - the exact `ordivon-protocol` revision pinned in `pyproject.toml`;
-- a reachable Ordivon Runtime for live journeys.
 
-Host is not a standalone executor. Portable tests can use fake Runtime clients; live Task progress requires Runtime.
+Host is not an executor. Runtime is not a Host installation prerequisite; a consumer queries Runtime directly only when that consumer's workload needs physical execution truth.
 
 ## Install from the immutable dependency pin
 
@@ -74,7 +73,7 @@ scripts/local-acceptance check
 python3.12 -m pip wheel --no-deps --wheel-dir /tmp/ordivon-host-wheel .
 ```
 
-The deterministic suite verifies Journal/CAS integrity, migrations, leases, Task revisions, Context and decision admission, Runtime catalog binding, modern and legacy transport, recovery, backup/restore, extension events, and the proven workload slices. It does not prove a live Runtime path.
+The deterministic suite verifies Journal/CAS integrity, migrations, leases, Task revisions, WorkingCheckpoint continuity and response-loss replay, bounded context-selection compatibility, recovery projection, backup/restore, extension-state durability, MCP behavior, and deployment contracts. It does not prove another owner's current state.
 
 ## Initialize a state root
 

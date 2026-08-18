@@ -14,8 +14,8 @@ audience:
   - builder
   - operator
   - agent
-updated: 2026-08-12
-summary: Canonical entry to durable Task continuity, commitments, uncertainty, evidence admission, verification, recovery, and external-continuity handoff without owning physical or domain truth.
+updated: 2026-08-18
+summary: Canonical entry to Ordivon's durable semantic Task continuity and Host-owned Journal/CAS authority without owning cognition, physical execution, external currentness, or domain truth.
 evidence_status: verified
 readiness: READY
 applies_to:
@@ -31,112 +31,107 @@ related:
 ---
 # Ordivon Host
 
-An Agent works on a long task, reaches a meaningful frontier, and then disappears. Hours later a different Agent continues. The old model session is gone. The original process is gone. Runtime Workspaces may have changed or closed. Domain state may also have moved.
+An Agent works on a long task, reaches a meaningful frontier, and disappears. Later a different Agent continues. The old model session may be gone, the original process may be gone, Runtime Workspaces may have changed, and domain state may have moved.
 
-What must survive?
+What must survive is not a transcript pretending to be truth and not a copied snapshot of every external subsystem. What must survive is the **durable semantic work claim**: Task identity, the current bounded frontier, what was established, what remains unresolved, which routes were rejected, which constraints still apply, and where a new Agent should revalidate owner-current facts.
 
-Not the chat transcript as authority. Not the Provider session. Not a copied snapshot of every physical subsystem.
-
-**Ordivon Host preserves the durable semantic work that must outlive replaceable cognition and execution.** It keeps Task identity, current semantic frontier, commitments already made, uncertainty that must not be guessed away, references to evidence, verification admission, and Task-level outcome continuity.
-
-```text
-purpose / objective
-→ durable Task identity
-→ current semantic frontier + bounded Context
-→ proposal / decision / commitment
-→ physical or domain work happens elsewhere
-→ evidence returns
-→ verification / unresolved uncertainty
-→ next frontier or Task outcome
-```
-
-A new Agent can continue because the work has durable semantic identity. It still has to re-observe current Runtime, domain, provider, or repository truth from the owner that can prove it.
+**Ordivon Host preserves that continuity.**
 
 ## Purpose
 
-Host exists so semantic work can survive replaceable cognition and execution without copying every lower-layer state into a second authority.
+Host exists so semantic work can survive replaceable cognition and execution without creating a second authority for Runtime, Git, providers, or domain state.
+
+A resumed Agent should be able to answer:
+
+```text
+what work identity am I continuing?
+what semantic frontier was last committed?
+what claims were established or rejected?
+what uncertainty must remain explicit?
+what owner-native facts must I re-observe before acting?
+```
+
+## Identity meaning
+
+**Host is a product name, not a claim that Ordivon has one universal Host ontology or central coordinator.** The Foundations program falsified that broader interpretation. In current engineering use, “Host” names the component that hosts durable semantic Task continuity and the Journal/CAS authority required to preserve it.
+
+This distinction is normative:
+
+```text
+Host product identity
+!= universal coordinator
+!= global truth owner
+!= Runtime proxy
+!= generic executor
+!= governance authority
+```
+
+The stable `ordivon-host`, `ordivon_host`, MCP, systemd, state-path, and release-path identities are therefore compatibility names for this narrowed responsibility. Their continued existence does not reopen the rejected ontology.
 
 ## What Host owns
 
-Host owns:
+The current product owns:
 
-- durable Task identity and revisioned Task state;
-- Goal-scoped coordination over Task revisions;
-- Journal/CAS durability and exact Event admission;
-- bounded semantic Context and cognition requests;
-- commitments that must survive process/session replacement;
-- Effect/Dispatch identity where a Host workload admits a consequence;
-- participant-routed DecisionRequests;
-- explicit `UNKNOWN` where outcome cannot safely be inferred;
-- references to evidence plus Host-owned verification admission;
-- semantic WorkingCheckpoint continuity for external Agents;
-- Task-level outcome continuity.
+- durable `TaskDescriptor` identity and revisioned `TaskProjection` state;
+- one Host Journal plus immutable content-addressed objects;
+- exact Event/object admission, stream revision fencing, short leases, and irreversible terminal Task identity;
+- semantic `WorkingCheckpoint` continuity for external Agents, including exact response-loss replay;
+- revision-coherent handoff and bounded Host-owned inspection;
+- opaque per-Task/per-namespace extension-state durability without interpreting owner-specific fields;
+- bounded context-selection data structures retained for the real Security consumer, without Host-owned cognition execution;
+- Host-local Doctor, full-history validation, backup/restore, deployment receipts, rollback planning, and lifecycle inspection;
+- a small set of typed compatibility values retained where current consumers use them.
 
-Host does **not** become the owner of a fact merely because it persists a reference or extension object for that fact.
+Compatibility value types do **not** imply generic lifecycle ownership. For example, retaining an `ArtifactRef`, `DispatchEnvelope`, `ObservationEnvelope`, `StateRef`, `VerificationReceipt`, or `TaskOutcome` type does not make Host the universal owner of Runtime execution, external consequence, verification sufficiency, or domain completion.
 
 ## Responsibility boundary
 
 | Responsibility | Owner |
 | --- | --- |
-| durable semantic Task/work continuity and Task-level acceptance | Host |
+| durable semantic Task continuity and Host Journal/CAS admission | Host |
 | bounded Agent Run, Provider/Tool cognition, Provider continuation | Harness or another cognition executor |
 | Workspace/Job/Attempt/process/Artifact physical execution facts | Runtime |
+| repository/source currentness | Git/repository owner |
 | provider-native or external-world occurrence/current state | provider/domain owner |
 | domain meaning and domain-specific verification | Game, Security, Finance, World, or another domain |
 | promoted cross-project contracts | Computing after cross-owner proof |
 
-Persistence is not semantic ownership. Physical execution is not semantic completion. Domain truth does not move into Host because Host carries a durable reference to it.
+Persistence is not semantic ownership. A Host reference to foreign work is navigation/evidence, not a copied claim that the foreign owner is current, reachable, authorized, healthy, or complete.
 
 ## One external-continuity journey
 
-The current Host MCP exposes a narrow continuity path for an Agent that must survive conversation/session replacement:
+The current Host MCP exposes one narrow continuity path for work that must survive conversation/session replacement:
 
 ```text
 Agent adopts Task + initial WorkingCheckpoint
 → Host commits exact Task revision
 → Agent works outside Host
-→ Agent checkpoints current objective/frontier/findings
+→ Agent checkpoints objective/frontier/findings
 → session disappears
 → new Agent lists/resumes the same Task
-→ revalidates Runtime/Git/domain navigation hints with their owners
+→ revalidates Runtime/Git/domain hints with their owners
 → continues work
 → later checkpoint or terminal continuity disposition
 ```
 
-A WorkingCheckpoint is explicitly a **semantic working claim**. Its optional Runtime Workspace/Job/Git fields are navigation hints, not copied physical truth. A resumed Agent must revalidate them before acting.
+A `WorkingCheckpoint` has `truthRole = semantic-working-claim`. Optional Workspace, Job, or Git references are navigation hints. A resumed Agent must revalidate them before using them as current truth.
 
-If a checkpoint response is lost, retry the identical checkpoint against the original `expectedRevision`. If that exact transition already committed, Host converges to the existing revision. A competing or different claim fails closed.
+If a checkpoint response is lost, retry the identical checkpoint against the original `expectedRevision`. If that exact transition already committed, Host returns the existing revision. A competing or different claim fails closed.
 
 `continuityDisposition=complete|abandon` ends Host continuity tracking only. It does not assert that an external domain succeeded or failed.
 
-## One uncertain-effect journey
-
-Host also demonstrates why durable commitment matters before a consequential call:
-
-```text
-Host admits exact Effect + Dispatch identity
-→ physical executor is called
-→ response path is lost
-→ Host records uncertainty rather than inventing success/failure
-→ recovery locates the original durable external identity
-→ owner-native evidence is observed
-→ verification decides what can be concluded
-```
-
-Runtime Job success alone is not enough to mark a whole Task complete. The process may have succeeded while an external provider remains uncertain, or the resulting bytes may still fail independent verification, or the domain objective may not be satisfied.
-
 ## Status
 
-Host is operational for owner-trusted local engineering work and pre-1.0 as a public interface.
+Host 0.3.x is operational for owner-trusted local engineering work and remains pre-1.0 as a public interface.
 
 The current product includes:
 
-- immutable TaskDescriptor identity, revisioned projections, lease/revision fencing, and irreversible terminal state;
-- schema-v5 SQLite Journal/CAS with migration, backup/restore, Doctor, full-history validation, and opaque per-Task/per-namespace extension-state durability;
+- schema-v5 SQLite Journal/CAS with migration, backup/restore, Doctor, and full-history validation;
 - semantic external continuity through `WorkingCheckpoint`, exact revision patching, deterministic handoff, and exact response-loss replay;
-- bounded context-selection data structures retained for the current Security consumer, without Host-owned cognition execution;
-- authenticated loopback Host MCP with `host.status`, `task.observe`, `task.list`, `task.resume`, `task.adopt`, and `task.checkpoint`;
-- receipt-bound local deployment, schema-aware activation rollback, release lifecycle/GC planning, and external substrate retention projections.
+- opaque extension-state durability with revision-fenced owner metadata;
+- the bounded context-selection surface consumed by Security;
+- authenticated loopback MCP with exactly `host.status`, `task.observe`, `task.list`, `task.resume`, `task.adopt`, and `task.checkpoint`;
+- receipt-bound local deployment with exact release-byte rollback support.
 
 Exact support claims and known limits live in [`docs/STATUS.md`](docs/STATUS.md).
 
@@ -144,21 +139,32 @@ Exact support claims and known limits live in [`docs/STATUS.md`](docs/STATUS.md)
 
 Host is not:
 
-- a chat transcript database;
-- a Provider/session manager;
-- an Agent planner or model runtime;
-- a generic multi-Agent scheduler;
-- a second Runtime process supervisor;
+- a chat transcript database or Provider-session manager;
+- an Agent planner, model runtime, or cognition execution host;
+- a shared Goal coordinator or generic multi-Agent scheduler;
+- a Runtime client, Runtime health proxy, or process supervisor;
+- a source-read, mutation, or code-change engine;
+- a caller-neutral foreign-executor coordinator;
+- an automatic cross-owner reconciler;
+- a generic capability-policy or validity oracle;
 - a generic domain truth database;
 - a universal Effect lifecycle for every backend;
-- an authority that infers external success from local execution;
-- a machine-level substrate lifecycle owner merely because Host depends on that substrate.
+- an authority that infers external success from local execution.
 
-Several earlier candidates were removed or kept workload-local because they duplicated owner responsibility without a second real consumer.
+Those removals are deliberate engineering consumption of the frozen Host Foundations, not temporary omissions waiting to be reintroduced by default.
 
-## Runtime transport
+## External-owner references
 
-Host may call Runtime for workloads that require physical execution, but transport/session mechanics never become Task identity. The canonical Runtime client uses current Runtime discovery and exact Tool identity; retained legacy transport decoding is compatibility only. Host persists semantic commitments and exact external references, not MCP Session state.
+Host may persist opaque references or navigation hints to Runtime, Git, Harness, World, Security, Finance, Game, providers, or another owner. Host does not make those owners current by storing their identities.
+
+When external truth matters, query the owner directly. In particular:
+
+- Runtime Workspace/Job identities in `WorkingCheckpoint.runtime` must be revalidated with Runtime-native Tools;
+- Git/source revisions must be revalidated against the relevant repository authority;
+- domain state and verification sufficiency remain with the domain owner;
+- Harness Run state remains Harness-owned.
+
+Host Doctor and `host.status` therefore report Host-owned health only; an unrelated Runtime or domain outage does not by itself make Host unhealthy.
 
 ## Host MCP surface
 
@@ -167,7 +173,7 @@ The default endpoint is loopback-bound and authenticated. Its six Tools are inte
 | Tool | Purpose |
 | --- | --- |
 | `host.status` | bounded Host authority/deployment observation |
-| `task.observe` | compact revision-fenced Task observation |
+| `task.observe` | compact revision-fenced Host Task observation |
 | `task.list` | paginated external-continuity discovery |
 | `task.resume` | full revision-coherent WorkingCheckpoint recovery |
 | `task.adopt` | create/recover one explicit continuity Task |
@@ -179,9 +185,11 @@ The MCP server does not proxy Runtime or Harness, call a Provider, run a schedul
 
 - Python 3.12;
 - Git and SQLite through Python;
-- the exact `ordivon-protocol` revision pinned by the repository, plus the exact MCP SDK revision pinned only in the optional `mcp` server extra; core Host/domain consumers do not need the server SDK;
-- Linux for the canonical trusted-local path;
-- a reachable Runtime only for workloads that actually need Runtime execution.
+- the exact `ordivon-protocol` revision pinned by the repository;
+- the exact MCP SDK revision pinned only in the optional `mcp` server extra;
+- Linux for the canonical trusted-local operational path.
+
+Runtime is **not** a Host installation requirement. Consumers query Runtime separately when their own workload requires physical execution truth.
 
 ## Quick start
 
@@ -199,32 +207,33 @@ Initialize and inspect one local authority:
 ordivon-host --state-root /var/lib/ordivon/host init
 ordivon-host --state-root /var/lib/ordivon/host inspect
 ordivon-host --state-root /var/lib/ordivon/host doctor
+ordivon-host --state-root /var/lib/ordivon/host doctor --history
 ```
 
-Full setup, Runtime health, continuity examples, and live read-only acceptance are in [`docs/QUICKSTART.md`](docs/QUICKSTART.md).
+Full setup, continuity examples, and owner-revalidation guidance are in [`docs/QUICKSTART.md`](docs/QUICKSTART.md).
 
 ## Operations
 
-Normal operation uses short Host Journal transactions, immutable CAS objects, revision-fenced checkpoints, explicit Doctor/backup/restore, and conservative recovery. Commands and deployment/reconciliation procedures are owned by [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+Normal operation uses short Host Journal transactions, immutable CAS objects, revision-fenced checkpoints, explicit Doctor/backup/restore, and conservative local recovery projection. Deployment is receipt-bound and treats release bytes plus Host schema compatibility as one activation boundary. Procedures are owned by [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
 
 ## Documentation map
 
 | Need | Read |
 | --- | --- |
-| understand why Host exists and what survives replacement | this README |
-| install, initialize, and perform the first live journey | [`docs/QUICKSTART.md`](docs/QUICKSTART.md) |
+| understand why Host exists and what the name now means | this README |
+| install, initialize, and perform the first continuity journey | [`docs/QUICKSTART.md`](docs/QUICKSTART.md) |
 | inspect current maturity and known limits | [`docs/STATUS.md`](docs/STATUS.md) |
-| understand Task/Event/Context/Effect/recovery ownership | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
+| understand current ownership and durability architecture | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
 | operate state, backup, restore, Doctor, continuity and deployment | [`docs/OPERATIONS.md`](docs/OPERATIONS.md) |
 | inspect data sensitivity/retention/deletion | [`docs/DATA_AND_PRIVACY.md`](docs/DATA_AND_PRIVACY.md) |
 | inspect release/deprecation contracts | [`docs/RELEASES.md`](docs/RELEASES.md) |
 | determine which document/source owns a Host claim | [`docs/authority.md`](docs/authority.md) |
 
-Phase reports, extraction records, and remediation notes live under [`docs/history/`](docs/history/); they and `evidence/` preserve derivation and receipts. They do not override current canonical documents or machine-owned state.
+Phase reports and evidence under `docs/history/` and `evidence/` preserve derivation. They do not override current canonical documents or machine-owned state.
 
 ## Security and data
 
-Host state can contain Task text, Context, proposals, decisions, participant/repository references, Effects, observations, verification, outcomes, and opaque extension objects. It is a trusted-local private authority and does not automatically redact sensitive content.
+Host state can contain Task text, semantic working claims, references, owner-opaque extension objects, and other retained compatibility objects. It is a trusted-local private authority and does not automatically redact sensitive content.
 
 Read [`SECURITY.md`](SECURITY.md) and [`docs/DATA_AND_PRIVACY.md`](docs/DATA_AND_PRIVACY.md) before exposing or sharing it.
 
