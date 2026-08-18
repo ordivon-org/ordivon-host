@@ -1,0 +1,203 @@
+{
+  "authorityRef": "authority:ordivon:research-owner:host",
+  "closeouts": [
+    {
+      "closure": [
+        {
+          "scope": "HDF0-HDF43",
+          "status": "ESTABLISHED"
+        },
+        {
+          "scope": "PRIMITIVE_UNIVERSAL_CENTRAL_HOST",
+          "status": "FALSIFIED"
+        },
+        {
+          "scope": "GENERIC_COORDINATION_INDEPENDENT_OWNER",
+          "status": "FALSIFIED"
+        }
+      ],
+      "epistemicVerdict": "ESTABLISHED_IN_SCOPE",
+      "evidenceScope": "Consolidated Host research root at source revision c6b606ac89a0f3866ad172ad446dc577018b548b; exact HDF semantic wording remains in retained Host task history.",
+      "materialLineage": [
+        "HDF0-HDF43 remain frozen; HDF44 is not admitted.",
+        "HDF40 closes the universal/central Host-native ontology/service boundary; HDF41-HDF43 reconstruct surviving coordination/persistence/validity relations without restoring universal Host ownership.",
+        "Generic Coordination / Coordination Plane independent semantic ownership remains not admitted after engineering falsifiers.",
+        "Historical broad Host/coordination wording is retained as history and does not override the narrowed current owner boundary."
+      ],
+      "profile": "LEGACY_EXTRACTION",
+      "provenance": [
+        "research/README.md",
+        "research/00-OWNER-CONTRACT.md",
+        "research/50-HDF-REGISTRY-PROVENANCE.md",
+        "research/60-FALSIFICATION-NEGATIVE-HISTORY.md",
+        "research/70-CLOSURE-REOPEN-CONDITIONS.md"
+      ],
+      "reopenPolicy": "Reopen an existing HDF only for a concrete Host-relevant counterexample to an exact frozen claim. Product/API growth, compatibility pressure, numbering, or architectural symmetry do not reopen Foundations. A broader Coordination owner requires reproduced non-bypassable irreducible responsibility that source-owner/consumer-local solutions cannot satisfy.",
+      "researchRef": "research:host:core-materialization-20260818",
+      "residualState": "HDF44_NOT_ADMITTED; FOUNDATION_REOPEN_NONE_ACTIVE",
+      "resultRefs": [
+        "result:host:owner-boundary-current",
+        "result:host:hdf0-hdf43-current-frozen",
+        "result:host:hdf44-not-admitted",
+        "result:host:primitive-universal-host-falsified",
+        "result:host:generic-coordination-owner-not-admitted"
+      ],
+      "scopeRefs": [
+        "research-owner:host"
+      ],
+      "standing": [
+        "CURRENT",
+        "FROZEN"
+      ]
+    }
+  ],
+  "currentRecovery": {
+    "locator": "research/README.md",
+    "targetRole": "OWNER_RESEARCH_CORPUS"
+  },
+  "kind": "ordivon.research-owner-publication",
+  "ownerResearchRef": "research-owner:host",
+  "profile": "LEGACY_EXTRACTION",
+  "schemaVersion": 1,
+  "source": {
+    "authorityBranch": "refs/heads/main",
+    "corpusRoot": "research",
+    "kind": "git",
+    "repository": "git@github.com:zycxfyh/ordivon-host.git",
+    "sourceRevision": "c6b606ac89a0f3866ad172ad446dc577018b548b"
+  },
+  "statements": [
+    {
+      "predicate": "OWNER_BINDING",
+      "scope": "OWNER",
+      "subjectRef": "research-owner:host",
+      "value": "host"
+    },
+    {
+      "predicate": "STANDING:CURRENT",
+      "scope": "OWNER",
+      "subjectRef": "research-owner:host",
+      "value": true
+    },
+    {
+      "predicate": "STANDING:CURRENT",
+      "scope": "RESULT",
+      "subjectRef": "result:host:owner-boundary-current",
+      "value": true
+    },
+    {
+      "predicate": "STANDING:FROZEN",
+      "scope": "RESULT",
+      "subjectRef": "result:host:owner-boundary-current",
+      "value": true
+    },
+    {
+      "predicate": "EPISTEMIC_VERDICT",
+      "scope": "RESULT",
+      "subjectRef": "result:host:owner-boundary-current",
+      "value": "ESTABLISHED_IN_SCOPE"
+    },
+    {
+      "predicate": "EVIDENCE_SCOPE",
+      "scope": "RESULT",
+      "subjectRef": "result:host:owner-boundary-current",
+      "value": "Current Host owner boundary in research/README.md and 00-OWNER-CONTRACT.md at c6b606a."
+    },
+    {
+      "predicate": "STANDING:CURRENT",
+      "scope": "RESULT",
+      "subjectRef": "result:host:hdf0-hdf43-current-frozen",
+      "value": true
+    },
+    {
+      "predicate": "STANDING:FROZEN",
+      "scope": "RESULT",
+      "subjectRef": "result:host:hdf0-hdf43-current-frozen",
+      "value": true
+    },
+    {
+      "predicate": "EPISTEMIC_VERDICT",
+      "scope": "RESULT",
+      "subjectRef": "result:host:hdf0-hdf43-current-frozen",
+      "value": "ESTABLISHED_IN_SCOPE"
+    },
+    {
+      "predicate": "EVIDENCE_SCOPE",
+      "scope": "RESULT",
+      "subjectRef": "result:host:hdf0-hdf43-current-frozen",
+      "value": "HDF0-HDF43 registry frozen by retained Host Foundation authority and current materialized registry."
+    },
+    {
+      "predicate": "STANDING:CURRENT",
+      "scope": "RESULT",
+      "subjectRef": "result:host:hdf44-not-admitted",
+      "value": true
+    },
+    {
+      "predicate": "STANDING:NOT_ADMITTED",
+      "scope": "RESULT",
+      "subjectRef": "result:host:hdf44-not-admitted",
+      "value": true
+    },
+    {
+      "predicate": "EPISTEMIC_VERDICT",
+      "scope": "RESULT",
+      "subjectRef": "result:host:hdf44-not-admitted",
+      "value": "ESTABLISHED_IN_SCOPE"
+    },
+    {
+      "predicate": "EVIDENCE_SCOPE",
+      "scope": "RESULT",
+      "subjectRef": "result:host:hdf44-not-admitted",
+      "value": "Current closure guard: HDF44 is not admitted and no Foundation reopen condition is active."
+    },
+    {
+      "predicate": "STANDING:CURRENT",
+      "scope": "RESULT",
+      "subjectRef": "result:host:primitive-universal-host-falsified",
+      "value": true
+    },
+    {
+      "predicate": "STANDING:FROZEN",
+      "scope": "RESULT",
+      "subjectRef": "result:host:primitive-universal-host-falsified",
+      "value": true
+    },
+    {
+      "predicate": "EPISTEMIC_VERDICT",
+      "scope": "RESULT",
+      "subjectRef": "result:host:primitive-universal-host-falsified",
+      "value": "FALSIFIED_IN_SCOPE"
+    },
+    {
+      "predicate": "EVIDENCE_SCOPE",
+      "scope": "RESULT",
+      "subjectRef": "result:host:primitive-universal-host-falsified",
+      "value": "Current evidence frontier rejects primitive/universal/central Host ontology and service-boundary interpretations."
+    },
+    {
+      "predicate": "STANDING:CURRENT",
+      "scope": "RESULT",
+      "subjectRef": "result:host:generic-coordination-owner-not-admitted",
+      "value": true
+    },
+    {
+      "predicate": "STANDING:NOT_ADMITTED",
+      "scope": "RESULT",
+      "subjectRef": "result:host:generic-coordination-owner-not-admitted",
+      "value": true
+    },
+    {
+      "predicate": "EPISTEMIC_VERDICT",
+      "scope": "RESULT",
+      "subjectRef": "result:host:generic-coordination-owner-not-admitted",
+      "value": "FALSIFIED_IN_SCOPE"
+    },
+    {
+      "predicate": "EVIDENCE_SCOPE",
+      "scope": "RESULT",
+      "subjectRef": "result:host:generic-coordination-owner-not-admitted",
+      "value": "Independent Generic Coordination owner candidate failed to establish irreducible non-bypassable shared responsibility at the current evidence frontier."
+    }
+  ]
+}
