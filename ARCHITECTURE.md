@@ -36,6 +36,10 @@ Preserve semantic work across replaceable Agent sessions and execution processes
 
 Host 0.4.x is intentionally smaller than historical Host designs. The current architecture is the engineering result of the Host Deep Foundations and subsequent destructive ownership falsifiers.
 
+## Research authority / navigation
+
+This document remains the current engineering architecture authority. The consolidated research boundary, HDF0–HDF43 provenance, derived cross-owner coordination view, owner bridges, and C1–C9 consumption/falsification history are indexed at [`research/README.md`](research/README.md). Product implementation is downstream evidence and must not redefine the frozen HDF corpus backward.
+
 ## Identity and ontology
 
 `Host` is the stable product/compatibility name of this component. It is **not** a primitive universal Host ontology, central coordinator, global scheduler, or cross-owner truth service.

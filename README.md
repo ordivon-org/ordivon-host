@@ -37,6 +37,10 @@ What must survive is not a transcript pretending to be truth and not a copied sn
 
 **Ordivon Host preserves that continuity.**
 
+## Research authority / navigation
+
+The canonical product documentation in this file describes current engineering behavior. The consolidated Host research corpus, frozen HDF provenance, falsification history, and Foundation → Engineering Consumption map are indexed at [`research/README.md`](research/README.md). That research root links back to the exact Host Task authority and does not replace current product/source authority.
+
 ## Purpose
 
 Host exists so semantic work can survive replaceable cognition and execution without creating a second authority for Runtime, Git, providers, or domain state.
