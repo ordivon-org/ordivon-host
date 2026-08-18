@@ -6,10 +6,10 @@ from pathlib import Path
 import sys
 from typing import Sequence
 
-from .config import HostConfig, load_config, read_token_file
+from .config import HostConfig, load_config
 from .continuity import ExternalContinuityHost
 from .continuity_models import WorkingCheckpoint
-from .domain import StaticRepositoryResolver, TaskState
+from .domain import TaskState
 from .handoff import operator_handoff
 from .ops import (
     DEFAULT_HOST_RELEASE_ROOT,
@@ -22,8 +22,7 @@ from .ops import (
     restore_backup,
     verify_backup,
 )
-from .recovery import RecoveryResult, TaskReconciler, assess_recovery
-from .runtime import McpRuntimeClient
+from .recovery import assess_recovery
 from .storage import HostStorage
 
 
@@ -61,9 +60,6 @@ def build_parser() -> argparse.ArgumentParser:
     task_checkpoint.add_argument("--checkpoint-file", type=Path, required=True)
     task_assess = task_commands.add_parser("assess")
     task_assess.add_argument("task_id")
-    task_reconcile = task_commands.add_parser("reconcile")
-    task_reconcile.add_argument("task_id")
-    task_reconcile.add_argument("--wait-ms", type=int, default=30_000)
     doctor = commands.add_parser("doctor")
     doctor.add_argument("--runtime", action="store_true")
     doctor.add_argument("--history", action="store_true")
@@ -196,27 +192,6 @@ def _task(config: HostConfig, args: argparse.Namespace) -> dict[str, object]:
             ).to_dict()
         if args.task_command == "assess":
             return assess_recovery(storage, args.task_id).to_dict()
-        if args.task_command == "reconcile":
-            assessment = assess_recovery(storage, args.task_id)
-            if not assessment.automatic:
-                return RecoveryResult(assessment, assessment, False).to_dict()
-            token = read_token_file(config.runtime.token_file)
-            runtime = McpRuntimeClient(
-                config.runtime.endpoint,
-                token,
-                timeout_seconds=config.runtime.timeout_seconds,
-                max_response_bytes=config.runtime.max_response_bytes,
-                client_version="0.2.0",
-            )
-            result = TaskReconciler(
-                storage,
-                runtime,
-                clock_ms=_wall_clock_ms,
-                repository_resolver=StaticRepositoryResolver(
-                    dict(config.repositories)
-                ),
-            ).reconcile(args.task_id, wait_ms=args.wait_ms)
-            return result.to_dict()
     raise ValueError("unsupported Task command")
 
 

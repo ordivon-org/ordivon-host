@@ -39,13 +39,7 @@ from .kernel import (
     TransitionReceipt,
 )
 from .objects import ContentAddressedStore
-from .recovery import (
-    RecoveryAction,
-    RecoveryAssessment,
-    RecoveryResult,
-    TaskReconciler,
-    assess_recovery,
-)
+from .recovery import RecoveryAction, RecoveryAssessment, assess_recovery
 from .runtime import (
     ExecutionRuntimeCatalog,
     McpRuntimeClient,
@@ -83,7 +77,6 @@ __all__ = [
     "OperatorHandoffCapsule",
     "RecoveryAction",
     "RecoveryAssessment",
-    "RecoveryResult",
     "RevisionConflict",
     "RuntimeCatalog",
     "RuntimeSettings",
@@ -95,7 +88,6 @@ __all__ = [
     "TaskOutcome",
     "TaskProjection",
     "TaskProjectionDrift",
-    "TaskReconciler",
     "TaskRevisionMismatch",
     "TaskState",
     "TaskStateMismatch",

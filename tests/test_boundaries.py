@@ -4,47 +4,42 @@ from pathlib import Path
 import unittest
 
 from anc_canonical import canonical_digest
-from ordivon_host import TaskProjection
-from ordivon_host.engine import DeterministicReadHost, GuardedMutationHost
-from ordivon_host.engine.mutation import GuardedMutationHost as MutationPackageHost
-from ordivon_host.runtime import RuntimeClient
 from anc_effect_ir import EffectMode
+from ordivon_host import TaskProjection
+from ordivon_host.runtime import RuntimeClient
 
 
 class HostBoundaryTests(unittest.TestCase):
     def test_host_uses_promoted_protocol(self) -> None:
         self.assertEqual(canonical_digest({"mode": EffectMode.CHANGE.value})[:7], "sha256:")
 
-    def test_workload_implementations_are_explicit_engine_imports(self) -> None:
-        self.assertIs(MutationPackageHost, GuardedMutationHost)
-        self.assertTrue(callable(DeterministicReadHost))
+    def test_runtime_protocol_remains_available_for_operator_diagnostics(self) -> None:
         self.assertTrue(hasattr(RuntimeClient, "call_tool"))
 
+    def test_historical_execution_owners_are_not_bundled_in_host_surface(self) -> None:
+        source = Path(__file__).resolve().parents[1] / "src" / "ordivon_host"
+        self.assertFalse((source / "harness").exists())
+        self.assertFalse((source / "engine").exists())
         import ordivon_host
-
         for name in (
-            "CodeChangeHost",
-            "CodeChangePlan",
-            "DeterministicReadHost",
-            "GuardedMutationHost",
-            "GuardedMutationPlan",
-            "ReadTaskPlan",
+            "HarnessHost",
+            "EffectLifecycleHost",
+            "TaskReconciler",
+            "RecoveryResult",
+            "ExternalExecutorCoordinator",
+            "GoalCoordinatorHost",
         ):
             with self.subTest(name=name):
                 self.assertFalse(hasattr(ordivon_host, name))
 
-    def test_harness_implementation_is_not_bundled_in_host(self) -> None:
-        source = Path(__file__).resolve().parents[1] / "src" / "ordivon_host"
-        self.assertFalse((source / "harness").exists())
-        import ordivon_host
-
-        self.assertFalse(hasattr(ordivon_host, "HarnessHost"))
-        self.assertFalse(hasattr(ordivon_host, "EffectLifecycleHost"))
-        self.assertFalse(hasattr(ordivon_host, "owner_of"))
-
-    def test_legacy_mutation_module_is_removed(self) -> None:
-        source = Path(__file__).resolve().parents[1] / "src" / "ordivon_host" / "engine"
-        self.assertFalse((source / "mutation_task.py").exists())
+    def test_cognition_surface_is_context_only(self) -> None:
+        import ordivon_host.cognition as cognition
+        self.assertTrue(hasattr(cognition, "ContextBlock"))
+        self.assertTrue(hasattr(cognition, "BlockKind"))
+        self.assertTrue(hasattr(cognition, "Freshness"))
+        for name in ("CognitionHost", "OpenProposalHost", "RepositoryMutationProposalCompiler"):
+            with self.subTest(name=name):
+                self.assertFalse(hasattr(cognition, name))
 
     def test_projection_decoder_rejects_coerced_revision_types(self) -> None:
         value = {
@@ -65,16 +60,3 @@ class HostBoundaryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-class DurableObjectCodecTests(unittest.TestCase):
-    def test_workload_plan_rejects_unknown_schema_version_explicitly(self) -> None:
-        from ordivon_host.engine.code_change import CodeChangePlan
-        from ordivon_host.objects import UnsupportedObjectVersion
-
-        value = {
-            "schemaVersion": 99,
-            "kind": "ordivon.host-code-change-plan",
-        }
-        with self.assertRaises(UnsupportedObjectVersion):
-            CodeChangePlan.from_dict(value)

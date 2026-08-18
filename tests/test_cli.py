@@ -110,16 +110,6 @@ class HostCliTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(result["action"], "unsupported")
             self.assertFalse(result["automatic"])
-            code, result = self.invoke(
-                "--state-root",
-                str(state),
-                "task",
-                "reconcile",
-                "task:cli-assess",
-            )
-            self.assertEqual(code, 0)
-            self.assertFalse(result["changed"])
-            self.assertEqual(result["before"]["action"], "unsupported")
 
     def test_task_list_and_missing_task(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
