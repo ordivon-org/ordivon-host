@@ -392,14 +392,19 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
         name="ordivon-host-mcp",
         title="Ordivon Host",
         description=(
-            "Observable Host Task authority and durable semantic continuity for external Agents."
+            "Durable Host continuity plus Host-owned Journal/CAS operational authority for "
+            "external Agents."
         ),
         instructions=(
-            "Use host.status for Host-owned operational state and task.observe for a compact "
-            "revision-fenced Task timeline. Use task.list/task.resume for external continuity. "
-            "WorkingCheckpoint is a semantic working claim, not Runtime, Git, or domain truth: "
-            "revalidate physical/current facts at their owning authority. task.checkpoint accepts "
-            "a full checkpoint or an exact-revision patch; exact retry after response loss is safe."
+            "Treat task.* as compatibility names for Host continuity primitives, not as a "
+            "cross-owner work ontology. host.status continuity counts and task.list/task.observe "
+            "TaskProjection lifecycle states describe Host tracking only: READY/open continuity "
+            "does not mean actionable NOW, priority, owner standing, or current domain truth. "
+            "Host does not compute a cross-owner current-work or priority portfolio. Use "
+            "task.list only to discover continuity, task.resume to recover one exact known "
+            "continuation point, and revalidate current physical/domain facts at their owning "
+            "authority. task.checkpoint changes continuity state only; exact retry after response "
+            "loss is safe."
         ),
         version=_package_version(),
         log_level=settings.log_level,
@@ -411,9 +416,10 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
         title="Observe Host status",
         description=(
             "Return one compact Host operational snapshot: Journal/schema/task counts, current "
-            "deployment identity, continuity counts, and bounded recent Task activity. detail="
-            "integrity adds full local Host Doctor checks; detail=history additionally validates "
-            "all retained Event history. Runtime is deliberately not proxied by this Tool."
+            "deployment identity, continuity-tracking counts, and bounded recent Host Task "
+            "activity. Continuity counts are not active-work counts or priority. detail=integrity "
+            "adds full local Host Doctor checks; detail=history additionally validates all retained "
+            "Event history. Runtime is deliberately not proxied by this Tool."
         ),
         annotations=ToolAnnotations(
             readOnlyHint=True,
@@ -442,8 +448,10 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
         description=(
             "Return a compact revision-fenced observation for any Host Task: projection, workload "
             "identity, current head metadata, handoff, recovery assessment when applicable, "
-            "external-continuity checkpoint preview, and a bounded recent Event timeline. This "
-            "does not return raw Event payload data and never invokes Runtime, Harness, or a Provider."
+            "external-continuity checkpoint preview, and a bounded recent Event timeline. The "
+            "TaskProjection is Host lifecycle mechanics only; READY does not establish actionable "
+            "NOW work, priority, owner standing, or current domain truth. This does not return raw "
+            "Event payload data and never invokes Runtime, Harness, or a Provider."
         ),
         annotations=ToolAnnotations(
             readOnlyHint=True,
@@ -472,11 +480,14 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
         name="task.list",
         title="List Host tasks",
         description=(
-            "List resumable external-continuity Tasks, optionally scoped to one Goal, using "
-            "an opaque query-bound stable cursor. Each item includes the current projection, "
-            "creation time, and bounded semantic checkpoint preview. Active tracking is the "
+            "Discover resumable external-continuity Tasks, optionally scoped to one Goal, using "
+            "an opaque query-bound stable cursor. This is a continuity inventory, not a current-work "
+            "or priority surface: projection.state=READY means only that Host continuity remains "
+            "open at its continue frontier. It does not establish actionable NOW work, priority, "
+            "owner standing, or current domain truth. Each item includes the current Host projection, "
+            "creation time, and bounded semantic checkpoint preview. Non-terminal continuity is the "
             "default; includeTerminal opts into history. This projection never invokes Runtime, "
-            "Harness, or a Provider."
+            "Harness, a Provider, or a cross-owner portfolio authority."
         ),
         annotations=ToolAnnotations(
             readOnlyHint=True,
@@ -507,10 +518,11 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
         name="task.resume",
         title="Resume external work",
         description=(
-            "Read one external-continuity Task as TaskProjection + OperatorHandoffCapsule + "
-            "the WorkingCheckpoint bound to that exact Task revision. expectedRevision is an "
-            "optional stale-read fence. "
-            "This never validates Runtime/Git/domain truth and never invokes another system."
+            "Recover one exact external-continuity point as TaskProjection + "
+            "OperatorHandoffCapsule + WorkingCheckpoint bound to that Task revision. This resumes "
+            "Host semantic continuity only: frontier/nextActions are retained working claims, not "
+            "automatic current work admission or priority. expectedRevision is an optional stale-read "
+            "fence. This never validates Runtime/Git/domain truth and never invokes another system."
         ),
         annotations=ToolAnnotations(
             readOnlyHint=True,
@@ -538,8 +550,10 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
         title="Adopt external work",
         description=(
             "Create or recover one explicit external-continuity Task and its initial "
-            "WorkingCheckpoint. Exact replay with the same taskId, goalId, and checkpoint "
-            "converges after response loss; a different initial semantic claim fails closed."
+            "WorkingCheckpoint. Adoption opens Host continuity only; it does not admit cross-owner "
+            "work priority, domain standing, or execution authority. Exact replay with the same "
+            "taskId, goalId, and checkpoint converges after response loss; a different initial "
+            "semantic claim fails closed."
         ),
         annotations=ToolAnnotations(
             readOnlyHint=False,
@@ -568,10 +582,12 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
         name="task.checkpoint",
         title="Checkpoint external work",
         description=(
-            "Commit a new WorkingCheckpoint against one exact Task revision. If the original "
-            "response was lost, replay the identical checkpoint with the original "
-            "expectedRevision: Host returns admission=existing when that exact transition is "
-            "already current. checkpoint accepts either a full WorkingCheckpoint or a patch "
+            "Commit a new WorkingCheckpoint against one exact Task revision. This mutates Host "
+            "continuity tracking only; continue/complete/abandon do not assert current work "
+            "priority, owner standing, or external domain outcome. If the original response was "
+            "lost, replay the identical checkpoint with the original expectedRevision: Host returns "
+            "admission=existing when that exact transition is already current. checkpoint accepts "
+            "either a full WorkingCheckpoint or a patch "
             "that inherits omitted fields from expectedRevision. continuityDisposition may continue, "
             "complete, or abandon Host tracking without asserting a domain outcome. Different or "
             "stale claims fail closed."

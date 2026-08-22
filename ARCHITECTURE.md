@@ -156,8 +156,8 @@ Observation and mutation are separated:
 
 - `host.status` reports Host-owned operational/integrity state only;
 - `task.observe` is a bounded Host Task projection;
-- `task.list` discovers external-continuity Tasks with stable pagination;
-- `task.resume` recovers one exact semantic continuation point;
+- `task.list` discovers external-continuity Tasks with stable pagination; its `READY` projection is Host continuity lifecycle only, not current-work allocation, priority, owner standing, or domain currentness;
+- `task.resume` recovers one exact semantic continuation point; its frontier/next actions remain working claims until current owner facts are revalidated;
 - `task.adopt` creates/replays one explicit continuity Task;
 - `task.checkpoint` admits one revision-bound semantic checkpoint.
 

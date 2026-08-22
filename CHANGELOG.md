@@ -6,6 +6,18 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 
 No unreleased changes.
 
+## 0.4.1 — 2026-08-22
+
+### Changed
+
+- clarify the Agent-facing Host MCP contract after fresh-Agent consumer testing: `task.*` remains a compatibility surface for Host continuity, while `task.list`/`host.status` explicitly reject interpretation of READY/non-terminal continuity as NOW work, priority, owner standing, or current domain truth;
+- keep the six Tool names, input/output schemas, Journal schema, WorkingCheckpoint schema, and durable semantics unchanged; the repair is a consumption-contract correction rather than a Task-v2 or new portfolio authority.
+
+### Compatibility
+
+- Patch-class release: no Host Journal/CAS migration, durable object change, public import removal, Tool name change, input/output schema change, or workload-semantic reinterpretation;
+- `serverInterface.schemaDigest` remains `sha256:382abe793d2e41470d91f1efc00d76152ff1fdbae3cac53adcad511d8211780c`; only MCP presentation/instruction text and corresponding documentation/tests change.
+
 ## 0.4.0 — 2026-08-18
 
 ### Removed

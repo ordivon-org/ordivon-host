@@ -72,6 +72,8 @@ Host product identity
 
 The stable `ordivon-host`, `ordivon_host`, MCP, systemd, state-path, and release-path identities are therefore compatibility names for this narrowed responsibility. Their continued existence does not reopen the rejected ontology.
 
+The same applies to the public `task.*` MCP names. They are compatibility names over Host Task identity and external-continuity mechanics, not a claim that Ordivon's current work world is one Task lifecycle. In particular, `task.list` is a continuity-discovery surface: `projection.state = ready` means only that Host tracking remains open at its continue frontier. It is not a NOW-work, priority, owner-standing, or domain-currentness judgement.
+
 ## What Host owns
 
 The current product owns:
