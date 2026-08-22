@@ -1,0 +1,114 @@
+{
+  "ablation": {
+    "design": "3 consumer cases x 2 ablations x (2 DeepSeek-v4-flash + 1 DeepSeek-v4-pro)",
+    "primaryMetrics": {
+      "descriptionOnly": {
+        "continuityDiscoveryOperationCorrect": "3/3",
+        "decisionPass": "9/9",
+        "exactResumeOperationCorrect": "3/3",
+        "portfolioFalseAuthority": 0,
+        "portfolioOperationCorrect": "3/3",
+        "readyActionableFalsePositives": 0
+      },
+      "responseFieldsOnly": {
+        "continuityDiscoveryOperationCorrect": "3/3",
+        "decisionPass": "7/9",
+        "exactResumeOperationCorrect": "3/3",
+        "portfolioFalseAuthority": 0,
+        "portfolioOperationCorrect": "3/3",
+        "readyActionableFalsePositives": 0
+      }
+    },
+    "protocolSha256": "b5ea304b29685970ee681cdfddee302a9312c9145747dd80fb424dc169b67eef",
+    "resultSha256": "5e4dca4204ee7b2f2318bfb32e3767afbed3b8439367779ca9de0ed2e09df502",
+    "runtimeJobId": "job-01a02a1c-af07-7462-934e-9d9f6522fdbe",
+    "workspaceId": "host-tool-surface-harness-ab-20260822"
+  },
+  "candidateBaseRevision": "0439cef8c4361e509fe5219b9b726257e7033aab",
+  "candidateValidation": {
+    "candidatePackageVersion": "0.4.1",
+    "dependencyContract": "passed",
+    "documentationContract": "passed",
+    "fullUnitTests": "156/156 passed",
+    "journalSchemaUnchanged": true,
+    "localAcceptance": "passed",
+    "releaseClass": "Patch",
+    "resourceWarningSuite": "156/156 passed with ResourceWarning treated as error via local acceptance",
+    "ruff": "passed",
+    "schemaUnchanged": true,
+    "serverInterfaceSchemaDigest": "sha256:382abe793d2e41470d91f1efc00d76152ff1fdbae3cac53adcad511d8211780c",
+    "toolCatalogUnchanged": true,
+    "vulnerabilityAudit": "passed: no known vulnerabilities in requirements-audit scope",
+    "wheelBuild": "passed: ordivon_host-0.4.1-py3-none-any.whl metadata verified",
+    "workspaceId": "host-tool-surface-mode-transition-candidate-20260822"
+  },
+  "engineeringDecision": {
+    "reason": "description-only was sufficient in the bounded Fresh-Agent ablation and preserves the already-good exact resume/discovery operations without new authority or schema",
+    "rejected": [
+      "new continuity.list endpoint",
+      "WAIT/HOLD/BLOCKED Host lifecycle expansion",
+      "response-schema expansion",
+      "universal Task v2",
+      "Host-owned work/priority portfolio"
+    ],
+    "selected": "clarify existing MCP tool descriptions/instructions only"
+  },
+  "freshAgentExperiment": {
+    "design": "3 consumer cases x 3 surface treatments x (3 DeepSeek-v4-flash + 1 DeepSeek-v4-pro)",
+    "primaryMetrics": {
+      "current": {
+        "continuityDiscoveryOperationCorrect": "4/4",
+        "exactResumeOperationCorrect": "4/4",
+        "portfolioFalseAuthority": 2,
+        "portfolioOperationCorrect": "2/4",
+        "readyActionableFalsePositives": 4
+      },
+      "explicitlyLabeledCurrentSurface": {
+        "continuityDiscoveryOperationCorrect": "4/4",
+        "exactResumeOperationCorrect": "4/4",
+        "portfolioFalseAuthority": 0,
+        "portfolioOperationCorrect": "4/4",
+        "readyActionableFalsePositives": 0
+      },
+      "newContinuityListCandidate": {
+        "continuityDiscoveryOperationCorrect": "4/4",
+        "exactResumeOperationCorrect": "3/4",
+        "portfolioFalseAuthority": 0,
+        "portfolioOperationCorrect": "4/4",
+        "readyActionableFalsePositives": 2,
+        "validExactResumeRuns": "3/4"
+      }
+    },
+    "protocolSha256": "520d4913f52456378ab2a45460e4b4733742dcbc66cad3a98e89df07223cb1b2",
+    "resultSha256": "c66ad060de9b1671c7a1aa2c9afa6754348261105bb7369b21e83fa816fae041",
+    "runtimeJobId": "job-01a02a1b-61cb-7a92-81d9-c379f1116a1b",
+    "workspaceId": "host-tool-surface-harness-ab-20260822"
+  },
+  "harnessRevision": "09414f06a622",
+  "integrity": {
+    "algorithm": "sha256",
+    "canonicalization": "ordivon-canonical-json-v1",
+    "payloadDigest": "sha256:80b669740c9337f12806c324552a1a8f27dcb91f6b6c5d7b36eff3165dd6a101"
+  },
+  "kind": "ordivon.host-mcp-agent-surface-mode-transition-evidence",
+  "modeTransition": {
+    "currentUsePressure": "multi-relational work ecology where Host continuity inventory is being consumed as if it were current work/priority allocation",
+    "oldUseContract": "known Task-centric durable cross-session continuation",
+    "preservedInvariant": "Host owns durable situated continuity and Journal/CAS mechanics; owner/Runtime/Git/domain truth remains external"
+  },
+  "priorStanding": [
+    "task:ordivon-host-semantic-workstate-archaeology-20260821@6",
+    "task:ordivon-decision-bearing-standing-audit-20260821@3",
+    "task:ordivon-agent-conflation-control-risk-audit-20260820@8",
+    "task:ordivon-research-portfolio-matrix-20260821@12",
+    "task:ordivon-internal-representation-transition-topology-20260822@9",
+    "task:stalled-research-revalidation-20260822@5"
+  ],
+  "productionServerInterface": {
+    "schemaDigest": "sha256:382abe793d2e41470d91f1efc00d76152ff1fdbae3cac53adcad511d8211780c",
+    "surfaceVersion": 2,
+    "toolCount": 6
+  },
+  "schemaVersion": 1,
+  "taskId": "task:ordivon-host-tool-surface-mode-transition-audit-20260822"
+}

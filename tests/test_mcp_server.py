@@ -29,6 +29,7 @@ from ordivon_host.mcp_server import (
     _list_host_tasks,
     _observe_task,
     _tool_schema_identity,
+    build_mcp_server,
     check_settings,
 )
 from ordivon_host.testing.mcp_client import McpTestClient
@@ -133,6 +134,22 @@ class HostMcpSettingsTests(unittest.TestCase):
                 token_file=Path("/tmp/token"),
                 trust_cf_access=True,
             )
+
+    def test_agent_facing_descriptions_keep_continuity_distinct_from_current_work(self) -> None:
+        server = build_mcp_server(
+            HostMcpSettings(
+                state_root=Path("/tmp/host-mcp-description-test"),
+                token_file=Path("/tmp/host-mcp-description-test.token"),
+            )
+        )
+        tools = {tool.name: tool for tool in server._tool_manager.list_tools()}
+        self.assertIn("not active-work counts or priority", tools["host.status"].description)
+        self.assertIn("Host lifecycle mechanics only", tools["task.observe"].description)
+        self.assertIn("continuity inventory, not a current-work or priority surface", tools["task.list"].description)
+        self.assertIn("READY means only that Host continuity remains open", tools["task.list"].description)
+        self.assertIn("Host semantic continuity only", tools["task.resume"].description)
+        self.assertIn("does not admit cross-owner work priority", tools["task.adopt"].description)
+        self.assertIn("mutates Host continuity tracking only", tools["task.checkpoint"].description)
 
 
 class BearerAuthDisconnectTests(unittest.IsolatedAsyncioTestCase):
