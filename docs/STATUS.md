@@ -68,7 +68,7 @@ Important limits:
 - Runtime Workspace/Job/Git hints in the checkpoint are not current physical truth and must be revalidated with their owners;
 - `task.list` exposes bounded previews and revision/digest identity rather than raw checkpoint bodies;
 - `task.resume` returns one revision-coherent checkpoint;
-- `task.checkpoint` supports complete replacement or exact-revision patching;
+- `task.checkpoint` supports complete replacement or exact-revision patching while continuity stays open; a new terminal transition requires a full checkpoint;
 - response-loss replay converges only for the exact original claim/revision;
 - `complete`/`abandon` end Host tracking only and do not assert external domain outcomes.
 

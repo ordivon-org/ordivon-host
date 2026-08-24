@@ -217,7 +217,8 @@ WorkingCheckpointUpdateInput = Annotated[
             ],
             "description": (
                 "Either a complete WorkingCheckpoint or a revision-bound patch. "
-                "A patch inherits omitted fields from expectedRevision."
+                "A patch may continue open continuity and inherits omitted fields from "
+                "expectedRevision; a new complete/abandon transition requires the full checkpoint."
             ),
         }
     ),
@@ -587,10 +588,10 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
             "priority, owner standing, or external domain outcome. If the original response was "
             "lost, replay the identical checkpoint with the original expectedRevision: Host returns "
             "admission=existing when that exact transition is already current. checkpoint accepts "
-            "either a full WorkingCheckpoint or a patch "
-            "that inherits omitted fields from expectedRevision. continuityDisposition may continue, "
-            "complete, or abandon Host tracking without asserting a domain outcome. Different or "
-            "stale claims fail closed."
+            "either a full WorkingCheckpoint or a revision-bound patch. Patches inherit omitted "
+            "fields only for continuityDisposition=continue; a new complete/abandon transition "
+            "requires a full WorkingCheckpoint so no inherited field is frozen accidentally. Exact "
+            "replay after response loss remains supported, and different or stale claims fail closed."
         ),
         annotations=ToolAnnotations(
             readOnlyHint=False,
@@ -1287,6 +1288,13 @@ def _checkpoint_task(
     is_full = bool(full_markers & set(checkpoint_value))
     with HostStorage(state_root) as storage:
         continuity = ExternalContinuityHost(storage, clock_ms=_wall_clock_ms)
+        if disposition != "continue" and not is_full:
+            current = storage.journal.get_task(task_id)
+            if current is not None and current.revision == expected_revision:
+                raise ToolArgumentError(
+                    "checkpoint",
+                    "new terminal continuity transition requires a complete WorkingCheckpoint",
+                )
         if not is_full:
             allowed = {
                 "objective",

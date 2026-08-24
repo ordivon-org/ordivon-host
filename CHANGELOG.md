@@ -4,7 +4,14 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 
 ## Unreleased
 
-No unreleased changes.
+### Fixed
+
+- require a full WorkingCheckpoint for a new `complete`/`abandon` transition, preventing omitted patch fields from being inherited into an immutable terminal checkpoint;
+- preserve exact replay for already committed terminal transitions, including requests originally expressed as patches.
+
+### Compatibility
+
+- no Journal/CAS or WorkingCheckpoint schema migration; open-continuity patches remain supported, while new terminal patch admission now fails closed with `INVALID_ARGUMENT` and asks for the complete checkpoint.
 
 ## 0.4.1 — 2026-08-22
 

@@ -1029,6 +1029,56 @@ class HostMcpAgentUxTests(unittest.TestCase):
                     checkpoint_value={"frontier": "different stale patch"},
                 )
 
+    def test_new_terminal_checkpoint_requires_full_state_but_replay_converges(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / "state"
+            task_id = "task:mcp:terminal-full"
+            with HostStorage(state_root) as storage:
+                ExternalContinuityHost(storage, clock_ms=lambda: 4_000).adopt(
+                    task_id=task_id,
+                    goal_id="goal:mcp:terminal-full",
+                    initial_checkpoint=WorkingCheckpoint.from_dict(
+                        _checkpoint(task_id, "baseline")
+                    ),
+                )
+
+            with self.assertRaisesRegex(
+                Exception,
+                "new terminal continuity transition requires a complete WorkingCheckpoint",
+            ):
+                _checkpoint_task(
+                    state_root,
+                    task_id=task_id,
+                    expected_revision=2,
+                    checkpoint_value={"frontier": "final"},
+                    disposition="complete",
+                )
+            with HostStorage(state_root) as storage:
+                unchanged = storage.journal.get_task(task_id)
+                assert unchanged is not None
+                self.assertEqual(unchanged.revision, 2)
+                self.assertEqual(unchanged.state, TaskState.READY)
+
+            committed = _checkpoint_task(
+                state_root,
+                task_id=task_id,
+                expected_revision=2,
+                checkpoint_value=_checkpoint(task_id, "final"),
+                disposition="complete",
+            )
+            self.assertEqual(committed["admission"], "created")
+            self.assertEqual(committed["projection"]["state"], "completed")
+
+            replay = _checkpoint_task(
+                state_root,
+                task_id=task_id,
+                expected_revision=2,
+                checkpoint_value={"frontier": "final"},
+                disposition="complete",
+            )
+            self.assertEqual(replay["admission"], "existing")
+            self.assertEqual(replay["checkpointDigest"], committed["checkpointDigest"])
+
     def test_tool_schema_identity_ignores_presentation_but_binds_schema(self) -> None:
         first = [
             {
