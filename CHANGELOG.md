@@ -4,6 +4,8 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 
 ## Unreleased
 
+- distinguish explicitly named `incident-*` deployment investigation evidence from deployment receipts during lifecycle planning; incident trees remain evidence-retained and plan-digest-bound, while malformed ordinary receipts still fail closed.
+
 _No unreleased changes._
 
 ## 0.5.0 — 2026-08-28

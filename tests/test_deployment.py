@@ -484,6 +484,62 @@ class HostDeploymentOperatorTests(unittest.TestCase):
                 "evidence_retained",
             )
 
+    def test_lifecycle_plan_retains_incident_evidence_without_treating_it_as_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            release_root = base / "host"
+            candidate_root = base / "candidates"
+            receipt_root = base / "deployments"
+            runtime, executable = make_runtime(base)
+            releases = release_root / "releases"
+            previous = make_release(releases, "b" * 40, "b" * 40, executable)
+            current_id = "c" * 40 + "-current"
+            make_release(releases, current_id, "c" * 40, executable)
+            module.switch_current(release_root, current_id)
+            _, current_candidate = make_candidate(
+                candidate_root, current_id, "c" * 40, executable
+            )
+            make_deployment_receipt(
+                receipt_root,
+                "001-current",
+                current_candidate,
+                release_snapshot(previous),
+            )
+            incident = receipt_root / "incident-authority-audit-20260809"
+            incident.mkdir()
+            (incident / "evidence.json").write_text('{"kind":"incident-evidence"}', encoding="utf-8")
+
+            plan = module.lifecycle_plan(
+                release_root, candidate_root, receipt_root, runtime.parent
+            )
+            self.assertTrue(plan["eligible"], plan["blockers"])
+            retained = {
+                item["name"]: item for item in plan["retained"]["deploymentReceipts"]
+            }
+            self.assertEqual(
+                retained[incident.name]["policy"], "incident_evidence_retained"
+            )
+            first_digest = plan["planDigest"]
+            (incident / "evidence.json").write_text('{"kind":"changed"}', encoding="utf-8")
+            changed = module.lifecycle_plan(
+                release_root, candidate_root, receipt_root, runtime.parent
+            )
+            self.assertNotEqual(changed["planDigest"], first_digest)
+
+            malformed = receipt_root / "002-malformed-receipt"
+            malformed.mkdir()
+            blocked = module.lifecycle_plan(
+                release_root, candidate_root, receipt_root, runtime.parent
+            )
+            self.assertFalse(blocked["eligible"])
+            self.assertTrue(
+                any(
+                    "deployment receipt manifest is unreadable" in blocker
+                    and str(malformed) in blocker
+                    for blocker in blocked["blockers"]
+                )
+            )
+
     def test_substrate_claims_project_one_deduplicated_runtime_dependency(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)

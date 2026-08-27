@@ -1550,6 +1550,25 @@ def deployment_receipt_records(
         if not receipt.is_dir() or receipt.is_symlink():
             blockers.append(f"deployment receipt entry is not a directory: {receipt}")
             continue
+        if receipt.name.startswith("incident-"):
+            try:
+                tree = tree_description(receipt)
+            except (OSError, ValueError, TypeError, RuntimeError) as error:
+                blockers.append(f"deployment incident evidence is unreadable: {receipt}: {error}")
+                continue
+            records.append(
+                {
+                    "path": str(receipt),
+                    "name": receipt.name,
+                    "tree": tree,
+                    "recordKind": "incident-evidence",
+                    "manifest": None,
+                    "result": None,
+                    "rollbackResult": None,
+                    "plan": None,
+                }
+            )
+            continue
         try:
             manifest = read_json_object(receipt / "manifest.json")
         except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
@@ -1852,7 +1871,11 @@ def lifecycle_plan(
                 "name": record["name"],
                 "path": record["path"],
                 "tree": record["tree"],
-                "policy": "evidence_retained",
+                "policy": (
+                    "incident_evidence_retained"
+                    if record.get("recordKind") == "incident-evidence"
+                    else "evidence_retained"
+                ),
             }
         )
     protected_releases: list[dict[str, object]] = []
