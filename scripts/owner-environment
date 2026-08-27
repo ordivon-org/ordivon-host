@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+mode=${1:-}
+uv_bin=${UV_BIN:-$(command -v uv || true)}
+env_dir=${ORDIVON_OWNER_ENV_DIR:-"$repo/.venv"}
+python_bin="$env_dir/bin/python"
+
+usage() {
+  cat <<'TXT'
+usage: scripts/owner-environment bootstrap|doctor|test|cold-start
+
+bootstrap   materialize the locked Host test environment (base + MCP + dev)
+doctor      verify the already-materialized environment against owner declarations
+test        bootstrap, doctor, lint, and run the complete Host test suite
+cold-start  prove test from a fresh temporary environment without ambient packages
+
+Environment:
+  UV_BIN                    optional uv executable override
+  ORDIVON_OWNER_ENV_DIR     optional environment directory override
+TXT
+}
+
+require_uv() {
+  [[ -n "$uv_bin" ]] || { echo 'Host owner environment requires uv' >&2; exit 1; }
+}
+
+bootstrap() {
+  require_uv
+  UV_PROJECT_ENVIRONMENT="$env_dir" "$uv_bin" sync --frozen --extra mcp --group dev
+}
+
+doctor() {
+  [[ -x "$python_bin" ]] || { echo "Host owner environment is not materialized: $python_bin" >&2; exit 1; }
+  "$python_bin" - <<'PY'
+import importlib.metadata as md
+import sys
+
+if sys.version_info[:2] != (3, 12):
+    raise SystemExit(f"Host requires Python 3.12, got {sys.version.split()[0]}")
+for module in ("ordivon_host", "ordivon_protocol", "mcp", "ruff"):
+    __import__(module)
+if md.version("mcp") != "2.0.0":
+    raise SystemExit(f"unexpected mcp version: {md.version('mcp')}")
+if md.version("ruff") != "0.15.17":
+    raise SystemExit(f"unexpected ruff version: {md.version('ruff')}")
+print("owner environment doctor: valid profile=test+mcp")
+PY
+  (cd "$repo" && "$python_bin" scripts/check_dependencies.py)
+}
+
+run_tests() {
+  bootstrap
+  doctor
+  cd "$repo"
+  "$python_bin" -m ruff check src tests scripts
+  "$python_bin" -W error::ResourceWarning -m unittest discover -s tests -v
+}
+
+case "$mode" in
+  bootstrap) bootstrap ;;
+  doctor) doctor ;;
+  test) run_tests ;;
+  cold-start)
+    tmp=$(mktemp -d -t ordivon-host-owner-env-XXXXXX)
+    trap 'rm -rf "$tmp"' EXIT
+    ORDIVON_OWNER_ENV_DIR="$tmp/.venv" "$0" test
+    ;;
+  --help|-h) usage ;;
+  *) usage >&2; exit 2 ;;
+esac

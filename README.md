@@ -200,12 +200,12 @@ Runtime is **not** a Host installation requirement. Consumers query Runtime sepa
 ## Quick start
 
 ```bash
-python3.12 -m venv .venv
-. .venv/bin/activate
-python -m pip install -e '.[mcp]'
-python -m unittest discover -s tests -v
-python scripts/check_docs.py
+scripts/owner-environment bootstrap
+scripts/owner-environment doctor
+scripts/owner-environment test
 ```
+
+`owner-environment` is the canonical repository-owned development/test entrypoint. It binds the MCP optional surface and exact dev tooling instead of relying on ambient Python packages. `scripts/owner-environment cold-start` proves the same test profile in a fresh temporary environment.
 
 Initialize and inspect one local authority:
 

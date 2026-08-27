@@ -54,6 +54,11 @@ def main() -> int:
         print("dependencies: project.optional-dependencies.mcp must be a string list", file=sys.stderr)
         return 1
 
+    groups = data.get("dependency-groups", {})
+    if groups != {"dev": ["ruff==0.15.17"]}:
+        print("dependencies: Host dev group must be exactly ruff==0.15.17", file=sys.stderr)
+        return 1
+
     audited = [
         line.strip()
         for line in AUDIT_REQUIREMENTS.read_text(encoding="utf-8").splitlines()
@@ -77,6 +82,7 @@ def main() -> int:
         "dependency contract: valid "
         f"protocol={protocol_pins[0]} base_third_party={len(third_party)} "
         f"mcp_server_third_party={len(mcp_dependencies)} "
+        f"dev_third_party={len(groups["dev"])} "
         f"build_backend={EXPECTED_BUILD_REQUIRES[0]}"
     )
     return 0

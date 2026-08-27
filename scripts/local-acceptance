@@ -16,18 +16,16 @@ TXT
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 mode=${1:-}
-python_bin=${PYTHON_BIN:-$(command -v python3.12 || true)}
-uvx_bin=${UVX_BIN:-$(command -v uvx || true)}
-if [[ -z "$python_bin" && -x "$repo/.venv/bin/python" ]]; then
-  python_bin="$repo/.venv/bin/python"
-fi
+env_dir=${ORDIVON_OWNER_ENV_DIR:-"$repo/.venv"}
+python_bin="$env_dir/bin/python"
+owner_environment="$repo/scripts/owner-environment"
 
 case "$mode" in
   check)
     test -n "$python_bin"
     for path in \
       pyproject.toml uv.lock requirements-audit.txt \
-      scripts/check_docs.py scripts/check_dependencies.py scripts/ordivon-host-deploy \
+      scripts/check_docs.py scripts/check_dependencies.py scripts/owner-environment scripts/ordivon-host-deploy \
       src/ordivon_host/continuity.py src/ordivon_host/mcp_server.py \
       packaging/systemd/ordivon-host-mcp.service packaging/systemd/ordivon-host-mcp.env.example
     do
@@ -39,7 +37,8 @@ case "$mode" in
     printf '%s\n' 'local acceptance contract: present' 'run with: scripts/local-acceptance run'
     ;;
   run)
-    [[ -n "$python_bin" ]] || { echo 'Python 3.12 is required' >&2; exit 1; }
+    ORDIVON_OWNER_ENV_DIR="$env_dir" "$owner_environment" bootstrap
+    ORDIVON_OWNER_ENV_DIR="$env_dir" "$owner_environment" doctor
     protocol_source=${ORDIVON_PROTOCOL_SOURCE:-/root/projects/ordivon-computing/packages/ordivon-protocol/src}
     python_path="$repo/src"
     [[ -d "$protocol_source" ]] && python_path="$python_path:$protocol_source"
@@ -50,14 +49,7 @@ case "$mode" in
     "$python_bin" scripts/check_docs.py
     "$python_bin" scripts/check_dependencies.py
     "$python_bin" -m compileall -q src tests scripts
-    if "$python_bin" -c 'import ruff; assert ruff.__version__ == "0.15.17"' >/dev/null 2>&1; then
-      "$python_bin" -m ruff check src tests scripts
-    elif [[ -n "$uvx_bin" ]]; then
-      "$uvx_bin" ruff==0.15.17 check src tests scripts
-    else
-      echo 'Host acceptance requires Ruff 0.15.17 or uvx' >&2
-      exit 1
-    fi
+    "$python_bin" -m ruff check src tests scripts
     "$python_bin" -W error::ResourceWarning -m unittest discover -s tests -v
     receipt=$(mktemp)
     trap 'rm -f "$receipt"' EXIT
