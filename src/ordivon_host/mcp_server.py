@@ -486,7 +486,10 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
             "or priority surface: projection.state=READY means only that Host continuity remains "
             "open at its continue frontier. It does not establish actionable NOW work, priority, "
             "owner standing, or current domain truth. Each item includes the current Host projection, "
-            "creation time, and bounded semantic checkpoint preview. Non-terminal continuity is the "
+            "creation time, and bounded semantic checkpoint preview. When the exact current "
+            "WorkingCheckpoint carries a Runtime workspaceId, semanticSummary.runtimeNavigationHint "
+            "exposes that Host-retained navigation hint only; it does not establish Runtime currentness, "
+            "semantic claimant standing, or unclaimed status when absent. Non-terminal continuity is the "
             "default; includeTerminal opts into history. This projection never invokes Runtime, "
             "Harness, a Provider, or a cross-owner portfolio authority."
         ),
@@ -1164,6 +1167,16 @@ def _list_host_tasks(
                     frontier_preview, frontier_truncated = _discovery_preview(
                         checkpoint.checkpoint.frontier
                     )
+                    runtime_navigation_hint = None
+                    if checkpoint.checkpoint.runtime is not None:
+                        runtime_navigation_hint = {
+                            "workspaceId": checkpoint.checkpoint.runtime.workspace_id,
+                            "truthRole": "host-retained-runtime-navigation-hint",
+                            "interpretation": (
+                                "navigation hint from this exact current Host WorkingCheckpoint only; "
+                                "Runtime currentness and semantic claimant standing are not validated"
+                            ),
+                        }
                     semantic_summary = {
                         "objectivePreview": objective_preview,
                         "objectiveTruncated": objective_truncated,
@@ -1171,6 +1184,7 @@ def _list_host_tasks(
                         "frontierTruncated": frontier_truncated,
                         "checkpointRevision": checkpoint.task_revision,
                         "checkpointDigest": checkpoint.checkpoint_digest,
+                        "runtimeNavigationHint": runtime_navigation_hint,
                     }
                 matches.append(
                     (

@@ -18,7 +18,7 @@ from unittest import mock
 
 from anc_canonical import canonical_digest
 from ordivon_host.continuity import ExternalContinuityHost
-from ordivon_host.continuity_models import WorkingCheckpoint
+from ordivon_host.continuity_models import WorkingCheckpoint, WorkingCheckpointRuntime
 from ordivon_host.domain import EventKind, TaskState
 from ordivon_host.kernel import HostKernel
 from ordivon_host.mcp_server import (
@@ -296,6 +296,7 @@ class HostMcpTaskDiscoveryTests(unittest.TestCase):
                         "frontierTruncated",
                         "checkpointRevision",
                         "checkpointDigest",
+                        "runtimeNavigationHint",
                     },
                 )
 
@@ -411,6 +412,59 @@ class HostMcpTaskDiscoveryTests(unittest.TestCase):
             )
             self.assertTrue(
                 summaries["task:mcp:opaque-a"]["checkpointDigest"].startswith("sha256:")
+            )
+
+    def test_task_list_exposes_runtime_navigation_hint_without_promoting_authority(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / "state"
+            now = [8_500]
+
+            def clock() -> int:
+                now[0] += 1
+                return now[0]
+
+            with HostStorage(state_root) as storage:
+                continuity = ExternalContinuityHost(storage, clock_ms=clock)
+                continuity.adopt(
+                    task_id="task:mcp:navigation-hint",
+                    goal_id="goal:mcp:navigation-hint",
+                    initial_checkpoint=WorkingCheckpoint(
+                        task_id="task:mcp:navigation-hint",
+                        objective="retain weak navigation",
+                        frontier="continue",
+                        runtime=WorkingCheckpointRuntime(
+                            workspace_id="ws-navigation-only",
+                            relevant_job_ids=(),
+                            observed_head_revision=None,
+                        ),
+                    ),
+                )
+                continuity.adopt(
+                    task_id="task:mcp:no-navigation-hint",
+                    goal_id="goal:mcp:navigation-hint",
+                    initial_checkpoint=WorkingCheckpoint(
+                        task_id="task:mcp:no-navigation-hint",
+                        objective="no physical hint",
+                        frontier="continue",
+                    ),
+                )
+
+            page = _list_host_tasks(
+                state_root, goal_id="goal:mcp:navigation-hint", limit=10
+            )
+            summaries = {
+                item["projection"]["taskId"]: item["semanticSummary"]
+                for item in page["tasks"]
+            }
+            hint = summaries["task:mcp:navigation-hint"]["runtimeNavigationHint"]
+            self.assertEqual(hint["workspaceId"], "ws-navigation-only")
+            self.assertEqual(
+                hint["truthRole"], "host-retained-runtime-navigation-hint"
+            )
+            self.assertIn("Runtime currentness", hint["interpretation"])
+            self.assertIn("semantic claimant standing", hint["interpretation"])
+            self.assertIsNone(
+                summaries["task:mcp:no-navigation-hint"]["runtimeNavigationHint"]
             )
 
     def test_task_list_hides_terminal_continuity_unless_requested(self) -> None:
