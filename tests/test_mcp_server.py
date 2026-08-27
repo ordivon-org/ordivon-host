@@ -463,6 +463,8 @@ class HostMcpTaskDiscoveryTests(unittest.TestCase):
             )
             self.assertIn("Runtime currentness", hint["interpretation"])
             self.assertIn("semantic claimant standing", hint["interpretation"])
+            self.assertIn("retention or closure", hint["interpretation"])
+            self.assertIn("not a Human decision requirement", hint["interpretation"])
             self.assertIsNone(
                 summaries["task:mcp:no-navigation-hint"]["runtimeNavigationHint"]
             )

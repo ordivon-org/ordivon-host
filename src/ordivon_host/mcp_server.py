@@ -117,7 +117,11 @@ class WorkingCheckpointRuntimeInput(BaseModel):
     workspaceId: str = Field(
         min_length=1,
         max_length=512,
-        description="Runtime Workspace navigation hint; revalidate it against Runtime before use.",
+        description=(
+            "Runtime Workspace navigation hint only; revalidate exact Runtime state before use "
+            "or any physical carrier disposition. The hint does not authorize Workspace "
+            "retention or closure."
+        ),
     )
     relevantJobIds: list[str] = Field(
         max_length=64,
@@ -150,7 +154,8 @@ class WorkingCheckpointInput(BaseModel):
     nextActions: list[str] = Field(max_length=64)
     runtime: WorkingCheckpointRuntimeInput | None = Field(
         description=(
-            "Optional physical navigation hint. Host does not treat it as Runtime or Git truth."
+            "Optional physical navigation hints. Host does not treat them as Runtime or Git truth, "
+            "and they do not authorize physical Workspace retention or closure."
         )
     )
 
@@ -489,8 +494,10 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
             "creation time, and bounded semantic checkpoint preview. When the exact current "
             "WorkingCheckpoint carries a Runtime workspaceId, semanticSummary.runtimeNavigationHint "
             "exposes that Host-retained navigation hint only; it does not establish Runtime currentness, "
-            "semantic claimant standing, or unclaimed status when absent. Non-terminal continuity is the "
-            "default; includeTerminal opts into history. This projection never invokes Runtime, "
+            "semantic claimant standing, or unclaimed status when absent. It also does not authorize "
+            "physical Workspace retention or closure; revalidate exact Runtime state before any "
+            "carrier disposition. Missing Runtime mechanics is not a Human decision requirement. "
+            "Non-terminal continuity is the default; includeTerminal opts into history. This projection never invokes Runtime, "
             "Harness, a Provider, or a cross-owner portfolio authority."
         ),
         annotations=ToolAnnotations(
@@ -526,7 +533,10 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
             "OperatorHandoffCapsule + WorkingCheckpoint bound to that Task revision. This resumes "
             "Host semantic continuity only: frontier/nextActions are retained working claims, not "
             "automatic current work admission or priority. expectedRevision is an optional stale-read "
-            "fence. This never validates Runtime/Git/domain truth and never invokes another system."
+            "fence. Any retained Runtime hint is navigation only and does not authorize Workspace "
+            "retention or closure; revalidate exact Runtime state before any physical carrier "
+            "disposition. Missing Runtime mechanics is not a Human decision requirement. This "
+            "never validates Runtime/Git/domain truth and never invokes another system."
         ),
         annotations=ToolAnnotations(
             readOnlyHint=True,
@@ -1174,7 +1184,10 @@ def _list_host_tasks(
                             "truthRole": "host-retained-runtime-navigation-hint",
                             "interpretation": (
                                 "navigation hint from this exact current Host WorkingCheckpoint only; "
-                                "Runtime currentness and semantic claimant standing are not validated"
+                                "Runtime currentness and semantic claimant standing are not validated; "
+                                "the hint does not authorize physical Workspace retention or closure; "
+                                "revalidate exact Runtime state before any carrier disposition; "
+                                "missing Runtime mechanics is not a Human decision requirement"
                             ),
                         }
                     semantic_summary = {

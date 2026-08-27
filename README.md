@@ -120,7 +120,7 @@ Agent adopts Task + initial WorkingCheckpoint
 → later checkpoint or terminal continuity disposition
 ```
 
-A `WorkingCheckpoint` has `truthRole = semantic-working-claim`. Optional Workspace, Job, or Git references are navigation hints. A resumed Agent must revalidate them before using them as current truth.
+A `WorkingCheckpoint` has `truthRole = semantic-working-claim`. Optional Workspace, Job, or Git references are navigation hints. A resumed Agent must revalidate them before using them as current truth or making a physical carrier disposition. A retained hint does not authorize Workspace retention or closure, and missing Runtime mechanics is not a Human decision requirement.
 
 If a checkpoint response is lost, retry the identical checkpoint against the original `expectedRevision`. If that exact transition already committed, Host returns the existing revision. A competing or different claim fails closed.
 
