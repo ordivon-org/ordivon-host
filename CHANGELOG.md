@@ -4,6 +4,15 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 
 ## Unreleased
 
+_No unreleased changes._
+
+## 0.5.0 — 2026-08-28
+
+### Removed
+
+- retire the public `HostExtensionLegacyStateUnknown` compatibility exception and `HostExtensionPort.recover_legacy_namespace()`; current extension mutation consumes only native schema-v5 namespace state;
+- retire transparent v4→v5 backfill that inferred one retained namespace pointer from historical extension Event payloads. A schema-v4 authority containing any extension Event now fails closed before migration and requires a pre-0.5 Host client to perform owner recovery/export first. Schema-v4 authorities without extension Events still migrate normally to the unchanged schema-v5 table.
+
 ### Fixed
 
 - require a full WorkingCheckpoint for a new `complete`/`abandon` transition, preventing omitted patch fields from being inherited into an immutable terminal checkpoint;
@@ -11,7 +20,12 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 
 ### Compatibility
 
-- no Journal/CAS or WorkingCheckpoint schema migration; open-continuity patches remain supported, while new terminal patch admission now fails closed with `INVALID_ARGUMENT` and asks for the complete checkpoint.
+- **Breaking pre-1.0 cleanup:** retiring the executable legacy-extension recovery path is Major-class under Host policy, so `0.4.x` advances to `0.5.0`;
+- the current production schema remains v5. At the deletion cut, `/var/lib/ordivon/host/host.sqlite3` contained zero `task_extension_state` rows and its receipt-bound pre-schema-v5 production backup contained 141 Events, all `task.created` or `task.context-checkpointed`, with zero extension Events. No retained production owner state therefore consumed the removed backfill/recovery path;
+- the current reversible deployment frontier is already schema-v5 on both sides; schema-v4 release bytes are historical migration/rollback evidence rather than an eligible rollback peer;
+- `HostExtensionNamespaceSnapshot.legacy` and the schema-v5 `legacy` column remain as compatibility shape, but supported 0.5 state always projects `legacy=false`; a nonzero retained marker fails closed and requires pre-0.5 owner recovery/export instead of being interpreted by 0.5;
+- the six-Tool MCP catalog, WorkingCheckpoint contract, current v5 namespace state, Event/CAS semantics, and World-facing namespace metadata remain unchanged. The named World consumer gate passed its Inspector plus Provider/Resource/Message/Entity recovery suite against the 0.5 candidate;
+- open-continuity patches remain supported, while new terminal patch admission fails closed with `INVALID_ARGUMENT` and asks for the complete checkpoint.
 
 ## 0.4.1 — 2026-08-22
 

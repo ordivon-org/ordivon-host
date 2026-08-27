@@ -670,6 +670,11 @@ class HostJournal:
         if row is None:
             return None
         try:
+            legacy = int(row["legacy"])
+            if legacy != 0:
+                raise JournalCorruption(
+                    "legacy extension state requires a pre-0.5 Host client for owner recovery/export"
+                )
             return TaskExtensionStatePointer(
                 task_id=str(row["task_id"]),
                 namespace=str(row["namespace"]),
@@ -677,8 +682,10 @@ class HostJournal:
                 event_id=str(row["event_id"]),
                 event_kind=EventKind(str(row["event_kind"])),
                 revision=int(row["revision"]),
-                legacy=bool(int(row["legacy"])),
+                legacy=False,
             )
+        except JournalCorruption:
+            raise
         except (TypeError, ValueError) as error:
             raise JournalCorruption("Task extension state pointer is invalid") from error
 
@@ -929,8 +936,10 @@ class HostJournal:
                     "Task extension state namespace differs from Event kind: "
                     f"{row['task_id']}:{row['namespace']}"
                 )
-            if int(row["legacy"]) not in {0, 1}:
-                raise JournalCorruption("Task extension legacy marker is invalid")
+            if int(row["legacy"]) != 0:
+                raise JournalCorruption(
+                    "legacy extension state requires a pre-0.5 Host client for owner recovery/export"
+                )
 
         for row in self.connection.execute(
             "SELECT task_id FROM task_projection ORDER BY task_id"

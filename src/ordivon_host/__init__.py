@@ -20,7 +20,6 @@ from .effects import (
 )
 from .extensions import (
     HostExtensionError,
-    HostExtensionLegacyStateUnknown,
     HostExtensionNamespaceSnapshot,
     HostExtensionPort,
     HostExtensionSnapshot,
@@ -53,7 +52,6 @@ __all__ = [
     "ExternalContinuityResume",
     "HostConfig",
     "HostExtensionError",
-    "HostExtensionLegacyStateUnknown",
     "HostExtensionNamespaceSnapshot",
     "HostExtensionPort",
     "HostExtensionSnapshot",

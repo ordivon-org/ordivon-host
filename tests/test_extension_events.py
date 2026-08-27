@@ -357,12 +357,9 @@ class ExtensionPortTests(unittest.TestCase):
                 self.assertEqual(raced.data, {"worldOutcomeState": "unknown"})
 
 
-    def test_migrated_legacy_namespace_requires_exact_recovery_before_mutation(self) -> None:
-        from ordivon_host import (
-            HostExtensionError,
-            HostExtensionLegacyStateUnknown,
-            HostExtensionPort,
-        )
+    def test_schema_v4_extension_state_requires_pre_0_5_recovery_before_upgrade(self) -> None:
+        from ordivon_host import HostExtensionPort
+        from ordivon_host.journal import JournalCorruption
 
         with tempfile.TemporaryDirectory() as directory:
             clock = itertools.count(5_000).__next__
@@ -378,22 +375,13 @@ class ExtensionPortTests(unittest.TestCase):
                     payload={"coreMarker": "created"},
                     frontier=("node:extension-legacy",),
                 ).projection
-                port = HostExtensionPort(storage, kernel)
-                world = port.append_preserving(
+                HostExtensionPort(storage, kernel).append_preserving(
                     task_id=created.task_id,
                     expected_revision=created.revision,
                     event_id="event:extension-legacy:world",
                     kind=EventKind("world.outcome-unknown"),
                     updates={"worldOutcomeState": "unknown"},
                 )
-                with kernel.locked_task(
-                    created.task_id, expected_revision=world.projection.revision
-                ) as locked:
-                    core = locked.commit(
-                        event_id="event:extension-legacy:core",
-                        kind=EventKind.TASK_CONTEXT_CHECKPOINTED,
-                        payload={"hostCheckpoint": True},
-                    )
 
             database = Path(directory) / "host.sqlite3"
             connection = sqlite3.connect(database)
@@ -405,98 +393,25 @@ class ExtensionPortTests(unittest.TestCase):
             connection.commit()
             connection.close()
 
-            with HostStorage(directory) as reopened:
-                port = HostExtensionPort(
-                    reopened,
-                    HostKernel(
-                        reopened,
-                        clock_ms=itertools.count(6_000).__next__,
-                        owner_id="host:test-extension-legacy-reopened",
-                    ),
-                )
-                retained = port.load_namespace(created.task_id, "world")
-                self.assertEqual(retained.projection.revision, core.projection.revision)
-                self.assertEqual(retained.data["worldOutcomeState"], "unknown")
-                pointer = reopened.journal.task_extension_state(
-                    created.task_id, "world"
-                )
-                assert pointer is not None
-                self.assertTrue(pointer.legacy)
-                self.assertEqual(retained.payload_digest, pointer.state_digest)
-                self.assertEqual(
-                    reopened.task_extension_namespaces(
-                        created.task_id, at_revision=core.projection.revision
-                    ),
-                    ("world",),
-                )
-                self.assertEqual(
-                    reopened.task_extension_namespaces(
-                        created.task_id, at_revision=created.revision
-                    ),
-                    (),
-                )
-                with self.assertRaisesRegex(ValueError, "exceeds current Task revision"):
-                    reopened.task_extension_namespaces(
-                        created.task_id, at_revision=core.projection.revision + 1
-                    )
-                with self.assertRaises(HostExtensionLegacyStateUnknown):
-                    port.append_preserving(
-                        task_id=created.task_id,
-                        expected_revision=core.projection.revision,
-                        event_id="event:extension-legacy:unsafe-mutation",
-                        kind=EventKind("world.outcome-reconciled"),
-                        updates={"worldOutcomeState": "delivered"},
-                    )
-                with self.assertRaises(HostExtensionError):
-                    port.recover_legacy_namespace(
-                        task_id=created.task_id,
-                        expected_revision=core.projection.revision,
-                        expected_legacy_state_digest="sha256:" + "0" * 64,
-                        event_id="event:extension-legacy:wrong-recovery",
-                        kind=EventKind("world.legacy-recovered"),
-                        state={"worldOutcomeState": "unknown"},
-                    )
-                recovered = port.recover_legacy_namespace(
-                    task_id=created.task_id,
-                    expected_revision=core.projection.revision,
-                    expected_legacy_state_digest=retained.payload_digest,
-                    event_id="event:extension-legacy:recovered",
-                    kind=EventKind("world.legacy-recovered"),
-                    state={
-                        "worldOutcomeState": "unknown",
-                        "dispatchId": "dispatch:extension-legacy",
-                    },
-                )
-                self.assertEqual(
-                    recovered.data,
-                    {
-                        "worldOutcomeState": "unknown",
-                        "dispatchId": "dispatch:extension-legacy",
-                    },
-                )
-                self.assertEqual(recovered.projection.revision, core.projection.revision + 1)
-                recovered_pointer = reopened.journal.task_extension_state(
-                    created.task_id, "world"
-                )
-                assert recovered_pointer is not None
-                self.assertFalse(recovered_pointer.legacy)
-                self.assertEqual(recovered_pointer.state_digest, recovered.payload_digest)
-                delivered = port.append_preserving(
-                    task_id=created.task_id,
-                    expected_revision=recovered.projection.revision,
-                    event_id="event:extension-legacy:post-recovery-mutation",
-                    kind=EventKind("world.outcome-reconciled"),
-                    updates={"worldOutcomeState": "delivered"},
-                )
-                current_world = port.load_namespace(created.task_id, "world")
-                self.assertEqual(delivered.projection.revision, recovered.projection.revision + 1)
-                self.assertEqual(
-                    current_world.data,
-                    {
-                        "worldOutcomeState": "delivered",
-                        "dispatchId": "dispatch:extension-legacy",
-                    },
-                )
+            with self.assertRaisesRegex(
+                JournalCorruption,
+                "pre-0.5 Host client for owner recovery/export",
+            ):
+                HostStorage(directory)
+
+            connection = sqlite3.connect(database)
+            self.assertEqual(
+                connection.execute(
+                    "SELECT value FROM host_metadata WHERE key = 'schema_version'"
+                ).fetchone()[0],
+                "4",
+            )
+            self.assertIsNone(
+                connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='task_extension_state'"
+                ).fetchone()
+            )
+            connection.close()
 
 
 

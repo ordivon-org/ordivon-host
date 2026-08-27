@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ordivon-host"
-version = "0.4.1"
+version = "0.5.0"
 description = "Durable semantic continuity and Host-owned state authority for Ordivon."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

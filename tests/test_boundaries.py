@@ -9,6 +9,13 @@ from ordivon_host import TaskProjection
 
 
 class HostBoundaryTests(unittest.TestCase):
+    def test_retired_legacy_extension_recovery_does_not_return(self) -> None:
+        import ordivon_host
+        from ordivon_host import HostExtensionPort
+
+        self.assertFalse(hasattr(ordivon_host, "HostExtensionLegacyStateUnknown"))
+        self.assertFalse(hasattr(HostExtensionPort, "recover_legacy_namespace"))
+
     def test_host_uses_promoted_protocol(self) -> None:
         self.assertEqual(canonical_digest({"mode": EffectMode.CHANGE.value})[:7], "sha256:")
 

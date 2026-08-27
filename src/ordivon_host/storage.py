@@ -225,21 +225,6 @@ class HostStorage:
         if pointer is None:
             return None
         stored = self.objects.inspect(pointer.state_digest)
-        if pointer.legacy:
-            if stored.kind != "host-event-payload":
-                raise JournalCorruption("legacy extension state is not an Event payload")
-            snapshot = self._read_task_event_pointer(
-                TaskEventPointer(
-                    event_id=pointer.event_id,
-                    task_id=pointer.task_id,
-                    event_kind=pointer.event_kind,
-                    payload_digest=pointer.state_digest,
-                    revision=pointer.revision,
-                )
-            )
-            if not isinstance(snapshot.data, dict):
-                raise JournalCorruption("legacy extension state data is not an object")
-            return pointer, dict(snapshot.data)
         if stored.kind != "host-extension-state":
             raise JournalCorruption("extension state object kind differs")
         value = self.objects.get(pointer.state_digest, expected_kind="host-extension-state")

@@ -96,6 +96,7 @@ The service remains loopback-only. A canonical HTTPS public origin may be admitt
 - Provider and cognition execution remain outside Host.
 - Domain systems must supply authoritative world-state and domain verification semantics.
 - extension namespace identity/state proves retained owner bytes and provenance, not owner availability, external currentness, outstanding work, or authority.
+- Host 0.5 does not auto-upgrade schema-v4 extension Event payloads into current namespace state; such historical owner state must be recovered/exported with a pre-0.5 client before upgrade. Current/native schema-v5 namespace state is unaffected.
 - `WorkingCheckpoint.runtime` is intentionally a navigation hint rather than a copied Runtime state graph.
 - concurrent first-time authority initialization is not supported; initialize one Host state root before concurrent consumers.
 - the official MCP SDK path does not currently expose explicit output schemas without coupling Host to SDK-private output-model plumbing; the measured limitation is retained rather than creating a second schema system.

@@ -46,7 +46,7 @@ No single SemVer value replaces the stronger identities needed for migration, re
 
 ## Current stage
 
-Host is pre-1.0. Package `0.4.x` is the currently deployed compatibility line. Pre-1.0 does not make breaking changes implicit: Host still classifies removals/reinterpretations as Major-class changes. Until 1.0, a Major-class cutover advances the minor version (for example `0.2.x` → `0.3.0`) and must satisfy the full Major obligations below.
+Host is pre-1.0. Package `0.5.x` is the currently deployed compatibility line. Pre-1.0 does not make breaking changes implicit: Host still classifies removals/reinterpretations as Major-class changes. Until 1.0, a Major-class cutover advances the minor version (for example `0.2.x` → `0.3.0`) and must satisfy the full Major obligations below.
 
 Pre-1.0 changes still require:
 

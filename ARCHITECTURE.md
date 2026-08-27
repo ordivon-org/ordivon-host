@@ -34,7 +34,7 @@ related:
 
 Preserve semantic work across replaceable Agent sessions and execution processes while refusing to mirror owner-current Runtime, Git, Provider, Harness, or domain state into a second authority.
 
-Host 0.4.x is intentionally smaller than historical Host designs. The current architecture is the engineering result of the Host Deep Foundations and subsequent destructive ownership falsifiers.
+Host 0.5.x is intentionally smaller than historical Host designs. The current architecture is the engineering result of the Host Deep Foundations and subsequent destructive ownership falsifiers.
 
 ## Research authority / navigation
 

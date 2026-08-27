@@ -128,7 +128,7 @@ If a checkpoint response is lost, retry the identical checkpoint against the ori
 
 ## Status
 
-Host 0.4.x is operational for owner-trusted local engineering work and remains pre-1.0 as a public interface.
+Host 0.5.x is operational for owner-trusted local engineering work and remains pre-1.0 as a public interface.
 
 The current product includes:
 
