@@ -1,8 +1,8 @@
 {
   "authorityRef": "authority:ordivon:research-owner:host",
-  "currentAuthorityVersionRef": "sha256:4fc9dee669927882337649d19c144d0938ecf3307c461bffd84eedb8fdc27df4",
+  "currentAuthorityVersionRef": "sha256:aeff16b1bfe5ca0b6e2fdc203f608ef56576e65b705ddf87e0daeaf525b1ca67",
   "kind": "ordivon.research-owner-current",
   "ownerResearchRef": "research-owner:host",
-  "publication": "authority/publications/4fc9dee669927882337649d19c144d0938ecf3307c461bffd84eedb8fdc27df4.json",
+  "publication": "authority/publications/aeff16b1bfe5ca0b6e2fdc203f608ef56576e65b705ddf87e0daeaf525b1ca67.json",
   "schemaVersion": 1
 }

@@ -22,6 +22,7 @@ It is a **research navigation and provenance surface**, not a replacement for th
 - [`50-HDF-REGISTRY-PROVENANCE.md`](50-HDF-REGISTRY-PROVENANCE.md)
 - [`60-FALSIFICATION-NEGATIVE-HISTORY.md`](60-FALSIFICATION-NEGATIVE-HISTORY.md)
 - [`70-CLOSURE-REOPEN-CONDITIONS.md`](70-CLOSURE-REOPEN-CONDITIONS.md)
+- [`80-HISTORICAL-APPROXIMATION-CUTOVER-20260828.md`](80-HISTORICAL-APPROXIMATION-CUTOVER-20260828.md) — destructive compatibility/currentness audit for Host 0.5; engineering closeout only, not a new Foundation family.
 
 ## Canonical boundary in one sentence
 

@@ -1,0 +1,334 @@
+{
+  "authorityRef": "authority:ordivon:research-owner:host",
+  "closeouts": [
+    {
+      "closure": [
+        {
+          "scope": "HDF0-HDF43",
+          "status": "ESTABLISHED"
+        },
+        {
+          "scope": "PRIMITIVE_UNIVERSAL_CENTRAL_HOST",
+          "status": "FALSIFIED"
+        },
+        {
+          "scope": "GENERIC_COORDINATION_INDEPENDENT_OWNER",
+          "status": "FALSIFIED"
+        }
+      ],
+      "epistemicVerdict": "ESTABLISHED_IN_SCOPE",
+      "evidenceScope": "Consolidated Host research root at source revision c6b606ac89a0f3866ad172ad446dc577018b548b; exact HDF semantic wording remains in retained Host task history.",
+      "materialLineage": [
+        "HDF0-HDF43 remain frozen; HDF44 is not admitted.",
+        "HDF40 closes the universal/central Host-native ontology/service boundary; HDF41-HDF43 reconstruct surviving coordination/persistence/validity relations without restoring universal Host ownership.",
+        "Generic Coordination / Coordination Plane independent semantic ownership remains not admitted after engineering falsifiers.",
+        "Historical broad Host/coordination wording is retained as history and does not override the narrowed current owner boundary."
+      ],
+      "profile": "LEGACY_EXTRACTION",
+      "provenance": [
+        "research/README.md",
+        "research/00-OWNER-CONTRACT.md",
+        "research/50-HDF-REGISTRY-PROVENANCE.md",
+        "research/60-FALSIFICATION-NEGATIVE-HISTORY.md",
+        "research/70-CLOSURE-REOPEN-CONDITIONS.md"
+      ],
+      "reopenPolicy": "Reopen an existing HDF only for a concrete Host-relevant counterexample to an exact frozen claim. Product/API growth, compatibility pressure, numbering, or architectural symmetry do not reopen Foundations. A broader Coordination owner requires reproduced non-bypassable irreducible responsibility that source-owner/consumer-local solutions cannot satisfy.",
+      "researchRef": "research:host:core-materialization-20260818",
+      "residualState": "HDF44_NOT_ADMITTED; FOUNDATION_REOPEN_NONE_ACTIVE",
+      "resultRefs": [
+        "result:host:owner-boundary-current",
+        "result:host:hdf0-hdf43-current-frozen",
+        "result:host:hdf44-not-admitted",
+        "result:host:primitive-universal-host-falsified",
+        "result:host:generic-coordination-owner-not-admitted"
+      ],
+      "scopeRefs": [
+        "research-owner:host"
+      ],
+      "standing": [
+        "CURRENT",
+        "FROZEN"
+      ]
+    },
+    {
+      "closure": [
+        {
+          "scope": "NATIVE_V5_EXTENSION_NAMESPACE_BOUNDARY",
+          "status": "CURRENT"
+        },
+        {
+          "scope": "LEGACY_EXTENSION_EXECUTABLE_COMPATIBILITY",
+          "status": "RETIRED_NO_CURRENT_CONSUMER"
+        },
+        {
+          "scope": "DEPLOYED_VS_DISTRIBUTED_SOURCE_DRIFT",
+          "status": "RECONCILED"
+        }
+      ],
+      "epistemicVerdict": "ESTABLISHED_IN_SCOPE",
+      "evidenceScope": "Host 0.5 destructive compatibility audit at reconciled product revision e3daac89377a4e57ed3c4a76546005b23b9456d6; retained production schema-v5 authority, its receipt-bound pre-v5 backup, current deployment frontier, complete Host acceptance and named World consumer were inspected.",
+      "materialLineage": [
+        "The v4→v5 owner-state inference/recovery bridge was a historical approximation for unknown retained extension state; current production plus its pre-v5 backup contain no such state.",
+        "Host 0.5 keeps the v5 legacy representation field for shape compatibility but rejects nonzero legacy state and removes the owner recovery API; native v5 current behavior is unchanged.",
+        "World remains a named consumer of the public namespace snapshot and passed its current consequence/recovery suite against the 0.5 candidate.",
+        "Deployment admission exposed production commit 4d5a04e ahead of distributed remote source; the two deployed-only commits were replayed after the 0.5 cutover and GitHub main was fast-forwarded to reconciled product revision e3daac8."
+      ],
+      "profile": "OWNER_NATIVE_EXTENSION",
+      "provenance": [
+        "research/80-HISTORICAL-APPROXIMATION-CUTOVER-20260828.md",
+        "CHANGELOG.md",
+        "docs/OPERATIONS.md",
+        "docs/RELEASES.md",
+        "src/ordivon_host/extensions.py",
+        "src/ordivon_host/journal/migrations.py",
+        "src/ordivon_host/journal/sqlite.py",
+        "tests/test_extension_events.py"
+      ],
+      "reopenPolicy": "Reopen legacy extension compatibility only for a concrete retained schema-v4 authority with extension Events that cannot first be recovered/exported with a pre-0.5 client. Reopen source-distribution handling if deployed bytes can again advance without explicit distributed-source reconciliation.",
+      "researchRef": "research:host:historical-approximation-cutover-20260828",
+      "residualState": "HOST_0_5_CODE_ADMITTED; PRODUCTION_ACTIVATION_DEFERRED; NATIVE_V5_CURRENT; LEGACY_EXTENSION_RECOVERY_RETIRED; SOURCE_LINEAGE_RECONCILED",
+      "resultRefs": [
+        "result:host:native-v5-extension-boundary-current",
+        "result:host:legacy-extension-recovery-retired",
+        "result:host:deployed-source-lineage-reconciled"
+      ],
+      "scopeRefs": [
+        "research-owner:host"
+      ],
+      "standing": [
+        "CURRENT",
+        "CLOSED"
+      ]
+    }
+  ],
+  "currentRecovery": {
+    "locator": "research/README.md",
+    "targetRole": "OWNER_RESEARCH_CORPUS"
+  },
+  "kind": "ordivon.research-owner-publication",
+  "ownerResearchRef": "research-owner:host",
+  "profile": "LEGACY_EXTRACTION",
+  "schemaVersion": 1,
+  "source": {
+    "authorityBranch": "refs/heads/main",
+    "corpusRoot": "research",
+    "kind": "git",
+    "repository": "git@github.com:zycxfyh/ordivon-host.git",
+    "sourceRevision": "e3daac89377a4e57ed3c4a76546005b23b9456d6"
+  },
+  "statements": [
+    {
+      "predicate": "OWNER_BINDING",
+      "scope": "OWNER",
+      "subjectRef": "research-owner:host",
+      "value": "host"
+    },
+    {
+      "predicate": "STANDING:CURRENT",
+      "scope": "OWNER",
+      "subjectRef": "research-owner:host",
+      "value": true
+    },
+    {
+      "predicate": "STANDING:CURRENT",
+      "scope": "RESULT",
+      "subjectRef": "result:host:owner-boundary-current",
+      "value": true
+    },
+    {
+      "predicate": "STANDING:FROZEN",
+      "scope": "RESULT",
+      "subjectRef": "result:host:owner-boundary-current",
+      "value": true
+    },
+    {
+      "predicate": "EPISTEMIC_VERDICT",
+      "scope": "RESULT",
+      "subjectRef": "result:host:owner-boundary-current",
+      "value": "ESTABLISHED_IN_SCOPE"
+    },
+    {
+      "predicate": "EVIDENCE_SCOPE",
+      "scope": "RESULT",
+      "subjectRef": "result:host:owner-boundary-current",
+      "value": "Current Host owner boundary in research/README.md and 00-OWNER-CONTRACT.md at c6b606a."
+    },
+    {
+      "predicate": "STANDING:CURRENT",
+      "scope": "RESULT",
+      "subjectRef": "result:host:hdf0-hdf43-current-frozen",
+      "value": true
+    },
+    {
+      "predicate": "STANDING:FROZEN",
+      "scope": "RESULT",
+      "subjectRef": "result:host:hdf0-hdf43-current-frozen",
+      "value": true
+    },
+    {
+      "predicate": "EPISTEMIC_VERDICT",
+      "scope": "RESULT",
+      "subjectRef": "result:host:hdf0-hdf43-current-frozen",
+      "value": "ESTABLISHED_IN_SCOPE"
+    },
+    {
+      "predicate": "EVIDENCE_SCOPE",
+      "scope": "RESULT",
+      "subjectRef": "result:host:hdf0-hdf43-current-frozen",
+      "value": "HDF0-HDF43 registry frozen by retained Host Foundation authority and current materialized registry."
+    },
+    {
+      "predicate": "STANDING:CURRENT",
+      "scope": "RESULT",
+      "subjectRef": "result:host:hdf44-not-admitted",
+      "value": true
+    },
+    {
+      "predicate": "STANDING:NOT_ADMITTED",
+      "scope": "RESULT",
+      "subjectRef": "result:host:hdf44-not-admitted",
+      "value": true
+    },
+    {
+      "predicate": "EPISTEMIC_VERDICT",
+      "scope": "RESULT",
+      "subjectRef": "result:host:hdf44-not-admitted",
+      "value": "ESTABLISHED_IN_SCOPE"
+    },
+    {
+      "predicate": "EVIDENCE_SCOPE",
+      "scope": "RESULT",
+      "subjectRef": "result:host:hdf44-not-admitted",
+      "value": "Current closure guard: HDF44 is not admitted and no Foundation reopen condition is active."
+    },
+    {
+      "predicate": "STANDING:CURRENT",
+      "scope": "RESULT",
+      "subjectRef": "result:host:primitive-universal-host-falsified",
+      "value": true
+    },
+    {
+      "predicate": "STANDING:FROZEN",
+      "scope": "RESULT",
+      "subjectRef": "result:host:primitive-universal-host-falsified",
+      "value": true
+    },
+    {
+      "predicate": "EPISTEMIC_VERDICT",
+      "scope": "RESULT",
+      "subjectRef": "result:host:primitive-universal-host-falsified",
+      "value": "FALSIFIED_IN_SCOPE"
+    },
+    {
+      "predicate": "EVIDENCE_SCOPE",
+      "scope": "RESULT",
+      "subjectRef": "result:host:primitive-universal-host-falsified",
+      "value": "Current evidence frontier rejects primitive/universal/central Host ontology and service-boundary interpretations."
+    },
+    {
+      "predicate": "STANDING:CURRENT",
+      "scope": "RESULT",
+      "subjectRef": "result:host:generic-coordination-owner-not-admitted",
+      "value": true
+    },
+    {
+      "predicate": "STANDING:NOT_ADMITTED",
+      "scope": "RESULT",
+      "subjectRef": "result:host:generic-coordination-owner-not-admitted",
+      "value": true
+    },
+    {
+      "predicate": "EPISTEMIC_VERDICT",
+      "scope": "RESULT",
+      "subjectRef": "result:host:generic-coordination-owner-not-admitted",
+      "value": "FALSIFIED_IN_SCOPE"
+    },
+    {
+      "predicate": "EVIDENCE_SCOPE",
+      "scope": "RESULT",
+      "subjectRef": "result:host:generic-coordination-owner-not-admitted",
+      "value": "Independent Generic Coordination owner candidate failed to establish irreducible non-bypassable shared responsibility at the current evidence frontier."
+    },
+    {
+      "predicate": "STANDING:CURRENT",
+      "scope": "RESULT",
+      "subjectRef": "result:host:native-v5-extension-boundary-current",
+      "value": true
+    },
+    {
+      "predicate": "EPISTEMIC_VERDICT",
+      "scope": "RESULT",
+      "subjectRef": "result:host:native-v5-extension-boundary-current",
+      "value": "ESTABLISHED_IN_SCOPE"
+    },
+    {
+      "predicate": "EVIDENCE_SCOPE",
+      "scope": "RESULT",
+      "subjectRef": "result:host:native-v5-extension-boundary-current",
+      "value": "Native schema-v5 extension namespace behavior survived full Host and named World consumer gates; public legacy shape remains false-only."
+    },
+    {
+      "predicate": "STRUCTURAL_ROLE",
+      "scope": "RESULT",
+      "subjectRef": "result:host:native-v5-extension-boundary-current",
+      "value": [
+        "ENGINEERING_CLOSEOUT",
+        "COMPATIBILITY_BOUNDARY"
+      ]
+    },
+    {
+      "predicate": "STANDING:CURRENT",
+      "scope": "RESULT",
+      "subjectRef": "result:host:legacy-extension-recovery-retired",
+      "value": true
+    },
+    {
+      "predicate": "EPISTEMIC_VERDICT",
+      "scope": "RESULT",
+      "subjectRef": "result:host:legacy-extension-recovery-retired",
+      "value": "REJECTED_FOR_PRODUCTION"
+    },
+    {
+      "predicate": "EVIDENCE_SCOPE",
+      "scope": "RESULT",
+      "subjectRef": "result:host:legacy-extension-recovery-retired",
+      "value": "No current/rollback production consumer of inferred legacy namespace state remains; schema-v4 extension Event authorities must recover/export with pre-0.5 Host before upgrade."
+    },
+    {
+      "predicate": "STRUCTURAL_ROLE",
+      "scope": "RESULT",
+      "subjectRef": "result:host:legacy-extension-recovery-retired",
+      "value": [
+        "NEGATIVE_ENGINEERING_RESULT",
+        "COMPATIBILITY_BOUNDARY"
+      ]
+    },
+    {
+      "predicate": "STANDING:CURRENT",
+      "scope": "RESULT",
+      "subjectRef": "result:host:deployed-source-lineage-reconciled",
+      "value": true
+    },
+    {
+      "predicate": "EPISTEMIC_VERDICT",
+      "scope": "RESULT",
+      "subjectRef": "result:host:deployed-source-lineage-reconciled",
+      "value": "ESTABLISHED_IN_SCOPE"
+    },
+    {
+      "predicate": "EVIDENCE_SCOPE",
+      "scope": "RESULT",
+      "subjectRef": "result:host:deployed-source-lineage-reconciled",
+      "value": "Production release 4d5a04e contained two commits absent from distributed main; both were replayed after the 0.5 cutover and remote main was fast-forwarded to e3daac8 after full revalidation."
+    },
+    {
+      "predicate": "STRUCTURAL_ROLE",
+      "scope": "RESULT",
+      "subjectRef": "result:host:deployed-source-lineage-reconciled",
+      "value": [
+        "CURRENTNESS_REPAIR",
+        "SOURCE_DISTRIBUTION_BOUNDARY"
+      ]
+    }
+  ]
+}
