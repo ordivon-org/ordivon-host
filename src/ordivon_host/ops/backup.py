@@ -159,8 +159,12 @@ def verify_backup(backup_root: str | Path) -> dict[str, object]:
 
 
 def _validate_backup_root(backup: Path, *, require_manifest: bool = True) -> None:
-    if not backup.is_dir():
-        raise ValueError("Host backup root is not a directory")
+    try:
+        mode = os.lstat(backup).st_mode
+    except FileNotFoundError:
+        raise ValueError("Host backup root is missing") from None
+    if not stat.S_ISDIR(mode):
+        raise ValueError("Host backup root is not a real directory")
     expected = {"host.sqlite3", "objects"}
     if require_manifest:
         expected.add("manifest.json")

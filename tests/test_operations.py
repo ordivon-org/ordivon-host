@@ -535,6 +535,23 @@ class HostOperationsTests(unittest.TestCase):
                 create_backup(source, backup)
             self.assertFalse(backup.exists())
 
+    def test_verify_and_restore_reject_backup_root_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = base / "source"
+            backup = base / "backup"
+            link = base / "backup-link"
+            restored = base / "restored"
+            populate(source)
+            create_backup(source, backup, created_at_ms=1_000)
+            link.symlink_to(backup, target_is_directory=True)
+
+            with self.assertRaisesRegex(ValueError, "root is not a real directory"):
+                verify_backup(link)
+            with self.assertRaisesRegex(ValueError, "root is not a real directory"):
+                restore_backup(link, restored)
+            self.assertFalse(restored.exists())
+
     def test_verify_rejects_expected_object_symlink_even_when_bytes_match(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
