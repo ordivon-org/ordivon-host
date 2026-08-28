@@ -120,12 +120,17 @@ class HostStorage:
         return digest
 
     def read_task_descriptor(self, task_id: str) -> TaskDescriptor | None:
-        try:
-            semantic_digest = self.task_descriptor_digest(task_id)
-            object_digest = self.task_descriptor_object_digest(task_id)
-        except KeyError:
+        snapshot = self.read_task_event(task_id)
+        data = snapshot.data
+        if not isinstance(data, dict):
+            raise JournalCorruption(f"Task event data is not an object: {task_id}")
+        semantic_digest = data.get("descriptorDigest")
+        object_digest = data.get("descriptorObjectDigest")
+        if not isinstance(semantic_digest, str) or not isinstance(object_digest, str):
             return None
-        value = self.objects.get(object_digest, expected_kind="task-descriptor")
+        value, stored = self.objects.get_with_metadata(object_digest)
+        if stored.kind != "task-descriptor":
+            raise JournalCorruption(f"Task descriptor object kind differs: {task_id}")
         if not isinstance(value, dict):
             raise ObjectCorrupt("TaskDescriptor object must be an object")
         try:

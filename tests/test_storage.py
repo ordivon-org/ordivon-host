@@ -327,6 +327,19 @@ class HostStorageTests(unittest.TestCase):
             with self.assertRaises(ObjectMissing):
                 HostStorage(directory)
 
+    def test_object_store_get_with_metadata_loads_payload_and_exact_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with HostStorage(directory) as storage:
+                stored = storage.objects.put({"value": 1}, kind="test-metadata")
+                value, metadata = storage.objects.get_with_metadata(stored.digest)
+                self.assertEqual(value, {"value": 1})
+                self.assertEqual(metadata, stored)
+
+                path = Path(directory) / "objects" / f"{stored.digest[7:]}.json"
+                path.write_text('{"value":2}')
+                with self.assertRaises(ObjectCorrupt):
+                    storage.objects.get_with_metadata(stored.digest)
+
     def test_object_store_detects_tampering(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             with HostStorage(directory) as storage:
