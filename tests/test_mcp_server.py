@@ -1670,18 +1670,43 @@ class HostMcpEndToEndTests(unittest.TestCase):
                     },
                 )
                 self.assertEqual(news_replay["admission"], "existing")
-                news_read = client.call_tool(
-                    "news.read",
+                news_read_result = client.request(
+                    "tools/call",
                     {
-                        "editionId": "news:daily:2026-08-28:Asia-Shanghai",
-                        "sections": ["today"],
-                        "includeRenderedBrief": False,
+                        "name": "news.read",
+                        "arguments": {
+                            "editionId": "news:daily:2026-08-28:Asia-Shanghai",
+                            "sections": ["today"],
+                            "includeRenderedBrief": False,
+                        },
                     },
                 )
+                news_read_meta = news_read_result.get("_meta")
+                self.assertIsInstance(news_read_meta, dict)
+                assert isinstance(news_read_meta, dict)
+                news_read_scope = news_read_meta.get("ordivon/hostIntegrityScope")
+                self.assertIsInstance(news_read_scope, dict)
+                assert isinstance(news_read_scope, dict)
+                self.assertEqual(news_read_scope["scope"], "operation-local")
+                self.assertFalse(news_read_scope["globalCasHealthClaimed"])
+                news_read = news_read_result["structuredContent"]
                 self.assertEqual(news_read["edition"]["revision"], 1)
                 self.assertIsNone(news_read["edition"]["renderedBrief"])
                 self.assertEqual(news_read["edition"]["items"][0]["itemId"], "mcp-news-item")
-                news_listing = client.call_tool("news.list", {"limit": 10})
+
+                news_list_result = client.request(
+                    "tools/call",
+                    {"name": "news.list", "arguments": {"limit": 10}},
+                )
+                news_list_meta = news_list_result.get("_meta")
+                self.assertIsInstance(news_list_meta, dict)
+                assert isinstance(news_list_meta, dict)
+                news_list_scope = news_list_meta.get("ordivon/hostIntegrityScope")
+                self.assertIsInstance(news_list_scope, dict)
+                assert isinstance(news_list_scope, dict)
+                self.assertEqual(news_list_scope["scope"], "operation-local")
+                self.assertFalse(news_list_scope["globalCasHealthClaimed"])
+                news_listing = news_list_result["structuredContent"]
                 self.assertEqual(news_listing["editions"][0]["editionDate"], "2026-08-28")
 
                 with self.assertRaises(McpToolRejected) as invalid_checkpoint:
