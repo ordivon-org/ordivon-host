@@ -1538,6 +1538,20 @@ class HostMcpAgentUxTests(unittest.TestCase):
             self.assertIsInstance(board_schema, dict)
             assert isinstance(board_schema, dict)
             self.assertIn("anyOf", board_schema)
+            defs = board_schema.get("$defs")
+            self.assertIsInstance(defs, dict)
+            assert isinstance(defs, dict)
+            success_schema = defs["BoardListSuccessOutput"]
+            self.assertIn(
+                "not the number of matching or returned messages",
+                success_schema["properties"]["messageCount"]["description"],
+            )
+            interface_schema = defs["ServerInterfaceOutput"]
+            self.assertEqual(interface_schema["properties"]["toolCount"]["const"], 11)
+            self.assertEqual(
+                len(interface_schema["properties"]["toolNames"]["prefixItems"]),
+                11,
+            )
             self.assertEqual(
                 [tool.name for tool in tools if tool.output_schema is not None],
                 ["board.list"],

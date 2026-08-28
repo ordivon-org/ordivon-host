@@ -126,8 +126,20 @@ class ServerInterfaceOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     surfaceVersion: Literal[4]
-    toolCount: int = Field(ge=1)
-    toolNames: list[str]
+    toolCount: Literal[11]
+    toolNames: tuple[
+        Literal["board.list"],
+        Literal["board.post"],
+        Literal["host.status"],
+        Literal["news.list"],
+        Literal["news.publish"],
+        Literal["news.read"],
+        Literal["task.adopt"],
+        Literal["task.checkpoint"],
+        Literal["task.list"],
+        Literal["task.observe"],
+        Literal["task.resume"],
+    ]
     schemaDigest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     schemaRevision: str = Field(pattern=r"^mcp-schema:[0-9a-f]{64}$")
 
@@ -135,12 +147,29 @@ class ServerInterfaceOutput(BaseModel):
 class ToolErrorDetailOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    code: str
+    code: Literal[
+        "HOST_INTERNAL",
+        "TASK_NOT_FOUND",
+        "REVISION_CONFLICT",
+        "TASK_BUSY",
+        "HOST_STATE_CORRUPT",
+        "HOST_STORAGE_BUSY",
+        "INVALID_ARGUMENT",
+        "HOST_STATE_UNAVAILABLE",
+    ]
     message: str
     field: str | None
     retryable: bool
-    retryClass: str
-    commitState: str
+    retryClass: Literal[
+        "inspect",
+        "never",
+        "resume_task",
+        "retry_same_request",
+        "operator_repair",
+        "resume_then_retry",
+        "fix_request",
+    ]
+    commitState: Literal["unknown", "not_committed"]
     origin: Literal["host-mcp"]
 
 
@@ -174,12 +203,39 @@ class BoardListSuccessOutput(BaseModel):
     kind: Literal["ordivon.host-board-list"]
     scope: Literal["host-global-coordination-messages"]
     messages: list[BoardMessageOutput]
-    messageCount: int = Field(ge=0)
-    lastSequence: int = Field(ge=0)
-    nextAfterSequence: int = Field(ge=0)
-    hasMore: bool
-    truthBoundary: str
-    topic: str | None = None
+    messageCount: int = Field(
+        ge=0,
+        description=(
+            "Size of the captured global Board prefix. With a topic filter this is not "
+            "the number of matching or returned messages."
+        ),
+    )
+    lastSequence: int = Field(
+        ge=0,
+        description="Global Board high-water captured before this read.",
+    )
+    nextAfterSequence: int = Field(
+        ge=0,
+        description=(
+            "Global sequence cursor for the next incremental read; topic-filtered reads "
+            "advance only within the captured high-water so concurrent matching appends "
+            "are not skipped."
+        ),
+    )
+    hasMore: bool = Field(
+        description=(
+            "Whether another matching row exists within the captured read boundary; it "
+            "does not mean unrelated later Board traffic exists."
+        )
+    )
+    truthBoundary: Literal[
+        "board messages are durable collaboration records only; they are not Tasks, "
+        "priority, execution authority, owner standing, or domain truth"
+    ]
+    topic: str | None = Field(
+        default=None,
+        description="Exact topic filter when one was requested; absent/null otherwise.",
+    )
     serverInterface: ServerInterfaceOutput
 
 
