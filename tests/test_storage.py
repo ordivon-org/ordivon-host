@@ -435,6 +435,57 @@ class HostStorageTests(unittest.TestCase):
             with self.assertRaises(ObjectCorrupt):
                 HostStorage(directory)
 
+    def test_targeted_validation_defers_unrelated_reference_failure_to_global_open(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with HostStorage(directory) as storage:
+                reference = storage.put_object({"evidence": 1}, kind="test-evidence")
+                storage.record_task_event(
+                    event_id="event:create",
+                    kind=EventKind.TASK_CREATED,
+                    payload={"revision": 1},
+                    projection=projection(1),
+                    expected_revision=0,
+                    referenced_objects=(reference,),
+                )
+            path = Path(directory) / "objects" / f"{reference.digest[7:]}.json"
+            path.unlink()
+
+            with HostStorage(directory, validation_mode="targeted") as targeted:
+                self.assertEqual(targeted.read_task_event("task:journal-test").projection, projection(1))
+                self.assertEqual(targeted.validation_summary.object_refs, 0)
+                self.assertEqual(targeted.validation_summary.hashed_objects, 0)
+                self.assertEqual(targeted.validation_summary.task_heads, 0)
+
+            with self.assertRaises(ObjectMissing):
+                HostStorage(directory)
+
+    def test_targeted_object_read_hardens_only_consumed_legacy_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with HostStorage(directory) as storage:
+                first = storage.put_object({"value": 1}, kind="test")
+                second = storage.put_object({"value": 2}, kind="test")
+                storage.record_task_event(
+                    event_id="event:mode-hardening",
+                    kind=EventKind.TASK_CREATED,
+                    payload={"revision": 1},
+                    projection=projection(1),
+                    expected_revision=0,
+                    referenced_objects=(first, second),
+                )
+            first_path = Path(directory) / "objects" / f"{first.digest[7:]}.json"
+            second_path = Path(directory) / "objects" / f"{second.digest[7:]}.json"
+            os.chmod(first_path, 0o644)
+            os.chmod(second_path, 0o644)
+
+            with HostStorage(directory, validation_mode="targeted") as targeted:
+                self.assertEqual(targeted.objects.get(first.digest, expected_kind="test"), {"value": 1})
+                self.assertEqual(first_path.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(second_path.stat().st_mode & 0o777, 0o644)
+
+            with HostStorage(directory):
+                pass
+            self.assertEqual(second_path.stat().st_mode & 0o777, 0o600)
+
     def test_separate_process_recovers_projection_without_session_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             with HostStorage(directory) as storage:
