@@ -32,6 +32,7 @@ from ordivon_host.mcp_server import (
     _list_host_tasks,
     _list_news,
     _observe_task,
+    _run_tool,
     _tool_schema_identity,
     build_mcp_server,
     check_settings,
@@ -225,6 +226,25 @@ async def _noop_send(message: dict[str, Any]) -> None:
 
 async def _unreachable() -> None:
     raise AssertionError("inner app must not run for unauthorized request")
+
+
+class HostMcpIntegrityErrorMetaTests(unittest.IsolatedAsyncioTestCase):
+    async def test_failed_global_validation_cannot_claim_global_cas_health(self) -> None:
+        def fail() -> dict[str, object]:
+            raise RuntimeError("synthetic global validation failure")
+
+        result = await _run_tool(
+            fail,
+            write=False,
+            result_meta={
+                "ordivon/hostIntegrityScope": _global_integrity_scope("integrity")
+            },
+        )
+        self.assertTrue(result.is_error)
+        wire = result.model_dump(by_alias=True)
+        scope = wire["_meta"]["ordivon/hostIntegrityScope"]
+        self.assertEqual(scope["scope"], "global")
+        self.assertFalse(scope["globalCasHealthClaimed"])
 
 
 class HostMcpTaskDiscoveryTests(unittest.TestCase):

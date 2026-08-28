@@ -1861,11 +1861,19 @@ async def _run_tool(
     try:
         result = await asyncio.to_thread(operation)
     except Exception as error:
+        safe_result_meta = None if result_meta is None else dict(result_meta)
+        if safe_result_meta is not None:
+            integrity_scope = safe_result_meta.get("ordivon/hostIntegrityScope")
+            if isinstance(integrity_scope, dict):
+                safe_scope = dict(integrity_scope)
+                if safe_scope.get("globalCasHealthClaimed") is True:
+                    safe_scope["globalCasHealthClaimed"] = False
+                safe_result_meta["ordivon/hostIntegrityScope"] = safe_scope
         return _error_result(
             error,
             write=write,
             server_interface=server_interface,
-            result_meta=result_meta,
+            result_meta=safe_result_meta,
         )
     return _success_result(
         result, server_interface=server_interface, result_meta=result_meta
