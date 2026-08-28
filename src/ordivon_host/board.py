@@ -82,6 +82,36 @@ class HostMessageBoard:
             topic=topic,
             reply_to_client_message_id=reply_to_client_message_id,
         )
+        existing = self._existing_by_client_message_id(client_message_id)
+        if existing is not None:
+            expected = (
+                author_label,
+                message_kind,
+                topic,
+                message,
+                reply_to_client_message_id,
+            )
+            actual = (
+                existing.author_label,
+                existing.message_kind,
+                existing.topic,
+                existing.message,
+                existing.reply_to_client_message_id,
+            )
+            if actual != expected:
+                raise EventConflict(
+                    "board client message identity is already bound to different content"
+                )
+            return BoardPostReceipt(
+                admission=EventAdmission.EXISTING,
+                message=existing,
+            )
+        if (
+            reply_to_client_message_id is not None
+            and not self._client_message_id_exists(reply_to_client_message_id)
+        ):
+            raise EventConflict("board reply target does not exist")
+
         value: JsonValue = {
             "schemaVersion": _BOARD_SCHEMA_VERSION,
             "kind": "ordivon.host-board-message",
@@ -170,6 +200,20 @@ class HostMessageBoard:
             if not progressed:
                 break
         return validated
+
+    def _client_message_id_exists(self, client_message_id: str) -> bool:
+        row = self.storage.journal.connection.execute(
+            "SELECT 1 FROM board_messages WHERE client_message_id = ?",
+            (client_message_id,),
+        ).fetchone()
+        return row is not None
+
+    def _existing_by_client_message_id(
+        self, client_message_id: str
+    ) -> BoardMessage | None:
+        if not self._client_message_id_exists(client_message_id):
+            return None
+        return self._by_client_message_id(client_message_id)
 
     def _by_client_message_id(self, client_message_id: str) -> BoardMessage:
         row = self.storage.journal.connection.execute(

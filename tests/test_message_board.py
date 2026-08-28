@@ -9,6 +9,7 @@ import unittest
 from ordivon_host.board import HostMessageBoard
 from ordivon_host.ops import doctor_state
 from ordivon_host.ops.backup import create_backup
+from ordivon_host.ops.gc import plan_gc
 from ordivon_host.storage import HostStorage
 
 
@@ -85,6 +86,7 @@ class HostMessageBoardTests(unittest.TestCase):
                     reply_to_client_message_id=None,
                     recorded_at_ms=1,
                 )
+                self.assertEqual(plan_gc(directory, storage=storage)["orphanedObjects"], [])
                 with self.assertRaisesRegex(Exception, "different content"):
                     board.post(
                         client_message_id="msg:test:identity",
@@ -105,6 +107,8 @@ class HostMessageBoardTests(unittest.TestCase):
                         reply_to_client_message_id="msg:does-not-exist",
                         recorded_at_ms=3,
                     )
+                self.assertEqual(plan_gc(directory, storage=storage)["orphanedObjects"], [])
+                self.assertEqual(storage.journal.object_ref_count(), 1)
 
     def test_board_cas_is_deferred_from_startup_but_not_from_access_doctor_or_backup(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
