@@ -321,7 +321,7 @@ A backup is a directory containing:
 - every CAS object referenced by that database;
 - a manifest with exact file digests, object metadata, schema version, and migration history.
 
-Backup verification is full and read-only: it disables validation-cache writes so repeated verification cannot alter a manifest-covered database. Restore verifies all file digests, opens the restored state under full Host invariants, and then atomically renames the verified temporary state into place. `--replace` preserves the old state root under a timestamped `.previous-*` path.
+Backup verification is full and read-only with respect to the evidence directory. Exact manifest-covered bytes are checked in place, but semantic validation runs only against a disposable state copy so opening an older Journal may exercise current schema migrations, permission hardening, and validation-cache logic without modifying the backup being verified. Repeated verification must therefore preserve the original database digest and file set even across schema upgrades. Restore verifies the source backup without mutation, copies it into a temporary target state, opens that copy under current full Host invariants (including any admitted forward migration), and only then atomically renames the verified temporary state into place. `--replace` preserves the old state root under a timestamped `.previous-*` path.
 
 ## Doctor
 

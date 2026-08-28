@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
+import json
+import sqlite3
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -93,6 +96,58 @@ class HostOperationsTests(unittest.TestCase):
             result = restore_backup(backup, restored)
             self.assertTrue(result["restored"])
             self.assertEqual(inspect_state(restored)["tasks"], 1)
+
+    def test_verify_older_backup_is_repeatable_and_does_not_migrate_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = base / "source"
+            backup = base / "backup"
+            populate(source)
+            manifest = create_backup(source, backup, created_at_ms=1_000)
+
+            database = backup / "host.sqlite3"
+            connection = sqlite3.connect(database)
+            try:
+                connection.execute("DROP INDEX IF EXISTS idx_object_refs_validation_timing_digest")
+                connection.execute("ALTER TABLE object_refs DROP COLUMN validation_timing")
+                connection.execute(
+                    "UPDATE host_metadata SET value = '6' WHERE key = 'schema_version'"
+                )
+                connection.execute(
+                    "DELETE FROM schema_migrations WHERE from_version = 6 AND to_version = 7"
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            encoded = database.read_bytes()
+            manifest["hostJournalSchemaVersion"] = 6
+            for item in manifest["files"]:
+                if item["path"] == "host.sqlite3":
+                    item["byteLength"] = len(encoded)
+                    item["digest"] = "sha256:" + hashlib.sha256(encoded).hexdigest()
+            (backup / "manifest.json").write_text(
+                json.dumps(manifest, sort_keys=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            before_database = database.read_bytes()
+            before_files = sorted(path.name for path in backup.iterdir())
+
+            first = verify_backup(backup)
+            second = verify_backup(backup)
+
+            self.assertEqual(first["hostJournalSchemaVersion"], 6)
+            self.assertEqual(second["hostJournalSchemaVersion"], 6)
+            self.assertEqual(database.read_bytes(), before_database)
+            self.assertEqual(sorted(path.name for path in backup.iterdir()), before_files)
+            self.assertFalse((backup / "host.sqlite3.pre-schema-v7.sqlite3").exists())
+
+            restored = base / "restored"
+            result = restore_backup(backup, restored)
+            self.assertEqual(result["manifest"]["hostJournalSchemaVersion"], 6)
+            self.assertEqual(inspect_state(restored)["schemaVersion"], 7)
+            self.assertEqual(database.read_bytes(), before_database)
+            self.assertEqual(sorted(path.name for path in backup.iterdir()), before_files)
 
     def test_replace_restore_preserves_previous_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

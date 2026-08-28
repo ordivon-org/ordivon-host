@@ -100,13 +100,31 @@ def verify_backup(backup_root: str | Path) -> dict[str, object]:
         encoded = (backup / relative).read_bytes()
         if len(encoded) != byte_length or _sha256(encoded) != digest:
             raise ValueError(f"Host backup file differs: {relative}")
-    with HostStorage(
-        backup,
-        validation_mode="full",
-        update_validation_cache=False,
-    ):
-        pass
+    _verify_backup_semantics_without_mutation(backup)
     return value
+
+
+def _verify_backup_semantics_without_mutation(backup: Path) -> None:
+    """Validate current semantics against a disposable copy, never the evidence."""
+    with tempfile.TemporaryDirectory(
+        prefix=f"ordivon-host-backup-{backup.name}.verify-"
+    ) as directory:
+        validation = Path(directory)
+        shutil.copyfile(backup / "host.sqlite3", validation / "host.sqlite3")
+        os.chmod(validation / "host.sqlite3", 0o600)
+        shutil.copytree(
+            backup / "objects",
+            validation / "objects",
+            copy_function=shutil.copyfile,
+        )
+        os.chmod(validation, 0o700)
+        os.chmod(validation / "objects", 0o700)
+        with HostStorage(
+            validation,
+            validation_mode="full",
+            update_validation_cache=False,
+        ):
+            pass
 
 
 def restore_backup(
