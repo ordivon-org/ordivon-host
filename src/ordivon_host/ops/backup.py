@@ -259,18 +259,39 @@ def restore_backup(
 ) -> dict[str, object]:
     backup = Path(backup_root)
     target = Path(target_root)
-    manifest = verify_backup(backup)
-    refs, _, _ = _snapshot_inventory(backup / "host.sqlite3")
     if target.exists() and not replace:
         raise FileExistsError(target)
     target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = Path(tempfile.mkdtemp(prefix=f".{target.name}.restore-", dir=target.parent))
+
+    staged_parent = Path(
+        tempfile.mkdtemp(prefix=f".{target.name}.restore-evidence-", dir=target.parent)
+    )
+    staged_backup = staged_parent / "backup"
+    temporary = Path(
+        tempfile.mkdtemp(prefix=f".{target.name}.restore-state-", dir=target.parent)
+    )
     previous: Path | None = None
     try:
-        _copy_snapshot_authority(backup, temporary, refs)
+        _stage_backup_evidence(backup, staged_backup)
+        manifest = verify_backup(staged_backup)
+        refs, _, _ = _snapshot_inventory(staged_backup / "host.sqlite3")
+        if target.exists() and not replace:
+            raise FileExistsError(target)
+
+        # Realize current Host state only from the exact staged evidence that just
+        # verified. Never reread caller `backup` after this verification boundary.
+        _copy_snapshot_authority(staged_backup, temporary, refs)
         with HostStorage(temporary):
             pass
+        _fsync_file(temporary / "host.sqlite3")
+        for ref in refs:
+            _fsync_file(temporary / "objects" / f"{ref.digest[7:]}.json")
+        _fsync_directory(temporary / "objects")
+        _fsync_directory(temporary)
+
         if target.exists():
+            if not replace:
+                raise FileExistsError(target)
             previous = target.with_name(
                 f"{target.name}.previous-{int(time.time() * 1_000)}"
             )
@@ -281,13 +302,58 @@ def restore_backup(
         shutil.rmtree(temporary, ignore_errors=True)
         if previous is not None and previous.exists() and not target.exists():
             os.replace(previous, target)
+            _fsync_directory(target.parent)
         raise
+    finally:
+        shutil.rmtree(staged_parent, ignore_errors=True)
     return {
         "restored": True,
         "targetRoot": str(target),
         "previousRoot": str(previous) if previous is not None else None,
         "manifest": manifest,
     }
+
+
+def _stage_backup_evidence(source: Path, destination: Path) -> None:
+    """Copy one bounded backup carrier once; later verification consumes only it."""
+    _validate_backup_root(source)
+    destination.mkdir(mode=0o700)
+
+    database = destination / "host.sqlite3"
+    _copy_regular_file_no_follow(
+        source / "host.sqlite3", database, label="Host backup Journal"
+    )
+    os.chmod(database, 0o600)
+    _fsync_file(database)
+    try:
+        refs, _, _ = _snapshot_inventory(database)
+    except sqlite3.Error as error:
+        raise ValueError("Staged Host backup Journal is invalid") from error
+
+    # Staging is evidence capture, not repair: the caller source must itself expose
+    # exactly the DB-derived object inventory before any selective copy can sanitize
+    # an orphan, symlink, nested entry, or other over-complete physical topology.
+    _validate_object_inventory(source / "objects", refs)
+
+    objects = destination / "objects"
+    objects.mkdir(mode=0o700)
+    for ref in refs:
+        name = f"{ref.digest[7:]}.json"
+        target = objects / name
+        _copy_regular_file_no_follow(
+            source / "objects" / name, target, label=f"Host backup CAS {ref.digest}"
+        )
+        os.chmod(target, 0o600)
+        _fsync_file(target)
+
+    manifest = destination / "manifest.json"
+    _copy_regular_file_no_follow(
+        source / "manifest.json", manifest, label="Host backup manifest"
+    )
+    os.chmod(manifest, 0o600)
+    _fsync_file(manifest)
+    _fsync_directory(objects)
+    _fsync_directory(destination)
 
 
 def _backup_database(storage: HostStorage, destination: Path) -> None:

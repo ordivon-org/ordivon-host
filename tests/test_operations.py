@@ -325,6 +325,94 @@ class HostOperationsTests(unittest.TestCase):
             self.assertEqual(database.read_bytes(), before_database)
             self.assertEqual(sorted(path.name for path in backup.iterdir()), before_files)
 
+    def test_restore_realizes_exact_staged_backup_after_source_swap(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source_a = base / "source-a"
+            source_b = base / "source-b"
+            backup_a = base / "backup-a"
+            backup_b = base / "backup-b"
+            restored = base / "restored"
+            populate(source_a)
+            populate(source_b)
+            with HostStorage(source_b) as storage:
+                storage.record_task_event(
+                    event_id="event:ops-second",
+                    kind=EventKind.TASK_CREATED,
+                    payload={"purpose": "second"},
+                    projection=TaskProjection(
+                        task_id="task:ops-second",
+                        goal_id="goal:ops",
+                        state=TaskState.READY,
+                        active_node_id=None,
+                        ready_frontier=("node:ops-second",),
+                        revision=1,
+                        updated_at_ms=2,
+                    ),
+                    expected_revision=0,
+                )
+            create_backup(source_a, backup_a, created_at_ms=1_000)
+            create_backup(source_b, backup_b, created_at_ms=2_000)
+
+            original_verify = backup_mod.verify_backup
+            swapped = False
+
+            def verify_staged_then_swap(path: str | Path) -> dict[str, object]:
+                nonlocal swapped
+                value = original_verify(path)
+                if not swapped:
+                    displaced = base / "backup-a.displaced"
+                    backup_a.rename(displaced)
+                    backup_b.rename(backup_a)
+                    swapped = True
+                return value
+
+            with patch.object(
+                backup_mod, "verify_backup", side_effect=verify_staged_then_swap
+            ):
+                result = restore_backup(backup_a, restored)
+
+            self.assertTrue(swapped)
+            self.assertEqual(result["manifest"]["createdAtMs"], 1_000)
+            self.assertEqual(inspect_state(restored)["tasks"], 1)
+            self.assertEqual(verify_backup(backup_a)["createdAtMs"], 2_000)
+
+    def test_restore_replace_false_preserves_target_created_during_realization(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = base / "source"
+            backup = base / "backup"
+            target = base / "target"
+            populate(source)
+            create_backup(source, backup, created_at_ms=1_000)
+
+            original_copy = backup_mod._copy_snapshot_authority
+            calls = 0
+
+            def create_target_during_realization(
+                source_root: Path, destination: Path, refs: tuple
+            ) -> None:
+                nonlocal calls
+                calls += 1
+                original_copy(source_root, destination, refs)
+                if calls == 2:
+                    target.mkdir()
+                    (target / "late-marker.txt").write_text("late-owner")
+
+            with (
+                patch.object(
+                    backup_mod,
+                    "_copy_snapshot_authority",
+                    side_effect=create_target_during_realization,
+                ),
+                self.assertRaises(FileExistsError),
+            ):
+                restore_backup(backup, target, replace=False)
+
+            self.assertEqual(calls, 2)
+            self.assertEqual((target / "late-marker.txt").read_text(), "late-owner")
+            self.assertFalse(any(base.glob("target.previous-*")))
+
     def test_replace_restore_preserves_previous_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
@@ -429,7 +517,7 @@ class HostOperationsTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "not a regular file"):
                 verify_backup(backup)
-            with self.assertRaisesRegex(ValueError, "not a regular file"):
+            with self.assertRaisesRegex(ValueError, "object entry is not a regular file"):
                 restore_backup(backup, restored)
             self.assertFalse(restored.exists())
 
