@@ -129,6 +129,24 @@ def make_deployment_receipt(
 
 
 class HostDeploymentOperatorTests(unittest.TestCase):
+    def test_production_probe_catalog_matches_current_host_surface(self) -> None:
+        self.assertEqual(
+            module.REQUIRED_TOOLS,
+            (
+                "host.status",
+                "board.list",
+                "board.post",
+                "news.list",
+                "news.read",
+                "news.publish",
+                "task.observe",
+                "task.list",
+                "task.resume",
+                "task.adopt",
+                "task.checkpoint",
+            ),
+        )
+
     def test_candidate_prepare_uv_operations_are_offline(self) -> None:
         source = SCRIPT.read_text(encoding="utf-8")
         prepare = source[

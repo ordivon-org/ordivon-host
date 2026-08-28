@@ -37,7 +37,7 @@ CREATE TABLE leases(task_id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, revision I
 
 
 class HostSchemaMigrationTests(unittest.TestCase):
-    def test_empty_v1_reserved_tables_migrate_through_v7_with_backups(self) -> None:
+    def test_empty_v1_reserved_tables_migrate_through_v8_with_backups(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "host.sqlite3"
             connection = sqlite3.connect(database)
@@ -47,7 +47,7 @@ class HostSchemaMigrationTests(unittest.TestCase):
                 version = storage.journal.connection.execute(
                     "SELECT value FROM host_metadata WHERE key='schema_version'"
                 ).fetchone()[0]
-                self.assertEqual(version, "7")
+                self.assertEqual(version, "8")
                 history = storage.journal.connection.execute(
                     "SELECT from_version, to_version, name FROM schema_migrations "
                     "ORDER BY sequence"
@@ -61,6 +61,7 @@ class HostSchemaMigrationTests(unittest.TestCase):
                         (4, 5, "preserve-namespaced-extension-state"),
                         (5, 6, "add-host-message-board"),
                         (6, 7, "scope-object-reference-validation"),
+                        (7, 8, "add-daily-news-projection"),
                     ],
                 )
                 names = {
@@ -91,6 +92,8 @@ class HostSchemaMigrationTests(unittest.TestCase):
                     )
                 }
                 self.assertIn("validation_timing", object_ref_columns)
+                self.assertIn("news_editions", names)
+                self.assertIn("news_publications", names)
                 self.assertEqual(storage.journal.legacy_object_refs(), ())
                 self.assertEqual(
                     storage.journal.event_object_refs_start_sequence(), 1
@@ -101,8 +104,9 @@ class HostSchemaMigrationTests(unittest.TestCase):
             self._assert_backup_version(database, 5, "4")
             self._assert_backup_version(database, 6, "5")
             self._assert_backup_version(database, 7, "6")
+            self._assert_backup_version(database, 8, "7")
 
-    def test_v2_migrates_through_v7_with_backups(self) -> None:
+    def test_v2_migrates_through_v8_with_backups(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "host.sqlite3"
             connection = sqlite3.connect(database)
@@ -113,7 +117,7 @@ class HostSchemaMigrationTests(unittest.TestCase):
                     storage.journal.connection.execute(
                         "SELECT value FROM host_metadata WHERE key='schema_version'"
                     ).fetchone()[0],
-                    "7",
+                    "8",
                 )
                 history = storage.journal.connection.execute(
                     "SELECT from_version, to_version, name FROM schema_migrations "
@@ -127,6 +131,7 @@ class HostSchemaMigrationTests(unittest.TestCase):
                         (4, 5, "preserve-namespaced-extension-state"),
                         (5, 6, "add-host-message-board"),
                         (6, 7, "scope-object-reference-validation"),
+                        (7, 8, "add-daily-news-projection"),
                     ],
                 )
             self._assert_backup_version(database, 3, "2")
@@ -134,6 +139,7 @@ class HostSchemaMigrationTests(unittest.TestCase):
             self._assert_backup_version(database, 5, "4")
             self._assert_backup_version(database, 6, "5")
             self._assert_backup_version(database, 7, "6")
+            self._assert_backup_version(database, 8, "7")
 
     def test_v6_board_refs_migrate_to_on_access_without_reinterpreting_v6_shape(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -151,8 +157,12 @@ class HostSchemaMigrationTests(unittest.TestCase):
                 )
 
             connection = sqlite3.connect(database)
+            connection.execute("PRAGMA foreign_keys = OFF")
+            connection.execute("DROP TABLE news_publications")
+            connection.execute("DROP TABLE news_editions")
             connection.execute("DROP INDEX IF EXISTS idx_object_refs_validation_timing_digest")
             connection.execute("ALTER TABLE object_refs DROP COLUMN validation_timing")
+            connection.execute("DELETE FROM schema_migrations WHERE to_version > 6")
             connection.execute(
                 "UPDATE host_metadata SET value = '6' WHERE key = 'schema_version'"
             )
@@ -164,7 +174,7 @@ class HostSchemaMigrationTests(unittest.TestCase):
                     storage.journal.connection.execute(
                         "SELECT value FROM host_metadata WHERE key='schema_version'"
                     ).fetchone()[0],
-                    "7",
+                    "8",
                 )
                 retained = storage.journal.object_ref(receipt.message.message_digest)
                 self.assertIsNotNone(retained)
@@ -177,6 +187,7 @@ class HostSchemaMigrationTests(unittest.TestCase):
                     "msg:test:v6-migration",
                 )
             self._assert_backup_version(database, 7, "6")
+            self._assert_backup_version(database, 8, "7")
 
     def test_v3_history_is_legacy_and_new_events_use_exact_edges(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -195,6 +206,8 @@ class HostSchemaMigrationTests(unittest.TestCase):
 
             connection = sqlite3.connect(database)
             connection.execute("PRAGMA foreign_keys = OFF")
+            connection.execute("DROP TABLE news_publications")
+            connection.execute("DROP TABLE news_editions")
             connection.execute("DROP TABLE board_messages")
             connection.execute("DROP INDEX IF EXISTS idx_object_refs_validation_timing_digest")
             connection.execute("ALTER TABLE object_refs DROP COLUMN validation_timing")
@@ -205,6 +218,7 @@ class HostSchemaMigrationTests(unittest.TestCase):
                 "DELETE FROM host_metadata "
                 "WHERE key = 'event_object_refs_start_sequence'"
             )
+            connection.execute("DELETE FROM schema_migrations WHERE to_version > 3")
             connection.execute(
                 "UPDATE host_metadata SET value = '3' "
                 "WHERE key = 'schema_version'"

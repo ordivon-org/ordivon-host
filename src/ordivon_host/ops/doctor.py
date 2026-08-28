@@ -9,6 +9,7 @@ import stat
 import time
 
 from ..board import HostMessageBoard
+from ..news import HostDailyNews
 from ..journal.migrations import schema_version
 from ..storage import HostStorage
 from .gc import plan_gc
@@ -106,6 +107,24 @@ def doctor_state(
                         "board.integrity",
                         "ok",
                         f"validated={board_messages}",
+                    )
+                )
+            try:
+                news_publications = HostDailyNews(storage).validate_integrity()
+            except BaseException as error:
+                checks.append(
+                    DoctorCheck(
+                        "news.integrity",
+                        "error",
+                        f"{type(error).__name__}: {error}",
+                    )
+                )
+            else:
+                checks.append(
+                    DoctorCheck(
+                        "news.integrity",
+                        "ok",
+                        f"validated={news_publications}",
                     )
                 )
             validation = storage.validation_summary

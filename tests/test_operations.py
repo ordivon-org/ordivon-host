@@ -71,7 +71,7 @@ class HostOperationsTests(unittest.TestCase):
             root = Path(directory) / "state"
             populate(root)
             inspection = inspect_state(root)
-            self.assertEqual(inspection["schemaVersion"], 7)
+            self.assertEqual(inspection["schemaVersion"], 8)
             self.assertEqual(inspection["tasks"], 1)
             self.assertEqual(inspection["terminalTasks"], 0)
             report = doctor_state(root, now_ms=10)
@@ -90,7 +90,7 @@ class HostOperationsTests(unittest.TestCase):
             restored = base / "restored"
             populate(source)
             manifest = create_backup(source, backup, created_at_ms=1_000)
-            self.assertEqual(manifest["hostJournalSchemaVersion"], 7)
+            self.assertEqual(manifest["hostJournalSchemaVersion"], 8)
             verified = verify_backup(backup)
             self.assertEqual(verified["kind"], "ordivon.host-backup-manifest")
             result = restore_backup(backup, restored)
@@ -108,14 +108,15 @@ class HostOperationsTests(unittest.TestCase):
             database = backup / "host.sqlite3"
             connection = sqlite3.connect(database)
             try:
+                connection.execute("PRAGMA foreign_keys = OFF")
+                connection.execute("DROP TABLE news_publications")
+                connection.execute("DROP TABLE news_editions")
                 connection.execute("DROP INDEX IF EXISTS idx_object_refs_validation_timing_digest")
                 connection.execute("ALTER TABLE object_refs DROP COLUMN validation_timing")
                 connection.execute(
                     "UPDATE host_metadata SET value = '6' WHERE key = 'schema_version'"
                 )
-                connection.execute(
-                    "DELETE FROM schema_migrations WHERE from_version = 6 AND to_version = 7"
-                )
+                connection.execute("DELETE FROM schema_migrations WHERE to_version > 6")
                 connection.commit()
             finally:
                 connection.close()
@@ -141,11 +142,12 @@ class HostOperationsTests(unittest.TestCase):
             self.assertEqual(database.read_bytes(), before_database)
             self.assertEqual(sorted(path.name for path in backup.iterdir()), before_files)
             self.assertFalse((backup / "host.sqlite3.pre-schema-v7.sqlite3").exists())
+            self.assertFalse((backup / "host.sqlite3.pre-schema-v8.sqlite3").exists())
 
             restored = base / "restored"
             result = restore_backup(backup, restored)
             self.assertEqual(result["manifest"]["hostJournalSchemaVersion"], 6)
-            self.assertEqual(inspect_state(restored)["schemaVersion"], 7)
+            self.assertEqual(inspect_state(restored)["schemaVersion"], 8)
             self.assertEqual(database.read_bytes(), before_database)
             self.assertEqual(sorted(path.name for path in backup.iterdir()), before_files)
 

@@ -1,0 +1,62 @@
+{
+  "integrationBaseRevision": "1bdeea0d8249cc81b2a4256e67aa9f74f241a3a0",
+  "interpretation": "Edition-granularity CAS plus on-access validation keeps News history out of startup payload hashing. Ordinary open still performs cheap Journal revision/head integrity checks; 3,650 editions remained about 41 ms median. Do not add per-item CAS objects, semantic indexes, or startup caches without observed retrieval/currentness pressure.",
+  "journalSchemaVersion": 8,
+  "kind": "ordivon.host-daily-news-scale-evidence",
+  "observedDate": "2026-08-28",
+  "persistenceUnit": "one immutable CAS object per NewsEdition revision",
+  "results": [
+    {
+      "editions": 1,
+      "fullHashed": 1,
+      "fullValidatedRefs": 1,
+      "fullValidationOpenMs": 1.04,
+      "objectRefs": 1,
+      "onAccessRefs": 1,
+      "ordinaryOpenCached": 0,
+      "ordinaryOpenHashed": 0,
+      "ordinaryOpenMaxMs": 0.91,
+      "ordinaryOpenMedianMs": 0.81,
+      "ordinaryOpenValidatedRefs": 0,
+      "populateMs": 124.24,
+      "publications": 1,
+      "startupRefs": 0
+    },
+    {
+      "editions": 365,
+      "fullHashed": 365,
+      "fullValidatedRefs": 365,
+      "fullValidationOpenMs": 50.28,
+      "objectRefs": 365,
+      "onAccessRefs": 365,
+      "ordinaryOpenCached": 0,
+      "ordinaryOpenHashed": 0,
+      "ordinaryOpenMaxMs": 4.97,
+      "ordinaryOpenMedianMs": 4.64,
+      "ordinaryOpenValidatedRefs": 0,
+      "populateMs": 5860.91,
+      "publications": 365,
+      "startupRefs": 0
+    },
+    {
+      "editions": 3650,
+      "fullHashed": 3650,
+      "fullValidatedRefs": 3650,
+      "fullValidationOpenMs": 662.83,
+      "objectRefs": 3650,
+      "onAccessRefs": 3650,
+      "ordinaryOpenCached": 0,
+      "ordinaryOpenHashed": 0,
+      "ordinaryOpenMaxMs": 43.24,
+      "ordinaryOpenMedianMs": 41.29,
+      "ordinaryOpenValidatedRefs": 0,
+      "populateMs": 57326.81,
+      "publications": 3650,
+      "startupRefs": 0
+    }
+  ],
+  "schemaVersion": 1,
+  "sqliteSynchronous": "FULL",
+  "validationTiming": "on_access",
+  "workspaceId": "host-daily-news-design-20260828"
+}

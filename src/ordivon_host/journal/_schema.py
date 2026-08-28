@@ -1,4 +1,4 @@
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 LEGACY_UNUSED_TABLES = ("wakeups", "runtime_links", "task_edges", "task_nodes")
 
 SCHEMA = """
@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS host_metadata(
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-INSERT OR IGNORE INTO host_metadata(key, value) VALUES ('schema_version', '7');
+INSERT OR IGNORE INTO host_metadata(key, value) VALUES ('schema_version', '8');
 INSERT OR IGNORE INTO host_metadata(key, value) VALUES ('event_object_refs_start_sequence', '1');
 
 CREATE TABLE IF NOT EXISTS schema_migrations(
@@ -109,5 +109,30 @@ CREATE TABLE IF NOT EXISTS board_messages(
     message_digest TEXT NOT NULL REFERENCES object_refs(digest),
     reply_to_client_message_id TEXT REFERENCES board_messages(client_message_id),
     recorded_at_ms INTEGER NOT NULL CHECK(recorded_at_ms >= 0)
+);
+
+CREATE TABLE IF NOT EXISTS news_editions(
+    edition_id TEXT PRIMARY KEY,
+    edition_date TEXT NOT NULL,
+    timezone TEXT NOT NULL,
+    current_revision INTEGER NOT NULL CHECK(current_revision >= 1),
+    current_digest TEXT NOT NULL REFERENCES object_refs(digest),
+    created_at_ms INTEGER NOT NULL CHECK(created_at_ms >= 0),
+    updated_at_ms INTEGER NOT NULL CHECK(updated_at_ms >= created_at_ms)
+);
+CREATE INDEX IF NOT EXISTS news_editions_date_id
+    ON news_editions(edition_date DESC, edition_id ASC);
+
+CREATE TABLE IF NOT EXISTS news_publications(
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_publish_id TEXT NOT NULL UNIQUE,
+    edition_id TEXT NOT NULL REFERENCES news_editions(edition_id) ON DELETE CASCADE,
+    edition_date TEXT NOT NULL,
+    timezone TEXT NOT NULL,
+    expected_revision INTEGER NOT NULL CHECK(expected_revision >= 0),
+    revision INTEGER NOT NULL CHECK(revision >= 1),
+    edition_digest TEXT NOT NULL REFERENCES object_refs(digest),
+    recorded_at_ms INTEGER NOT NULL CHECK(recorded_at_ms >= 0),
+    UNIQUE(edition_id, revision)
 );
 """

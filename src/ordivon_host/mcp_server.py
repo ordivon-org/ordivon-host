@@ -30,6 +30,7 @@ from .continuity import ExternalContinuityHost
 from .continuity_models import EXTERNAL_CONTINUITY_WORKLOAD_ID, WorkingCheckpoint
 from .domain import TaskState
 from .handoff import operator_handoff
+from .news import HostDailyNews
 from .journal import (
     EventConflict,
     JournalCorruption,
@@ -48,11 +49,14 @@ DEFAULT_HOST_MCP_PORT = 8898
 DEFAULT_HOST_MCP_TOKEN_FILE = Path("/etc/ordivon/host-mcp.token")
 DEFAULT_HOST_MCP_BODY_LIMIT_BYTES = 1_048_576
 MIN_HOST_MCP_TOKEN_CHARACTERS = 32
-HOST_MCP_SURFACE_VERSION = 3
+HOST_MCP_SURFACE_VERSION = 4
 HOST_MCP_TOOL_NAMES = (
     "host.status",
     "board.list",
     "board.post",
+    "news.list",
+    "news.read",
+    "news.publish",
     "task.observe",
     "task.list",
     "task.resume",
@@ -112,6 +116,60 @@ class ToolArgumentError(ValueError):
     def __init__(self, field: str, message: str) -> None:
         super().__init__(message)
         self.field = field
+
+
+NewsSection = Literal[
+    "today", "deep_story", "radar", "research", "industry", "market",
+    "slow_variable", "anomaly", "unresolved", "judgment", "catalyst"
+]
+
+
+class NewsEvidenceInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sourceType: Literal["official", "company", "paper", "regulatory", "news", "dataset", "other"]
+    sourceId: str = Field(min_length=1, max_length=2048)
+    publisher: str = Field(min_length=1, max_length=256)
+    title: str = Field(min_length=1, max_length=512)
+    publishedAtMs: int | None = None
+
+
+class NewsItemInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    itemId: str = Field(min_length=1, max_length=256)
+    section: NewsSection
+    category: str = Field(min_length=1, max_length=64)
+    headline: str = Field(min_length=1, max_length=512)
+    summary: str = Field(min_length=1, max_length=4096)
+    novelty: str | None = Field(default=None, max_length=2048)
+    threadKey: str | None = Field(default=None, max_length=256)
+    continuationOf: str | None = Field(default=None, max_length=256)
+    status: Literal["new", "followup", "correction", "closed"]
+    importance: int = Field(ge=1, le=5)
+    confidence: Literal["high", "medium", "low"] | None = None
+    eventAtMs: int | None = None
+    publishedAtMs: int | None = None
+    observedAtMs: int | None = None
+    evidence: list[NewsEvidenceInput] = Field(min_length=1, max_length=16)
+
+
+class NewsEditionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schemaVersion: Literal[1]
+    kind: Literal["ordivon.host-news-edition"]
+    truthRole: Literal["external-news-projection-not-world-truth"]
+    editionId: str = Field(min_length=6, max_length=512, pattern=r"^news:")
+    editionDate: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    timezone: str = Field(min_length=1, max_length=128)
+    generatedAtMs: int
+    coverageStartMs: int | None = None
+    coverageEndMs: int | None = None
+    marketCutoffMs: int | None = None
+    producerLabel: str = Field(min_length=1, max_length=128)
+    renderedBrief: str | None = Field(default=None, max_length=40000)
+    items: list[NewsItemInput] = Field(min_length=1, max_length=64)
 
 
 class WorkingCheckpointRuntimeInput(BaseModel):
@@ -411,7 +469,9 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
             "does not mean actionable NOW, priority, owner standing, or current domain truth. "
             "Host does not compute a cross-owner current-work or priority portfolio. board.* is "
             "a durable collaboration surface only: messages are not Tasks, priority, authority, "
-            "owner standing, or domain truth. Use task.list only to discover continuity, "
+            "owner standing, or domain truth. news.* is a durable external-news publication "
+            "projection only: Host preserves exact editions/revisions and source pointers but does "
+            "not validate external-world truth or convert news into Tasks/owner standing. Use task.list only to discover continuity, "
             "task.resume to recover one exact known "
             "continuation point, and revalidate current physical/domain facts at their owning "
             "authority. task.checkpoint changes continuity state only; exact retry after response "
@@ -517,6 +577,82 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
             ),
             server_interface=server_interface,
             write=True,
+        )
+
+    @server.tool(
+        name="news.list",
+        title="List Host daily news editions",
+        description=(
+            "List bounded daily external-news edition headers with stable query-bound cursor paging. "
+            "This is publication inventory only, not external-world truth or a priority surface."
+        ),
+        annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+    )
+    async def news_list(
+        limit: int = 30,
+        cursor: str | None = None,
+        fromDate: str | None = None,
+        toDate: str | None = None,
+    ) -> CallToolResult:
+        return await _run_tool(
+            lambda: _list_news(
+                settings.state_root, limit=limit, cursor=cursor, from_date=fromDate, to_date=toDate
+            ),
+            server_interface=server_interface, write=False,
+        )
+
+    @server.tool(
+        name="news.read",
+        title="Read one Host daily news edition",
+        description=(
+            "Read the latest or one exact revision of a durable external-news edition, optionally "
+            "filtered by section/category/thread key. The default omits the long rendered brief and "
+            "returns structured items. External claims remain source claims requiring revalidation."
+        ),
+        annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+    )
+    async def news_read(
+        editionId: str | None = None,
+        revision: int | None = None,
+        sections: list[NewsSection] | None = None,
+        categories: list[str] | None = None,
+        threadKeys: list[str] | None = None,
+        includeRenderedBrief: bool = False,
+    ) -> CallToolResult:
+        return await _run_tool(
+            lambda: _read_news(
+                settings.state_root,
+                edition_id=editionId, revision=revision,
+                sections=() if sections is None else tuple(sections),
+                categories=() if categories is None else tuple(categories),
+                thread_keys=() if threadKeys is None else tuple(threadKeys),
+                include_rendered_brief=includeRenderedBrief,
+            ),
+            server_interface=server_interface, write=False,
+        )
+
+    @server.tool(
+        name="news.publish",
+        title="Publish one Host daily news edition",
+        description=(
+            "Persist one complete structured external-news edition revision. clientPublishId provides "
+            "exact replay after response loss; expectedRevision fences corrections. Host preserves "
+            "publication bytes and source pointers but does not validate external claims or create Tasks."
+        ),
+        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False),
+    )
+    async def news_publish(
+        clientPublishId: str,
+        editionId: str,
+        expectedRevision: int,
+        edition: NewsEditionInput,
+    ) -> CallToolResult:
+        return await _run_tool(
+            lambda: _publish_news(
+                settings.state_root, client_publish_id=clientPublishId, edition_id=editionId,
+                expected_revision=expectedRevision, edition=edition.model_dump(),
+            ),
+            server_interface=server_interface, write=True,
         )
 
     @server.tool(
@@ -1020,6 +1156,14 @@ def _host_status(
             "lastSequence": storage.journal.board_last_sequence(),
             "truthRole": "durable-collaboration-messages",
         }
+        latest_news = storage.journal.news_edition_pointer(edition_id=None, revision=None)
+        news_summary = {
+            "editions": storage.journal.news_edition_count(),
+            "publications": storage.journal.news_publication_count(),
+            "latestEditionId": None if latest_news is None else latest_news.edition_id,
+            "latestRevision": None if latest_news is None else latest_news.revision,
+            "truthRole": "external-news-projection-not-world-truth",
+        }
         continuity_counts = {"active": 0, "terminal": 0}
         for task_id in storage.journal.task_ids():
             descriptor = storage.read_task_descriptor(task_id)
@@ -1050,15 +1194,18 @@ def _host_status(
             "readTools": [
                 "host.status",
                 "board.list",
+                "news.list",
+                "news.read",
                 "task.observe",
                 "task.list",
                 "task.resume",
             ],
-            "writeTools": ["board.post", "task.adopt", "task.checkpoint"],
+            "writeTools": ["board.post", "news.publish", "task.adopt", "task.checkpoint"],
             "runtimeProxy": False,
         },
         "authority": authority,
         "board": board_summary,
+        "news": news_summary,
         "deployment": deployment,
         "continuity": continuity_counts,
         "recentActivity": recent,
@@ -1116,6 +1263,38 @@ def _post_board_message(
                 else "clientMessageId"
             )
             raise ToolArgumentError(field, str(error)) from error
+
+
+def _list_news(
+    state_root: Path, *, limit: int, cursor: str | None, from_date: str | None, to_date: str | None
+) -> dict[str, object]:
+    with HostStorage(state_root, update_validation_cache=False) as storage:
+        return HostDailyNews(storage).list(
+            limit=limit, cursor=cursor, from_date=from_date, to_date=to_date
+        )
+
+
+def _read_news(
+    state_root: Path, *, edition_id: str | None, revision: int | None,
+    sections: tuple[str, ...], categories: tuple[str, ...], thread_keys: tuple[str, ...],
+    include_rendered_brief: bool,
+) -> dict[str, object]:
+    with HostStorage(state_root, update_validation_cache=False) as storage:
+        return HostDailyNews(storage).read(
+            edition_id=edition_id, revision=revision, sections=sections, categories=categories,
+            thread_keys=thread_keys, include_rendered_brief=include_rendered_brief,
+        )
+
+
+def _publish_news(
+    state_root: Path, *, client_publish_id: str, edition_id: str, expected_revision: int,
+    edition: dict[str, Any],
+) -> dict[str, object]:
+    with HostStorage(state_root) as storage:
+        return HostDailyNews(storage).publish(
+            client_publish_id=client_publish_id, edition_id=edition_id,
+            expected_revision=expected_revision, edition=edition, recorded_at_ms=_wall_clock_ms(),
+        ).to_dict()
 
 
 def _observe_task(

@@ -874,14 +874,17 @@ class HostMcpAgentUxTests(unittest.TestCase):
             summary = _host_status(state_root, detail="summary", recent_limit=5)
             self.assertEqual(summary["kind"], "ordivon.host-status")
             self.assertEqual(summary["detail"], "summary")
-            self.assertEqual(summary["interface"]["surfaceVersion"], 3)
-            self.assertEqual(summary["interface"]["toolCount"], 8)
+            self.assertEqual(summary["interface"]["surfaceVersion"], 4)
+            self.assertEqual(summary["interface"]["toolCount"], 11)
             self.assertEqual(
                 summary["interface"]["toolNames"],
                 [
                     "host.status",
                     "board.list",
                     "board.post",
+                    "news.list",
+                    "news.read",
+                    "news.publish",
                     "task.observe",
                     "task.list",
                     "task.resume",
@@ -895,6 +898,16 @@ class HostMcpAgentUxTests(unittest.TestCase):
                     "messages": 0,
                     "lastSequence": 0,
                     "truthRole": "durable-collaboration-messages",
+                },
+            )
+            self.assertEqual(
+                summary["news"],
+                {
+                    "editions": 0,
+                    "publications": 0,
+                    "latestEditionId": None,
+                    "latestRevision": None,
+                    "truthRole": "external-news-projection-not-world-truth",
                 },
             )
             self.assertFalse(summary["interface"]["runtimeProxy"])
@@ -1224,6 +1237,9 @@ class HostMcpEndToEndTests(unittest.TestCase):
                         "host.status",
                         "board.list",
                         "board.post",
+                        "news.list",
+                        "news.read",
+                        "news.publish",
                         "task.observe",
                         "task.list",
                         "task.resume",
@@ -1270,6 +1286,9 @@ class HostMcpEndToEndTests(unittest.TestCase):
                         "host.status",
                         "board.list",
                         "board.post",
+                        "news.list",
+                        "news.read",
+                        "news.publish",
                         "task.observe",
                         "task.list",
                         "task.resume",
@@ -1353,6 +1372,12 @@ class HostMcpEndToEndTests(unittest.TestCase):
                     board_post_schema["properties"]["messageKind"]["enum"],
                     ["note", "question", "proposal", "warning", "reply"],
                 )
+                news_publish_schema = by_name["news.publish"]["inputSchema"]
+                self.assertIn("expectedRevision", news_publish_schema["properties"])
+                self.assertIn("edition", news_publish_schema["properties"])
+                news_read_schema = by_name["news.read"]["inputSchema"]
+                self.assertIn("threadKeys", news_read_schema["properties"])
+                self.assertIn("includeRenderedBrief", news_read_schema["properties"])
                 board_created = client.call_tool(
                     "board.post",
                     {
@@ -1397,6 +1422,82 @@ class HostMcpEndToEndTests(unittest.TestCase):
                     [item["clientMessageId"] for item in board_listing["messages"]],
                     ["msg:mcp:e2e:first"],
                 )
+
+                news_edition = {
+                    "schemaVersion": 1,
+                    "kind": "ordivon.host-news-edition",
+                    "truthRole": "external-news-projection-not-world-truth",
+                    "editionId": "news:daily:2026-08-28:Asia-Shanghai",
+                    "editionDate": "2026-08-28",
+                    "timezone": "Asia/Shanghai",
+                    "generatedAtMs": 1_000,
+                    "coverageStartMs": 0,
+                    "coverageEndMs": 1_000,
+                    "marketCutoffMs": 900,
+                    "producerLabel": "mcp-e2e",
+                    "renderedBrief": "Human projection",
+                    "items": [
+                        {
+                            "itemId": "mcp-news-item",
+                            "section": "today",
+                            "category": "ai",
+                            "headline": "Agent-facing news is structured",
+                            "summary": "Host retains the edition without promoting it to truth.",
+                            "novelty": "The MCP news surface is exercised end to end.",
+                            "threadKey": "ai:host-news-e2e",
+                            "continuationOf": None,
+                            "status": "new",
+                            "importance": 5,
+                            "confidence": "high",
+                            "eventAtMs": 800,
+                            "publishedAtMs": 850,
+                            "observedAtMs": 950,
+                            "evidence": [
+                                {
+                                    "sourceType": "official",
+                                    "sourceId": "https://example.test/source",
+                                    "publisher": "Example",
+                                    "title": "Source",
+                                    "publishedAtMs": 850,
+                                }
+                            ],
+                        }
+                    ],
+                }
+                news_created = client.call_tool(
+                    "news.publish",
+                    {
+                        "clientPublishId": "news:mcp:e2e:publish:v1",
+                        "editionId": "news:daily:2026-08-28:Asia-Shanghai",
+                        "expectedRevision": 0,
+                        "edition": news_edition,
+                    },
+                )
+                self.assertEqual(news_created["admission"], "created")
+                self.assertEqual(news_created["publication"]["revision"], 1)
+                news_replay = client.call_tool(
+                    "news.publish",
+                    {
+                        "clientPublishId": "news:mcp:e2e:publish:v1",
+                        "editionId": "news:daily:2026-08-28:Asia-Shanghai",
+                        "expectedRevision": 0,
+                        "edition": news_edition,
+                    },
+                )
+                self.assertEqual(news_replay["admission"], "existing")
+                news_read = client.call_tool(
+                    "news.read",
+                    {
+                        "editionId": "news:daily:2026-08-28:Asia-Shanghai",
+                        "sections": ["today"],
+                        "includeRenderedBrief": False,
+                    },
+                )
+                self.assertEqual(news_read["edition"]["revision"], 1)
+                self.assertIsNone(news_read["edition"]["renderedBrief"])
+                self.assertEqual(news_read["edition"]["items"][0]["itemId"], "mcp-news-item")
+                news_listing = client.call_tool("news.list", {"limit": 10})
+                self.assertEqual(news_listing["editions"][0]["editionDate"], "2026-08-28")
 
                 with self.assertRaises(McpToolRejected) as invalid_checkpoint:
                     client.call_tool(

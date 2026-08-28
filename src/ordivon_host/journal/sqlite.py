@@ -104,6 +104,41 @@ class BoardMessagePointer:
     recorded_at_ms: int
 
 
+@dataclass(frozen=True, slots=True)
+class NewsPublicationPointer:
+    sequence: int
+    client_publish_id: str
+    edition_id: str
+    edition_date: str
+    timezone: str
+    expected_revision: int
+    revision: int
+    edition_digest: str
+    recorded_at_ms: int
+
+
+@dataclass(frozen=True, slots=True)
+class NewsEditionSummary:
+    edition_id: str
+    edition_date: str
+    timezone: str
+    current_revision: int
+    current_digest: str
+    created_at_ms: int
+    updated_at_ms: int
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "editionId": self.edition_id,
+            "editionDate": self.edition_date,
+            "timezone": self.timezone,
+            "currentRevision": self.current_revision,
+            "currentDigest": self.current_digest,
+            "createdAtMs": self.created_at_ms,
+            "updatedAtMs": self.updated_at_ms,
+        }
+
+
 class HostJournal:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
@@ -562,6 +597,278 @@ class HostJournal:
                 "Host board message replies to itself: "
                 f"{self_reply['client_message_id']}"
             )
+
+    def validate_news_invariants(self) -> None:
+        sequence = self.connection.execute(
+            "SELECT COUNT(*) AS count, COALESCE(MIN(sequence), 0) AS first_sequence, "
+            "COALESCE(MAX(sequence), 0) AS last_sequence FROM news_publications"
+        ).fetchone()
+        count = int(sequence["count"])
+        first_sequence = int(sequence["first_sequence"])
+        last_sequence = int(sequence["last_sequence"])
+        if (
+            (count == 0 and (first_sequence != 0 or last_sequence != 0))
+            or (count > 0 and (first_sequence != 1 or last_sequence != count))
+        ):
+            raise JournalCorruption("Host news publication sequence history is not contiguous")
+
+        revision_gap = self.connection.execute(
+            "SELECT edition_id FROM news_publications GROUP BY edition_id "
+            "HAVING MIN(revision) != 1 OR COUNT(*) != MAX(revision) LIMIT 1"
+        ).fetchone()
+        if revision_gap is not None:
+            raise JournalCorruption(
+                "Host news edition revision history is not contiguous: "
+                f"{revision_gap['edition_id']}"
+            )
+
+        publication_mismatch = self.connection.execute(
+            "SELECT p.client_publish_id FROM news_publications p "
+            "JOIN news_editions e ON e.edition_id = p.edition_id "
+            "LEFT JOIN object_refs o ON o.digest = p.edition_digest "
+            "WHERE p.edition_date != e.edition_date OR p.timezone != e.timezone "
+            "OR p.revision != p.expected_revision + 1 "
+            "OR p.revision > e.current_revision "
+            "OR o.digest IS NULL OR o.kind != 'host-news-edition' "
+            "OR o.validation_timing NOT IN ('startup', 'on_access') LIMIT 1"
+        ).fetchone()
+        if publication_mismatch is not None:
+            raise JournalCorruption(
+                "Host news publication differs from edition/object history: "
+                f"{publication_mismatch['client_publish_id']}"
+            )
+
+        head_mismatch = self.connection.execute(
+            "SELECT e.edition_id FROM news_editions e LEFT JOIN news_publications p "
+            "ON p.edition_id = e.edition_id AND p.revision = e.current_revision "
+            "WHERE p.sequence IS NULL OR p.edition_digest != e.current_digest "
+            "OR p.edition_date != e.edition_date OR p.timezone != e.timezone LIMIT 1"
+        ).fetchone()
+        if head_mismatch is not None:
+            raise JournalCorruption(
+                "Host news edition head differs from publication history: "
+                f"{head_mismatch['edition_id']}"
+            )
+
+    def append_news_publication(
+        self,
+        *,
+        client_publish_id: str,
+        edition_id: str,
+        edition_date: str,
+        timezone: str,
+        expected_revision: int,
+        edition_object: StoredObject,
+        recorded_at_ms: int,
+    ) -> EventAdmission:
+        if not client_publish_id or client_publish_id != client_publish_id.strip():
+            raise ValueError("news client publish identity must be non-empty and trimmed")
+        if not edition_id.startswith("news:") or edition_id != edition_id.strip():
+            raise ValueError("news edition identity is invalid")
+        if not edition_date or edition_date != edition_date.strip():
+            raise ValueError("news edition date is invalid")
+        if not timezone or timezone != timezone.strip():
+            raise ValueError("news timezone is invalid")
+        if type(expected_revision) is not int or expected_revision < 0:
+            raise ValueError("news expected revision must be non-negative")
+        if edition_object.kind != "host-news-edition":
+            raise ValueError("news edition has the wrong object kind")
+        if type(recorded_at_ms) is not int or recorded_at_ms < 0:
+            raise ValueError("news recorded time is invalid")
+
+        with self._transaction():
+            existing = self.connection.execute(
+                "SELECT sequence, edition_id, edition_date, timezone, expected_revision, "
+                "revision, edition_digest, recorded_at_ms FROM news_publications "
+                "WHERE client_publish_id = ?",
+                (client_publish_id,),
+            ).fetchone()
+            if existing is not None:
+                actual = (
+                    str(existing["edition_id"]),
+                    str(existing["edition_date"]),
+                    str(existing["timezone"]),
+                    int(existing["expected_revision"]),
+                    str(existing["edition_digest"]),
+                )
+                expected = (
+                    edition_id,
+                    edition_date,
+                    timezone,
+                    expected_revision,
+                    edition_object.digest,
+                )
+                if actual != expected:
+                    raise EventConflict(
+                        "news client publish identity is already bound to different content"
+                    )
+                return EventAdmission.EXISTING
+
+            head = self.connection.execute(
+                "SELECT edition_date, timezone, current_revision FROM news_editions "
+                "WHERE edition_id = ?",
+                (edition_id,),
+            ).fetchone()
+            current_revision = 0 if head is None else int(head["current_revision"])
+            if current_revision != expected_revision:
+                raise RevisionConflict(
+                    f"news edition revision is {current_revision}, expected {expected_revision}"
+                )
+            if head is not None and (
+                str(head["edition_date"]) != edition_date
+                or str(head["timezone"]) != timezone
+            ):
+                raise EventConflict("news edition identity metadata cannot change across revisions")
+
+            revision = expected_revision + 1
+            self._admit_object(
+                edition_object,
+                recorded_at_ms,
+                validation_timing="on_access",
+            )
+            if head is None:
+                self.connection.execute(
+                    "INSERT INTO news_editions("
+                    "edition_id, edition_date, timezone, current_revision, current_digest, "
+                    "created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        edition_id, edition_date, timezone, revision, edition_object.digest,
+                        recorded_at_ms, recorded_at_ms,
+                    ),
+                )
+            else:
+                changed = self.connection.execute(
+                    "UPDATE news_editions SET current_revision = ?, current_digest = ?, "
+                    "updated_at_ms = ? WHERE edition_id = ? AND current_revision = ?",
+                    (revision, edition_object.digest, recorded_at_ms, edition_id, expected_revision),
+                ).rowcount
+                if changed != 1:
+                    raise RevisionConflict("news edition revision changed during transaction")
+            self.connection.execute(
+                "INSERT INTO news_publications("
+                "client_publish_id, edition_id, edition_date, timezone, expected_revision, "
+                "revision, edition_digest, recorded_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    client_publish_id, edition_id, edition_date, timezone, expected_revision,
+                    revision, edition_object.digest, recorded_at_ms,
+                ),
+            )
+        return EventAdmission.CREATED
+
+    def news_publication_by_client_id(
+        self, client_publish_id: str
+    ) -> NewsPublicationPointer | None:
+        row = self.connection.execute(
+            "SELECT sequence, client_publish_id, edition_id, edition_date, timezone, "
+            "expected_revision, revision, edition_digest, recorded_at_ms "
+            "FROM news_publications WHERE client_publish_id = ?",
+            (client_publish_id,),
+        ).fetchone()
+        return None if row is None else self._news_publication_pointer(row)
+
+    def news_edition_pointer(
+        self, *, edition_id: str | None, revision: int | None
+    ) -> NewsPublicationPointer | None:
+        target_id = edition_id
+        if target_id is None:
+            head = self.connection.execute(
+                "SELECT edition_id FROM news_editions "
+                "ORDER BY edition_date DESC, edition_id ASC LIMIT 1"
+            ).fetchone()
+            if head is None:
+                return None
+            target_id = str(head["edition_id"])
+        if revision is None:
+            row = self.connection.execute(
+                "SELECT p.sequence, p.client_publish_id, p.edition_id, p.edition_date, p.timezone, "
+                "p.expected_revision, p.revision, p.edition_digest, p.recorded_at_ms "
+                "FROM news_publications p JOIN news_editions e ON e.edition_id = p.edition_id "
+                "AND e.current_revision = p.revision WHERE p.edition_id = ?",
+                (target_id,),
+            ).fetchone()
+        else:
+            row = self.connection.execute(
+                "SELECT sequence, client_publish_id, edition_id, edition_date, timezone, "
+                "expected_revision, revision, edition_digest, recorded_at_ms "
+                "FROM news_publications WHERE edition_id = ? AND revision = ?",
+                (target_id, revision),
+            ).fetchone()
+        return None if row is None else self._news_publication_pointer(row)
+
+    def news_all_publications(self) -> tuple[NewsPublicationPointer, ...]:
+        rows = self.connection.execute(
+            "SELECT sequence, client_publish_id, edition_id, edition_date, timezone, "
+            "expected_revision, revision, edition_digest, recorded_at_ms "
+            "FROM news_publications ORDER BY sequence"
+        ).fetchall()
+        return tuple(self._news_publication_pointer(row) for row in rows)
+
+    def news_publication_count(self) -> int:
+        row = self.connection.execute(
+            "SELECT COUNT(*) AS count FROM news_publications"
+        ).fetchone()
+        return int(row["count"])
+
+    def news_edition_count(self) -> int:
+        row = self.connection.execute(
+            "SELECT COUNT(*) AS count FROM news_editions"
+        ).fetchone()
+        return int(row["count"])
+
+    def news_editions(
+        self,
+        *,
+        limit: int,
+        after: tuple[str, str] | None,
+        from_date: str | None,
+        to_date: str | None,
+    ) -> tuple[NewsEditionSummary, ...]:
+        clauses: list[str] = []
+        params: list[object] = []
+        if from_date is not None:
+            clauses.append("edition_date >= ?")
+            params.append(from_date)
+        if to_date is not None:
+            clauses.append("edition_date <= ?")
+            params.append(to_date)
+        if after is not None:
+            after_date, after_id = after
+            clauses.append("(edition_date < ? OR (edition_date = ? AND edition_id > ?))")
+            params.extend((after_date, after_date, after_id))
+        where = "" if not clauses else " WHERE " + " AND ".join(clauses)
+        rows = self.connection.execute(
+            "SELECT edition_id, edition_date, timezone, current_revision, current_digest, "
+            "created_at_ms, updated_at_ms FROM news_editions"
+            + where
+            + " ORDER BY edition_date DESC, edition_id ASC LIMIT ?",
+            (*params, limit),
+        ).fetchall()
+        return tuple(
+            NewsEditionSummary(
+                edition_id=str(row["edition_id"]),
+                edition_date=str(row["edition_date"]),
+                timezone=str(row["timezone"]),
+                current_revision=int(row["current_revision"]),
+                current_digest=str(row["current_digest"]),
+                created_at_ms=int(row["created_at_ms"]),
+                updated_at_ms=int(row["updated_at_ms"]),
+            )
+            for row in rows
+        )
+
+    @staticmethod
+    def _news_publication_pointer(row: object) -> NewsPublicationPointer:
+        return NewsPublicationPointer(
+            sequence=int(row["sequence"]),  # type: ignore[index]
+            client_publish_id=str(row["client_publish_id"]),  # type: ignore[index]
+            edition_id=str(row["edition_id"]),  # type: ignore[index]
+            edition_date=str(row["edition_date"]),  # type: ignore[index]
+            timezone=str(row["timezone"]),  # type: ignore[index]
+            expected_revision=int(row["expected_revision"]),  # type: ignore[index]
+            revision=int(row["revision"]),  # type: ignore[index]
+            edition_digest=str(row["edition_digest"]),  # type: ignore[index]
+            recorded_at_ms=int(row["recorded_at_ms"]),  # type: ignore[index]
+        )
 
     def _validate_exact_lease(
         self,
@@ -1160,6 +1467,8 @@ class HostJournal:
                 raise JournalCorruption(
                     "legacy extension state requires a pre-0.5 Host client for owner recovery/export"
                 )
+
+        self.validate_news_invariants()
 
         for row in self.connection.execute(
             "SELECT task_id FROM task_projection ORDER BY task_id"

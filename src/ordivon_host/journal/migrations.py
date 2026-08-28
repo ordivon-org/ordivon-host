@@ -51,6 +51,9 @@ def initialize_schema(connection: sqlite3.Connection, path: Path) -> None:
         if version == 6:
             _migrate_v6_to_v7(connection, path)
             continue
+        if version == 7:
+            _migrate_v7_to_v8(connection, path)
+            continue
         raise SchemaMigrationError(f"unsupported Host Journal schema version: {version}")
     connection.executescript(_schema.SCHEMA)
     if schema_version(connection) != _schema.SCHEMA_VERSION:
@@ -307,6 +310,51 @@ def _migrate_v6_to_v7(connection: sqlite3.Connection, path: Path) -> None:
     else:
         connection.execute("COMMIT")
 
+
+
+def _migrate_v7_to_v8(connection: sqlite3.Connection, path: Path) -> None:
+    backup_path = path.with_name(f"{path.name}.pre-schema-v8.sqlite3")
+    _ensure_backup(connection, backup_path, expected_version=7)
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        connection.execute(
+            "CREATE TABLE news_editions("
+            "edition_id TEXT PRIMARY KEY, "
+            "edition_date TEXT NOT NULL, "
+            "timezone TEXT NOT NULL, "
+            "current_revision INTEGER NOT NULL CHECK(current_revision >= 1), "
+            "current_digest TEXT NOT NULL REFERENCES object_refs(digest), "
+            "created_at_ms INTEGER NOT NULL CHECK(created_at_ms >= 0), "
+            "updated_at_ms INTEGER NOT NULL CHECK(updated_at_ms >= created_at_ms))"
+        )
+        connection.execute(
+            "CREATE INDEX news_editions_date_id "
+            "ON news_editions(edition_date DESC, edition_id ASC)"
+        )
+        connection.execute(
+            "CREATE TABLE news_publications("
+            "sequence INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "client_publish_id TEXT NOT NULL UNIQUE, "
+            "edition_id TEXT NOT NULL REFERENCES news_editions(edition_id) ON DELETE CASCADE, "
+            "edition_date TEXT NOT NULL, "
+            "timezone TEXT NOT NULL, "
+            "expected_revision INTEGER NOT NULL CHECK(expected_revision >= 0), "
+            "revision INTEGER NOT NULL CHECK(revision >= 1), "
+            "edition_digest TEXT NOT NULL REFERENCES object_refs(digest), "
+            "recorded_at_ms INTEGER NOT NULL CHECK(recorded_at_ms >= 0), "
+            "UNIQUE(edition_id, revision))"
+        )
+        _advance_version(connection, 7, 8)
+        connection.execute(
+            "INSERT INTO schema_migrations(from_version, to_version, name, backup_path) "
+            "VALUES (7, 8, 'add-daily-news-projection', ?)",
+            (str(backup_path),),
+        )
+    except BaseException:
+        connection.execute("ROLLBACK")
+        raise
+    else:
+        connection.execute("COMMIT")
 
 def _advance_version(
     connection: sqlite3.Connection, from_version: int, to_version: int

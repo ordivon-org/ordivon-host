@@ -4,9 +4,20 @@ All user-visible changes to Ordivon Host are recorded here. Release and compatib
 
 ## Unreleased
 
+### Added
+
+- add a durable daily external-news projection with `news.publish`, `news.read`, and `news.list`; one complete structured `NewsEdition` is retained as one immutable CAS object per revision, with exact replay identity, revision-fenced corrections, bounded filtered reads, and date-scoped discovery;
+- add Journal schema v8 `news_editions` / `news_publications`, full Doctor semantic validation, Host status news counts/latest-edition projection, durable source-reference validation, and retained 1/365/3650-edition scale evidence.
+
+### Changed
+
 - distinguish explicitly named `incident-*` deployment investigation evidence from deployment receipts during lifecycle planning; incident trees remain evidence-retained and plan-digest-bound, while malformed ordinary receipts still fail closed.
 
-_No unreleased changes._
+### Compatibility
+
+- Minor-class additive change: existing Task, Board, Event/CAS, extension-state, and continuity semantics remain readable; schema v7 migrates forward to v8 with a pre-schema-v8 backup;
+- Host News is publication persistence only (`external-news-projection-not-world-truth`): it does not research the world, create Tasks, promote claims into owner/World truth, or reinterpret Board messages;
+- the MCP surface expands from eight to eleven Tools by adding `news.list`, `news.read`, and `news.publish`; existing Tool names and request semantics remain intact.
 
 ## 0.5.0 — 2026-08-28
 
