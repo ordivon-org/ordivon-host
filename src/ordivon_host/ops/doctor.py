@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import os
 import sqlite3
 import stat
 import time
@@ -64,6 +65,9 @@ def doctor_state(
         for path, expected in permission_paths
         if path.exists() and stat.S_IMODE(path.stat().st_mode) != expected
     ]
+    for path, expected in permission_paths:
+        if path.exists() and not path.is_symlink() and stat.S_IMODE(path.stat().st_mode) != expected:
+            os.chmod(path, expected)
     try:
         with HostStorage(state_root, validation_mode="full") as storage:
             checks.append(

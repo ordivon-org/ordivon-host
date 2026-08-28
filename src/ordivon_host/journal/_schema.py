@@ -26,6 +26,9 @@ CREATE TABLE IF NOT EXISTS object_refs(
         CHECK(validation_timing IN ('startup', 'on_access'))
 );
 
+CREATE INDEX IF NOT EXISTS idx_object_refs_validation_timing_digest
+ON object_refs(validation_timing, digest);
+
 CREATE TABLE IF NOT EXISTS object_validation(
     digest TEXT PRIMARY KEY REFERENCES object_refs(digest) ON DELETE CASCADE,
     device INTEGER NOT NULL CHECK(device >= 0),

@@ -77,6 +77,13 @@ class HostSchemaMigrationTests(unittest.TestCase):
                 self.assertIn("legacy_object_refs", names)
                 self.assertIn("task_extension_state", names)
                 self.assertIn("board_messages", names)
+                indexes = {
+                    row[0]
+                    for row in storage.journal.connection.execute(
+                        "SELECT name FROM sqlite_master WHERE type='index'"
+                    )
+                }
+                self.assertIn("idx_object_refs_validation_timing_digest", indexes)
                 object_ref_columns = {
                     row[1]
                     for row in storage.journal.connection.execute(
@@ -144,6 +151,7 @@ class HostSchemaMigrationTests(unittest.TestCase):
                 )
 
             connection = sqlite3.connect(database)
+            connection.execute("DROP INDEX IF EXISTS idx_object_refs_validation_timing_digest")
             connection.execute("ALTER TABLE object_refs DROP COLUMN validation_timing")
             connection.execute(
                 "UPDATE host_metadata SET value = '6' WHERE key = 'schema_version'"
@@ -188,6 +196,7 @@ class HostSchemaMigrationTests(unittest.TestCase):
             connection = sqlite3.connect(database)
             connection.execute("PRAGMA foreign_keys = OFF")
             connection.execute("DROP TABLE board_messages")
+            connection.execute("DROP INDEX IF EXISTS idx_object_refs_validation_timing_digest")
             connection.execute("ALTER TABLE object_refs DROP COLUMN validation_timing")
             connection.execute("DROP TABLE task_extension_state")
             connection.execute("DROP TABLE event_object_refs")

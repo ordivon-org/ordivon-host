@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import sqlite3
+import stat
 import tempfile
 import unittest
 
@@ -184,6 +185,29 @@ class HostMessageBoardTests(unittest.TestCase):
             )
             self.assertEqual(check["status"], "error")
             self.assertIn("sequence history is not contiguous", check["detail"])
+
+    def test_on_access_board_file_is_not_scanned_on_open_but_is_hardened_on_read(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with HostStorage(root) as storage:
+                receipt = HostMessageBoard(storage).post(
+                    client_message_id="msg:test:lazy-mode",
+                    author_label="agent:test",
+                    message_kind="note",
+                    message="lazy permission validation",
+                    topic="scale",
+                    reply_to_client_message_id=None,
+                    recorded_at_ms=1,
+                )
+                digest = receipt.message.message_digest
+            path = root / "objects" / f"{digest[7:]}.json"
+            path.chmod(0o644)
+            with HostStorage(root):
+                pass
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o644)
+            with HostStorage(root) as storage:
+                HostMessageBoard(storage).list(limit=1)
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
 
     def test_doctor_detects_board_row_object_semantic_divergence(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

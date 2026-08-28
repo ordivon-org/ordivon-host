@@ -81,9 +81,6 @@ class ContentAddressedStore:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self._ensure_mode(self.root, 0o700)
-        for path in self.root.glob("*.json"):
-            if path.is_file() and not path.is_symlink():
-                self._ensure_mode(path, 0o600)
 
     def put(self, value: JsonValue, *, kind: str) -> StoredObject:
         if not kind or kind != kind.strip():
@@ -145,6 +142,9 @@ class ContentAddressedStore:
     def identity(self, digest: str) -> ObjectFileIdentity:
         path = self._path(digest)
         try:
+            if path.is_symlink():
+                raise ObjectCorrupt("content-addressed object cannot be a symlink")
+            self._ensure_mode(path, 0o600)
             return ObjectFileIdentity.from_stat(path.stat())
         except FileNotFoundError as error:
             raise ObjectMissing(f"content-addressed object is missing: {digest}") from error
@@ -159,6 +159,9 @@ class ContentAddressedStore:
     ) -> tuple[dict[str, JsonValue], StoredObject, ObjectFileIdentity]:
         path = self._path(digest)
         try:
+            if path.is_symlink():
+                raise ObjectCorrupt("content-addressed object cannot be a symlink")
+            self._ensure_mode(path, 0o600)
             with path.open("rb") as handle:
                 before = ObjectFileIdentity.from_stat(os.fstat(handle.fileno()))
                 encoded = handle.read()
