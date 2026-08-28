@@ -9,6 +9,7 @@ import threading
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 from anc_canonical import canonical_digest
 from ordivon_host import (
@@ -429,6 +430,84 @@ class HostStorageTests(unittest.TestCase):
                 self.assertTrue(full.validation_summary.full)
                 self.assertEqual(full.validation_summary.hashed_objects, 1)
                 self.assertEqual(full.validation_summary.cached_objects, 0)
+
+    def test_validation_cache_writeback_waits_for_reference_snapshot_exhaustion(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with HostStorage(directory) as storage:
+                storage.record_task_event(
+                    event_id="event:create",
+                    kind=EventKind.TASK_CREATED,
+                    payload={"revision": 1},
+                    projection=projection(1),
+                    expected_revision=0,
+                )
+
+            with HostStorage(directory, validation_mode="targeted") as storage:
+                rows = tuple(
+                    storage.journal.object_reference_validation_rows(
+                        include_on_access=True
+                    )
+                )
+                self.assertEqual(len(rows), 1)
+                row = rows[0]
+                digest = str(row["digest"])
+                stored, identity = storage.objects.inspect_with_identity(digest)
+                exhausted = False
+                writes: list[int] = []
+
+                def validation_rows(*, include_on_access: bool):
+                    self.assertTrue(include_on_access)
+
+                    def iterator():
+                        nonlocal exhausted
+                        for _ in range(2_001):
+                            yield row
+                        exhausted = True
+
+                    return iterator()
+
+                def record_validations(values):
+                    self.assertTrue(
+                        exhausted,
+                        "validation cache write upgraded a live read snapshot",
+                    )
+                    writes.append(len(values))
+
+                with (
+                    mock.patch.object(
+                        storage.journal,
+                        "object_reference_validation_rows",
+                        side_effect=validation_rows,
+                    ),
+                    mock.patch.object(
+                        storage.journal,
+                        "record_object_validations",
+                        side_effect=record_validations,
+                    ),
+                    mock.patch.object(
+                        storage.journal,
+                        "task_projection_validation_rows",
+                        return_value=(),
+                    ),
+                    mock.patch.object(
+                        storage.objects, "identity", return_value=identity
+                    ),
+                    mock.patch.object(
+                        storage.objects,
+                        "inspect_with_identity",
+                        return_value=(stored, identity),
+                    ),
+                ):
+                    validation = storage.validate_references(
+                        full=True, update_cache=True
+                    )
+
+                self.assertTrue(exhausted)
+                self.assertEqual(writes, [2_000, 1])
+                self.assertEqual(validation.object_refs, 2_001)
+                self.assertEqual(validation.hashed_objects, 2_001)
+                self.assertEqual(validation.cached_objects, 0)
+                self.assertEqual(validation.task_heads, 0)
 
     def test_cached_object_metadata_change_forces_hash_and_rejects_tampering(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

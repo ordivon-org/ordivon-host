@@ -185,11 +185,17 @@ class HostStorage:
             if update_cache:
                 pending.append((expected.digest, verified_identity))
             hashed_objects += 1
-            if update_cache and len(pending) >= 2_000:
-                self.journal.record_object_validations(tuple(pending))
-                pending.clear()
         if update_cache:
-            self.journal.record_object_validations(tuple(pending))
+            # Do not upgrade the long object_refs read snapshot into a writer. Under
+            # concurrent validation another connection may commit while this cursor is
+            # active, making an in-loop BEGIN IMMEDIATE fail with SQLITE_BUSY_SNAPSHOT.
+            # Cache rows are an optimization over already-verified identities, so first
+            # exhaust the validation snapshot and only then write them back in bounded
+            # transactions.
+            for offset in range(0, len(pending), 2_000):
+                self.journal.record_object_validations(
+                    tuple(pending[offset : offset + 2_000])
+                )
 
         task_rows = self.journal.task_projection_validation_rows()
         for materialized, pointer in task_rows:
