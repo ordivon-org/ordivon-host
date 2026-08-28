@@ -169,6 +169,7 @@ class HostMessageBoardTests(unittest.TestCase):
                 storage.journal.board_messages = racing_board_messages  # type: ignore[method-assign]
                 first = board.list(after_sequence=1, limit=10, topic="target")
                 self.assertEqual(first["messages"], [])
+                self.assertEqual(first["messageCount"], 1)
                 self.assertEqual(first["lastSequence"], 1)
                 self.assertEqual(first["nextAfterSequence"], 1)
                 self.assertFalse(first["hasMore"])

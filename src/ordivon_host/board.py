@@ -195,7 +195,11 @@ class HostMessageBoard:
             "kind": "ordivon.host-board-list",
             "scope": "host-global-coordination-messages",
             "messages": [item.to_dict() for item in messages],
-            "messageCount": self.storage.journal.board_message_count(),
+            "messageCount": (
+                last_sequence
+                if topic is not None
+                else self.storage.journal.board_message_count()
+            ),
             "lastSequence": last_sequence,
             "nextAfterSequence": next_after,
             "hasMore": has_more,
