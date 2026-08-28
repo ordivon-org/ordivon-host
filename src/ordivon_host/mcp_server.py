@@ -450,6 +450,7 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
                 recent_limit=recentLimit,
             ),
             server_interface=server_interface,
+            result_meta={"ordivon/hostIntegrityScope": _global_integrity_scope(detail)},
             write=False,
         )
 
@@ -460,7 +461,9 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
             "Read durable Host-global collaboration messages. Omit afterSequence to receive the "
             "newest bounded window in chronological order, or pass the last observed sequence for "
             "incremental polling. Messages are collaboration records only: they are not Tasks, "
-            "priority, execution authority, owner standing, authenticated identity, or domain truth."
+            "priority, execution authority, owner standing, authenticated identity, or domain truth. "
+            "This read validates Journal invariants plus the CAS objects it consumes; it does not "
+            "claim unrelated CAS objects are globally healthy."
         ),
         annotations=ToolAnnotations(
             readOnlyHint=True,
@@ -478,6 +481,7 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
                 settings.state_root, after_sequence=afterSequence, limit=limit
             ),
             server_interface=server_interface,
+            result_meta={"ordivon/hostIntegrityScope": _operation_local_integrity_scope()},
             write=False,
         )
 
@@ -528,7 +532,9 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
             "external-continuity checkpoint preview, and a bounded recent Event timeline. The "
             "TaskProjection is Host lifecycle mechanics only; READY does not establish actionable "
             "NOW work, priority, owner standing, or current domain truth. This does not return raw "
-            "Event payload data and never invokes Runtime, Harness, or a Provider."
+            "Event payload data and never invokes Runtime, Harness, or a Provider. This read "
+            "validates Journal invariants plus the CAS objects it consumes; unrelated CAS health "
+            "remains a global status/Doctor concern."
         ),
         annotations=ToolAnnotations(
             readOnlyHint=True,
@@ -550,6 +556,7 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
                 event_limit=eventLimit,
             ),
             server_interface=server_interface,
+            result_meta={"ordivon/hostIntegrityScope": _operation_local_integrity_scope()},
             write=False,
         )
 
@@ -568,8 +575,10 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
             "semantic claimant standing, or unclaimed status when absent. It also does not authorize "
             "physical Workspace retention or closure; revalidate exact Runtime state before any "
             "carrier disposition. Missing Runtime mechanics is not a Human decision requirement. "
-            "Non-terminal continuity is the default; includeTerminal opts into history. This projection never invokes Runtime, "
-            "Harness, a Provider, or a cross-owner portfolio authority."
+            "Non-terminal continuity is the default; includeTerminal opts into history. This "
+            "operation validates Journal invariants plus the CAS objects needed for visible rows; "
+            "it does not claim unrelated CAS objects are healthy. This projection never invokes "
+            "Runtime, Harness, a Provider, or a cross-owner portfolio authority."
         ),
         annotations=ToolAnnotations(
             readOnlyHint=True,
@@ -593,6 +602,7 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
                 include_terminal=includeTerminal,
             ),
             server_interface=server_interface,
+            result_meta={"ordivon/hostIntegrityScope": _operation_local_integrity_scope()},
             write=False,
         )
 
@@ -607,7 +617,9 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
             "fence. Any retained Runtime hint is navigation only and does not authorize Workspace "
             "retention or closure; revalidate exact Runtime state before any physical carrier "
             "disposition. Missing Runtime mechanics is not a Human decision requirement. This "
-            "never validates Runtime/Git/domain truth and never invokes another system."
+            "never validates Runtime/Git/domain truth and never invokes another system. It "
+            "validates Journal invariants plus the CAS objects required for this exact continuity "
+            "point, not unrelated Host CAS health."
         ),
         annotations=ToolAnnotations(
             readOnlyHint=True,
@@ -627,6 +639,7 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
                 expected_revision=expectedRevision,
             ),
             server_interface=server_interface,
+            result_meta={"ordivon/hostIntegrityScope": _operation_local_integrity_scope()},
             write=False,
         )
 
@@ -935,6 +948,31 @@ def _parse_task_cursor(
     return payload["createdAtMs"], payload["taskId"]
 
 
+def _operation_local_integrity_scope() -> dict[str, object]:
+    return {
+        "scope": "operation-local",
+        "journal": "global-schema-and-relational-invariants",
+        "cas": "objects-consumed-by-this-operation",
+        "globalCasHealthClaimed": False,
+    }
+
+
+def _global_integrity_scope(detail: str) -> dict[str, object]:
+    return {
+        "scope": "global",
+        "journal": "global-schema-and-relational-invariants",
+        "cas": "cached-global-reference-validation",
+        "doctor": (
+            "full-history"
+            if detail == "history"
+            else "full-current"
+            if detail == "integrity"
+            else None
+        ),
+        "globalCasHealthClaimed": True,
+    }
+
+
 def _current_deployment_identity() -> dict[str, object]:
     try:
         raw = inspect_deployment()
@@ -1082,7 +1120,9 @@ def _list_board_messages(
         )
     if type(limit) is not int or limit < 1 or limit > 100:
         raise ToolArgumentError("limit", "board.list limit must be in [1, 100]")
-    with HostStorage(state_root, update_validation_cache=False) as storage:
+    with HostStorage(
+        state_root, validation_mode="targeted", update_validation_cache=False
+    ) as storage:
         return HostMessageBoard(storage).list(
             after_sequence=after_sequence, limit=limit
         )
@@ -1137,7 +1177,9 @@ def _observe_task(
         raise ToolArgumentError("eventLimit", "eventLimit must be in [0, 20]")
 
     observed_at_ms = _wall_clock_ms()
-    with HostStorage(state_root, update_validation_cache=False) as storage:
+    with HostStorage(
+        state_root, validation_mode="targeted", update_validation_cache=False
+    ) as storage:
         snapshot = storage.read_task_event(task_id)
         projection = snapshot.projection
         if expected_revision is not None and projection.revision != expected_revision:
@@ -1246,7 +1288,9 @@ def _list_host_tasks(
     matches: list[tuple[int, dict[str, object]]] = []
     scan_after = after
     scan_batch = 256
-    with HostStorage(state_root, update_validation_cache=False) as storage:
+    with HostStorage(
+        state_root, validation_mode="targeted", update_validation_cache=False
+    ) as storage:
         while len(matches) <= limit:
             clauses: list[str] = []
             params: list[object] = []
@@ -1383,7 +1427,9 @@ def _resume_task(
         raise ToolArgumentError(
             "expectedRevision", "expectedRevision must be a positive integer"
         )
-    with HostStorage(state_root, update_validation_cache=False) as storage:
+    with HostStorage(
+        state_root, validation_mode="targeted", update_validation_cache=False
+    ) as storage:
         return ExternalContinuityHost(storage, clock_ms=_wall_clock_ms).resume(
             task_id,
             expected_revision=expected_revision,
@@ -1505,23 +1551,33 @@ async def _run_tool(
     *,
     write: bool,
     server_interface: dict[str, object] | None = None,
+    result_meta: dict[str, object] | None = None,
 ) -> CallToolResult:
     try:
         result = await asyncio.to_thread(operation)
     except Exception as error:
-        return _error_result(error, write=write, server_interface=server_interface)
-    return _success_result(result, server_interface=server_interface)
+        return _error_result(
+            error,
+            write=write,
+            server_interface=server_interface,
+            result_meta=result_meta,
+        )
+    return _success_result(
+        result, server_interface=server_interface, result_meta=result_meta
+    )
 
 
 def _success_result(
     value: dict[str, object],
     *,
     server_interface: dict[str, object] | None = None,
+    result_meta: dict[str, object] | None = None,
 ) -> CallToolResult:
     envelope = dict(value)
     if server_interface:
         envelope["serverInterface"] = dict(server_interface)
     return CallToolResult(
+        meta=None if result_meta is None else dict(result_meta),
         content=[TextContent(text=_json_text(envelope))],
         structuredContent=envelope,
         isError=False,
@@ -1533,6 +1589,7 @@ def _error_result(
     *,
     write: bool,
     server_interface: dict[str, object] | None = None,
+    result_meta: dict[str, object] | None = None,
 ) -> CallToolResult:
     code = "HOST_INTERNAL"
     message = "Host MCP operation failed"
@@ -1598,6 +1655,7 @@ def _error_result(
     if server_interface:
         envelope["serverInterface"] = dict(server_interface)
     return CallToolResult(
+        meta=None if result_meta is None else dict(result_meta),
         content=[TextContent(text=_json_text(envelope))],
         structuredContent=envelope,
         isError=True,
