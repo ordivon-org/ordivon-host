@@ -105,6 +105,37 @@ class HostOperationsTests(unittest.TestCase):
             )
             self.assertEqual(history["status"], "ok")
 
+    def test_inspect_and_gc_plan_do_not_warm_validation_cache_under_writer_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "state"
+            populate(root)
+            database = root / "host.sqlite3"
+            connection = sqlite3.connect(database)
+            connection.execute("DELETE FROM object_validation")
+            connection.commit()
+            connection.close()
+
+            blocker = sqlite3.connect(database, isolation_level=None)
+            blocker.execute("BEGIN IMMEDIATE")
+            try:
+                inspection = inspect_state(root)
+                plan = plan_gc(root)
+            finally:
+                blocker.execute("ROLLBACK")
+                blocker.close()
+            self.assertEqual(inspection["tasks"], 1)
+            self.assertEqual(plan["missingObjects"], [])
+            connection = sqlite3.connect(database)
+            try:
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM object_validation"
+                    ).fetchone()[0],
+                    0,
+                )
+            finally:
+                connection.close()
+
     def test_inspect_doctor_and_gc_plan(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "state"

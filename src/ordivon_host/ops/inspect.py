@@ -44,7 +44,7 @@ def inspect_state(root: str | Path) -> dict[str, object]:
     state_root = Path(root)
     if not (state_root / "host.sqlite3").is_file():
         raise FileNotFoundError(state_root / "host.sqlite3")
-    with HostStorage(state_root) as storage:
+    with HostStorage(state_root, update_validation_cache=False) as storage:
         states = storage.journal.task_counts_by_state()
         task_count = storage.journal.task_count()
         terminal_count = sum(

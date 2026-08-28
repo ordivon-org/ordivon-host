@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import os
+from functools import cache
 from pathlib import Path
+import re
 import sqlite3
 import tempfile
 
@@ -13,34 +15,108 @@ class SchemaMigrationError(RuntimeError):
     pass
 
 
-_CURRENT_SCHEMA_TABLES = frozenset(
-    {
-        "host_metadata",
-        "schema_migrations",
-        "object_refs",
-        "object_validation",
-        "streams",
-        "events",
-        "legacy_object_refs",
-        "event_object_refs",
-        "task_projection",
-        "task_extension_state",
-        "leases",
-        "board_messages",
-        "news_editions",
-        "news_publications",
-    }
+_MIGRATION_NAME_BY_TO_VERSION = {
+    2: "remove-unowned-pre-h7-tables",
+    3: "cache-verified-object-file-identity",
+    4: "bind-event-object-admission",
+    5: "preserve-namespaced-extension-state",
+    6: "add-host-message-board",
+    7: "scope-object-reference-validation",
+    8: "add-daily-news-projection",
+}
+
+_SCHEMA_SQL_TOKEN = re.compile(
+    r"""
+    '(?:''|[^'])*'
+    | "(?:""|[^"])*"
+    | `(?:``|[^`])*`
+    | \[(?:\]\]|[^\]])*\]
+    | [A-Za-z_][A-Za-z0-9_]*
+    | \d+(?:\.\d+)?
+    | >=|<=|<>|!=|==|\|\||<<|>>
+    | [(),=<>+\-*/%.;]
+    """,
+    re.VERBOSE,
 )
-_CURRENT_SCHEMA_INDEXES = frozenset(
-    {
-        "idx_object_refs_validation_timing_digest",
-        "event_object_refs_one_payload",
-        "news_editions_date_id",
-    }
-)
-_CURRENT_SCHEMA_METADATA = frozenset(
-    {"schema_version", "event_object_refs_start_sequence"}
-)
+
+_LEGACY_V1_V2_FINAL_TABLE_SQL = {
+    "object_refs": """
+        CREATE TABLE object_refs(
+            digest TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            byte_length INTEGER NOT NULL,
+            first_seen_at_ms INTEGER NOT NULL,
+            validation_timing TEXT NOT NULL DEFAULT 'startup'
+                CHECK(validation_timing IN ('startup', 'on_access'))
+        )
+    """,
+    "streams": """
+        CREATE TABLE streams(
+            stream_id TEXT PRIMARY KEY,
+            stream_kind TEXT NOT NULL,
+            revision INTEGER NOT NULL,
+            created_at_ms INTEGER NOT NULL,
+            updated_at_ms INTEGER NOT NULL
+        )
+    """,
+    "events": """
+        CREATE TABLE events(
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id TEXT NOT NULL UNIQUE,
+            stream_id TEXT NOT NULL,
+            stream_kind TEXT NOT NULL,
+            stream_revision INTEGER NOT NULL,
+            event_kind TEXT NOT NULL,
+            payload_digest TEXT NOT NULL,
+            caused_by_event_id TEXT,
+            recorded_at_ms INTEGER NOT NULL
+        )
+    """,
+    "task_projection": """
+        CREATE TABLE task_projection(
+            task_id TEXT PRIMARY KEY,
+            goal_id TEXT NOT NULL,
+            state TEXT NOT NULL,
+            active_node_id TEXT,
+            ready_frontier_json TEXT NOT NULL,
+            revision INTEGER NOT NULL,
+            updated_at_ms INTEGER NOT NULL
+        )
+    """,
+    "leases": """
+        CREATE TABLE leases(
+            task_id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            revision INTEGER NOT NULL,
+            expires_at_ms INTEGER NOT NULL
+        )
+    """,
+}
+
+_LEGACY_V2_SCHEMA_MIGRATIONS_SQL = """
+    CREATE TABLE schema_migrations(
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        from_version INTEGER NOT NULL,
+        to_version INTEGER NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        backup_path TEXT NOT NULL
+    )
+"""
+
+_CURRENT_SCHEMA_TABLES = frozenset({
+    "host_metadata", "schema_migrations", "object_refs", "object_validation",
+    "streams", "events", "legacy_object_refs", "event_object_refs",
+    "task_projection", "task_extension_state", "leases", "board_messages",
+    "news_editions", "news_publications",
+})
+_CURRENT_SCHEMA_INDEXES = frozenset({
+    "idx_object_refs_validation_timing_digest",
+    "event_object_refs_one_payload",
+    "news_editions_date_id",
+})
+_CURRENT_SCHEMA_METADATA = frozenset({
+    "schema_version", "event_object_refs_start_sequence"
+})
 
 
 def initialize_schema(connection: sqlite3.Connection, path: Path) -> None:
@@ -58,12 +134,14 @@ def initialize_schema(connection: sqlite3.Connection, path: Path) -> None:
                 + ", ".join(existing)
             )
         connection.executescript(_schema.SCHEMA)
+        _validate_current_schema(connection, path)
         return
     migrated = False
     while True:
         version = schema_version(connection)
         if version == _schema.SCHEMA_VERSION:
-            if not migrated and _current_schema_materialized(connection):
+            if not migrated:
+                _validate_current_schema(connection, path)
                 return
             break
         if version == 1:
@@ -96,6 +174,7 @@ def initialize_schema(connection: sqlite3.Connection, path: Path) -> None:
             continue
         raise SchemaMigrationError(f"unsupported Host Journal schema version: {version}")
     connection.executescript(_schema.SCHEMA)
+    _validate_current_schema(connection, path)
     if schema_version(connection) != _schema.SCHEMA_VERSION:
         raise SchemaMigrationError("Host Journal schema initialization did not converge")
 
@@ -521,26 +600,144 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _current_schema_materialized(connection: sqlite3.Connection) -> bool:
-    objects = {
-        (str(row[0]), str(row[1]))
+def _schema_sql_tokens(value: object) -> tuple[str, ...] | None:
+    if value is None:
+        return None
+    sql = str(value)
+    tokens: list[str] = []
+    position = 0
+    for match in _SCHEMA_SQL_TOKEN.finditer(sql):
+        gap = sql[position : match.start()]
+        if gap and not gap.isspace():
+            raise SchemaMigrationError(
+                f"Host Journal schema SQL contains unsupported syntax near: {gap!r}"
+            )
+        token = match.group(0)
+        if token[0].isalpha() or token[0] == "_":
+            token = token.upper()
+        tokens.append(token)
+        position = match.end()
+    tail = sql[position:]
+    if tail and not tail.isspace():
+        raise SchemaMigrationError(
+            f"Host Journal schema SQL contains unsupported syntax near: {tail!r}"
+        )
+    normalized: list[str] = []
+    index = 0
+    while index < len(tokens):
+        if (
+            index + 2 < len(tokens)
+            and tokens[index : index + 3] == ["IF", "NOT", "EXISTS"]
+        ):
+            index += 3
+            continue
+        normalized.append(tokens[index])
+        index += 1
+    return tuple(normalized)
+
+
+@cache
+def _canonical_schema_shape() -> dict[tuple[str, str], tuple[str, ...] | None]:
+    expected = sqlite3.connect(":memory:")
+    try:
+        expected.executescript(_schema.SCHEMA)
+        return _schema_shape(expected)
+    finally:
+        expected.close()
+
+
+def _schema_shape(
+    connection: sqlite3.Connection,
+) -> dict[tuple[str, str], tuple[str, ...] | None]:
+    return {
+        (str(row[0]), str(row[1])): _schema_sql_tokens(row[2])
         for row in connection.execute(
-            "SELECT type, name FROM sqlite_master "
-            "WHERE type IN ('table', 'index') AND name NOT LIKE 'sqlite_%'"
+            "SELECT type, name, sql FROM sqlite_master "
+            "WHERE type IN ('table', 'index', 'trigger', 'view') "
+            "AND name NOT LIKE 'sqlite_%' ORDER BY type, name"
         )
     }
-    if not all(("table", name) in objects for name in _CURRENT_SCHEMA_TABLES):
-        return False
-    if not all(("index", name) in objects for name in _CURRENT_SCHEMA_INDEXES):
-        return False
+
+
+def _validated_migration_start_version(
+    connection: sqlite3.Connection, path: Path
+) -> int:
+    rows = connection.execute(
+        "SELECT sequence, from_version, to_version, name, backup_path "
+        "FROM schema_migrations ORDER BY sequence"
+    ).fetchall()
+    if not rows:
+        return _schema.SCHEMA_VERSION
+    start = int(rows[0]["from_version"])
+    if start < 1 or start >= _schema.SCHEMA_VERSION:
+        raise SchemaMigrationError("Host Journal migration history start is invalid")
+    if len(rows) != _schema.SCHEMA_VERSION - start:
+        raise SchemaMigrationError("Host Journal migration history is incomplete")
+    for offset, row in enumerate(rows):
+        expected_from = start + offset
+        expected_to = expected_from + 1
+        expected_name = _MIGRATION_NAME_BY_TO_VERSION[expected_to]
+        expected_backup = f"{path.name}.pre-schema-v{expected_to}.sqlite3"
+        if (
+            int(row["sequence"]) != offset + 1
+            or int(row["from_version"]) != expected_from
+            or int(row["to_version"]) != expected_to
+            or str(row["name"]) != expected_name
+            or Path(str(row["backup_path"])).name != expected_backup
+        ):
+            raise SchemaMigrationError("Host Journal migration history differs")
+    return start
+
+
+def _expected_schema_shape(
+    *, migration_start_version: int
+) -> dict[tuple[str, str], tuple[str, ...] | None]:
+    expected = dict(_canonical_schema_shape())
+    if migration_start_version in {1, 2}:
+        for table, sql in _LEGACY_V1_V2_FINAL_TABLE_SQL.items():
+            expected[("table", table)] = _schema_sql_tokens(sql)
+    if migration_start_version == 2:
+        expected[("table", "schema_migrations")] = _schema_sql_tokens(
+            _LEGACY_V2_SCHEMA_MIGRATIONS_SQL
+        )
+    return expected
+
+
+def _validate_current_schema(connection: sqlite3.Connection, path: Path) -> None:
     metadata = {
         str(row[0])
-        for row in connection.execute(
-            "SELECT key FROM host_metadata WHERE key IN (?, ?)",
-            tuple(sorted(_CURRENT_SCHEMA_METADATA)),
-        )
+        for row in connection.execute("SELECT key FROM host_metadata ORDER BY key")
     }
-    return metadata == _CURRENT_SCHEMA_METADATA
+    expected_metadata = {"schema_version", "event_object_refs_start_sequence"}
+    if metadata != expected_metadata:
+        missing = sorted(expected_metadata - metadata)
+        unexpected = sorted(metadata - expected_metadata)
+        raise SchemaMigrationError(
+            "Host Journal metadata shape differs: "
+            f"missing={missing}; unexpected={unexpected}"
+        )
+    migration_start = _validated_migration_start_version(connection, path)
+    expected = _expected_schema_shape(migration_start_version=migration_start)
+    actual = _schema_shape(connection)
+    if actual == expected:
+        return
+    expected_keys = set(expected)
+    actual_keys = set(actual)
+    missing = sorted(expected_keys - actual_keys)
+    unexpected = sorted(actual_keys - expected_keys)
+    changed = sorted(
+        key for key in expected_keys & actual_keys if expected[key] != actual[key]
+    )
+    parts: list[str] = []
+    if missing:
+        parts.append("missing=" + ",".join(f"{kind}:{name}" for kind, name in missing))
+    if unexpected:
+        parts.append(
+            "unexpected=" + ",".join(f"{kind}:{name}" for kind, name in unexpected)
+        )
+    if changed:
+        parts.append("changed=" + ",".join(f"{kind}:{name}" for kind, name in changed))
+    raise SchemaMigrationError("Host Journal schema shape differs: " + "; ".join(parts))
 
 
 def _table_exists(connection: sqlite3.Connection, name: str) -> bool:

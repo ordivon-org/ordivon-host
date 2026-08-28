@@ -12,7 +12,11 @@ def plan_gc(
 ) -> dict[str, object]:
     root = Path(state_root)
     owns_storage = storage is None
-    current = HostStorage(root) if storage is None else storage
+    current = (
+        HostStorage(root, update_validation_cache=False)
+        if storage is None
+        else storage
+    )
     try:
         referenced = {ref.digest[7:] + ".json" for ref in current.journal.object_refs()}
         present = {

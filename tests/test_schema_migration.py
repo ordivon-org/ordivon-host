@@ -159,7 +159,7 @@ class HostSchemaMigrationTests(unittest.TestCase):
                 blocker.execute("ROLLBACK")
                 blocker.close()
 
-    def test_current_schema_missing_named_index_still_replays_realization(self) -> None:
+    def test_current_schema_missing_named_index_fails_closed_without_repair(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             database = root / "host.sqlite3"
@@ -170,18 +170,106 @@ class HostSchemaMigrationTests(unittest.TestCase):
             connection.commit()
             connection.close()
 
-            with HostStorage(
-                root,
-                validation_mode="targeted",
-                update_validation_cache=False,
-            ) as storage:
-                indexes = {
-                    str(row[0])
-                    for row in storage.journal.connection.execute(
-                        "SELECT name FROM sqlite_master WHERE type='index'"
-                    )
-                }
-            self.assertIn("idx_object_refs_validation_timing_digest", indexes)
+            with self.assertRaisesRegex(
+                JournalCorruption,
+                "schema shape differs: missing=index:idx_object_refs_validation_timing_digest",
+            ):
+                HostStorage(
+                    root,
+                    validation_mode="targeted",
+                    update_validation_cache=False,
+                )
+            connection = sqlite3.connect(database)
+            try:
+                self.assertIsNone(
+                    connection.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='index' "
+                        "AND name='idx_object_refs_validation_timing_digest'"
+                    ).fetchone()
+                )
+            finally:
+                connection.close()
+
+    def test_current_schema_missing_board_table_preserves_evidence_and_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = root / "host.sqlite3"
+            with HostStorage(root) as storage:
+                receipt = HostMessageBoard(storage).post(
+                    client_message_id="msg:test:strict-current-schema",
+                    author_label="agent:test",
+                    message_kind="note",
+                    message="Retain evidence instead of self-healing its pointer table.",
+                    topic="schema",
+                    reply_to_client_message_id=None,
+                    recorded_at_ms=1,
+                )
+                digest = receipt.message.message_digest
+            connection = sqlite3.connect(database)
+            connection.execute("PRAGMA foreign_keys = OFF")
+            connection.execute("DROP TABLE board_messages")
+            connection.commit()
+            connection.close()
+
+            with self.assertRaisesRegex(
+                JournalCorruption, "schema shape differs: missing=table:board_messages"
+            ):
+                HostStorage(root)
+            connection = sqlite3.connect(database)
+            try:
+                self.assertIsNone(
+                    connection.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' "
+                        "AND name='board_messages'"
+                    ).fetchone()
+                )
+                self.assertIsNotNone(
+                    connection.execute(
+                        "SELECT 1 FROM object_refs WHERE digest = ?", (digest,)
+                    ).fetchone()
+                )
+            finally:
+                connection.close()
+
+    def test_current_schema_constraint_weakening_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = root / "host.sqlite3"
+            with HostStorage(root):
+                pass
+            connection = sqlite3.connect(database)
+            connection.execute("PRAGMA foreign_keys = OFF")
+            connection.execute("DROP TABLE leases")
+            connection.execute(
+                "CREATE TABLE leases("
+                "task_id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, "
+                "revision INTEGER NOT NULL, expires_at_ms INTEGER NOT NULL)"
+            )
+            connection.commit()
+            connection.close()
+            with self.assertRaisesRegex(
+                JournalCorruption, "schema shape differs: changed=table:leases"
+            ):
+                HostStorage(root)
+
+    def test_current_schema_validates_migration_history_before_legacy_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "host.sqlite3"
+            connection = sqlite3.connect(database)
+            connection.executescript(_V2)
+            connection.close()
+            with HostStorage(directory):
+                pass
+            connection = sqlite3.connect(database)
+            connection.execute(
+                "UPDATE schema_migrations SET name = 'forged' WHERE sequence = 1"
+            )
+            connection.commit()
+            connection.close()
+            with self.assertRaisesRegex(
+                JournalCorruption, "migration history differs"
+            ):
+                HostStorage(directory)
 
     def test_v2_migrates_through_v8_with_backups(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
