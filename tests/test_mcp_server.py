@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import http.client
 import json
@@ -1493,16 +1494,87 @@ class HostMcpAgentUxTests(unittest.TestCase):
                 "inputSchema": {"type": "object", "properties": {"a": {"type": "integer"}}},
             }
         ]
+        changed_output_schema = [
+            {
+                **first[0],
+                "outputSchema": {
+                    "type": "object",
+                    "properties": {"result": {"type": "string"}},
+                    "required": ["result"],
+                },
+            }
+        ]
         first_identity = _tool_schema_identity(first)
         self.assertEqual(first_identity, _tool_schema_identity(presentation_only))
         self.assertNotEqual(
             first_identity["schemaDigest"],
             _tool_schema_identity(changed_schema)["schemaDigest"],
         )
+        self.assertNotEqual(
+            first_identity["schemaDigest"],
+            _tool_schema_identity(changed_output_schema)["schemaDigest"],
+        )
         self.assertEqual(
             first_identity["schemaRevision"],
             f"mcp-schema:{str(first_identity['schemaDigest'])[7:]}",
         )
+
+    def test_board_list_publishes_and_runtime_validates_output_schema(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state_root = root / "state"
+            token_file = root / "token"
+            token_file.write_text("x" * 40)
+            token_file.chmod(0o600)
+            with HostStorage(state_root):
+                pass
+            server = build_mcp_server(
+                HostMcpSettings(state_root=state_root, token_file=token_file)
+            )
+
+            tools = asyncio.run(server.list_tools())
+            by_name = {tool.name: tool for tool in tools}
+            board_schema = by_name["board.list"].output_schema
+            self.assertIsInstance(board_schema, dict)
+            assert isinstance(board_schema, dict)
+            self.assertIn("anyOf", board_schema)
+            self.assertEqual(
+                [tool.name for tool in tools if tool.output_schema is not None],
+                ["board.list"],
+            )
+
+            success = asyncio.run(server.call_tool("board.list", {"limit": 10}))
+            self.assertFalse(success.is_error)
+            assert success.structured_content is not None
+            self.assertEqual(success.structured_content["kind"], "ordivon.host-board-list")
+            self.assertIn("serverInterface", success.structured_content)
+
+            error = asyncio.run(server.call_tool("board.list", {"topic": " bad"}))
+            self.assertTrue(error.is_error)
+            assert error.structured_content is not None
+            self.assertEqual(error.structured_content["error"]["code"], "INVALID_ARGUMENT")
+            self.assertEqual(error.structured_content["error"]["field"], "topic")
+
+            malformed = {
+                "schemaVersion": 1,
+                "kind": "ordivon.host-board-list",
+                "scope": "host-global-coordination-messages",
+                "messages": [],
+                "messageCount": 0,
+                "lastSequence": 0,
+                "nextAfterSequence": 0,
+                "hasMore": False,
+                "truthBoundary": "test",
+                "unexpected": True,
+            }
+            with (
+                mock.patch(
+                    "ordivon_host.mcp_server._list_board_messages",
+                    return_value=malformed,
+                ),
+                self.assertRaisesRegex(Exception, "Extra inputs are not permitted"),
+            ):
+                asyncio.run(server.call_tool("board.list", {"limit": 10}))
 
 
 class HostMcpEndToEndTests(unittest.TestCase):

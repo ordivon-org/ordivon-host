@@ -21,7 +21,7 @@ from anc_canonical import canonical_digest
 from mcp.server import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
-from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema
+from pydantic import BaseModel, ConfigDict, Field, RootModel, WithJsonSchema
 from starlette.requests import ClientDisconnect
 
 from .board import HostMessageBoard
@@ -120,6 +120,71 @@ class ToolArgumentError(ValueError):
     def __init__(self, field: str, message: str) -> None:
         super().__init__(message)
         self.field = field
+
+
+class ServerInterfaceOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    surfaceVersion: Literal[4]
+    toolCount: int = Field(ge=1)
+    toolNames: list[str]
+    schemaDigest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    schemaRevision: str = Field(pattern=r"^mcp-schema:[0-9a-f]{64}$")
+
+
+class ToolErrorDetailOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    message: str
+    field: str | None
+    retryable: bool
+    retryClass: str
+    commitState: str
+    origin: Literal["host-mcp"]
+
+
+class ToolErrorOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    error: ToolErrorDetailOutput
+    serverInterface: ServerInterfaceOutput
+
+
+class BoardMessageOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sequence: int = Field(ge=1)
+    clientMessageId: str
+    authorLabel: str
+    authorIdentityRole: Literal["self-asserted-label"]
+    messageKind: Literal["note", "question", "proposal", "warning", "reply"]
+    topic: str | None
+    message: str
+    replyToClientMessageId: str | None
+    recordedAtMs: int = Field(ge=0)
+    messageDigest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    truthRole: Literal["coordination-message-not-domain-truth"]
+
+
+class BoardListSuccessOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schemaVersion: Literal[1]
+    kind: Literal["ordivon.host-board-list"]
+    scope: Literal["host-global-coordination-messages"]
+    messages: list[BoardMessageOutput]
+    messageCount: int = Field(ge=0)
+    lastSequence: int = Field(ge=0)
+    nextAfterSequence: int = Field(ge=0)
+    hasMore: bool
+    truthBoundary: str
+    topic: str | None = None
+    serverInterface: ServerInterfaceOutput
+
+
+class BoardListToolOutput(RootModel[BoardListSuccessOutput | ToolErrorOutput]):
+    model_config = ConfigDict(json_schema_extra={"type": "object"})
 
 
 NewsSection = Literal[
@@ -538,6 +603,7 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
     @server.tool(
         name="board.list",
         title="Read Host message board",
+        structured_output=True,
         description=(
             "Read durable Host-global collaboration messages. Omit afterSequence to receive the "
             "newest bounded window in chronological order, or pass the last observed sequence for "
@@ -558,7 +624,7 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
         afterSequence: int | None = None,
         limit: int = 50,
         topic: str | None = None,
-    ) -> CallToolResult:
+    ) -> Annotated[CallToolResult, BoardListToolOutput]:
         return await _run_tool(
             lambda: _list_board_messages(
                 settings.state_root, after_sequence=afterSequence, limit=limit, topic=topic
