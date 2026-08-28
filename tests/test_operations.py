@@ -9,6 +9,8 @@ import unittest
 from unittest.mock import patch
 
 from ordivon_host import EventKind, HostKernel, HostStorage, TaskProjection, TaskState
+import ordivon_host.ops.backup as backup_mod
+from ordivon_host.objects import ObjectCorrupt
 from ordivon_host.ops import (
     create_backup,
     doctor_state,
@@ -167,6 +169,107 @@ class HostOperationsTests(unittest.TestCase):
             self.assertTrue(result["restored"])
             self.assertEqual(inspect_state(restored)["tasks"], 1)
 
+    def test_backup_rejects_corrupt_ref_committed_before_sqlite_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = base / "source"
+            backup = base / "backup"
+            populate(source)
+            original_backup_database = backup_mod._backup_database
+
+            def inject_before_snapshot(storage: HostStorage, destination: Path) -> None:
+                with HostStorage(source) as writer:
+                    writer.record_task_event(
+                        event_id="event:backup-late-corrupt",
+                        kind=EventKind.TASK_CREATED,
+                        payload={"stage": "late-corrupt"},
+                        projection=TaskProjection(
+                            task_id="task:backup-late-corrupt",
+                            goal_id="goal:ops",
+                            state=TaskState.READY,
+                            active_node_id=None,
+                            ready_frontier=("node:backup-late-corrupt",),
+                            revision=1,
+                            updated_at_ms=2,
+                        ),
+                        expected_revision=0,
+                    )
+                    digest = writer.journal.get_task_head(
+                        "task:backup-late-corrupt"
+                    ).payload_digest
+                (source / "objects" / f"{digest[7:]}.json").write_text(
+                    '{"forged":true}'
+                )
+                original_backup_database(storage, destination)
+
+            with (
+                patch.object(
+                    backup_mod,
+                    "_backup_database",
+                    side_effect=inject_before_snapshot,
+                ),
+                self.assertRaises(ObjectCorrupt),
+            ):
+                create_backup(source, backup)
+            self.assertFalse(backup.exists())
+
+    def test_backup_snapshot_excludes_facts_committed_after_sqlite_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = base / "source"
+            backup = base / "backup"
+            populate(source)
+            original_backup_database = backup_mod._backup_database
+            late_digest: list[str] = []
+
+            def inject_after_snapshot(storage: HostStorage, destination: Path) -> None:
+                original_backup_database(storage, destination)
+                with HostStorage(source) as writer:
+                    writer.record_task_event(
+                        event_id="event:backup-after-snapshot",
+                        kind=EventKind.TASK_CREATED,
+                        payload={"stage": "after-snapshot"},
+                        projection=TaskProjection(
+                            task_id="task:backup-after-snapshot",
+                            goal_id="goal:ops",
+                            state=TaskState.READY,
+                            active_node_id=None,
+                            ready_frontier=("node:backup-after-snapshot",),
+                            revision=1,
+                            updated_at_ms=3,
+                        ),
+                        expected_revision=0,
+                    )
+                    late_digest.append(
+                        writer.journal.get_task_head(
+                            "task:backup-after-snapshot"
+                        ).payload_digest
+                    )
+
+            with patch.object(
+                backup_mod,
+                "_backup_database",
+                side_effect=inject_after_snapshot,
+            ):
+                manifest = create_backup(source, backup, created_at_ms=2_000)
+
+            verify_backup(backup)
+            connection = sqlite3.connect(backup / "host.sqlite3")
+            try:
+                self.assertIsNone(
+                    connection.execute(
+                        "SELECT 1 FROM events WHERE event_id = ?",
+                        ("event:backup-after-snapshot",),
+                    ).fetchone()
+                )
+            finally:
+                connection.close()
+            self.assertEqual(len(late_digest), 1)
+            self.assertNotIn(
+                late_digest[0],
+                {str(item["digest"]) for item in manifest["objectRefs"]},
+            )
+
     def test_verify_older_backup_is_repeatable_and_does_not_migrate_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
@@ -236,6 +339,50 @@ class HostOperationsTests(unittest.TestCase):
             self.assertIsInstance(previous, str)
             self.assertTrue(Path(previous).is_dir())
             self.assertEqual(inspect_state(target)["tasks"], 1)
+
+    def test_verify_rejects_manifest_projection_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = base / "source"
+            backup = base / "backup"
+            populate(source)
+            create_backup(source, backup, created_at_ms=1_000)
+            manifest_path = backup / "manifest.json"
+            original = json.loads(manifest_path.read_text())
+
+            cases = (
+                (
+                    "schema",
+                    lambda value: value.__setitem__("hostJournalSchemaVersion", 999),
+                    "Journal schema differs",
+                ),
+                (
+                    "refs",
+                    lambda value: value.__setitem__("objectRefs", []),
+                    "object references differ",
+                ),
+                (
+                    "migrations",
+                    lambda value: value.__setitem__(
+                        "migrations", [{"sequence": 999}]
+                    ),
+                    "migration history differs",
+                ),
+                (
+                    "files",
+                    lambda value: value.__setitem__("files", []),
+                    "file manifest differs",
+                ),
+            )
+            for name, mutate, message in cases:
+                with self.subTest(name=name):
+                    changed = json.loads(json.dumps(original))
+                    mutate(changed)
+                    manifest_path.write_text(
+                        json.dumps(changed, sort_keys=True, indent=2) + "\n"
+                    )
+                    with self.assertRaisesRegex(ValueError, message):
+                        verify_backup(backup)
 
     def test_backup_tampering_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
