@@ -252,6 +252,76 @@ class HostSchemaMigrationTests(unittest.TestCase):
             ):
                 HostStorage(root)
 
+    def test_canonical_current_shape_is_allowed_with_start_one_lineage(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "host.sqlite3"
+            with HostStorage(directory):
+                pass
+            connection = sqlite3.connect(database)
+            for from_version, to_version, name in (
+                (1, 2, "remove-unowned-pre-h7-tables"),
+                (2, 3, "cache-verified-object-file-identity"),
+                (3, 4, "bind-event-object-admission"),
+                (4, 5, "preserve-namespaced-extension-state"),
+                (5, 6, "add-host-message-board"),
+                (6, 7, "scope-object-reference-validation"),
+                (7, 8, "add-daily-news-projection"),
+            ):
+                connection.execute(
+                    "INSERT INTO schema_migrations("
+                    "from_version, to_version, name, backup_path"
+                    ") VALUES (?, ?, ?, ?)",
+                    (
+                        from_version,
+                        to_version,
+                        name,
+                        str(database.with_name(f"host.sqlite3.pre-schema-v{to_version}.sqlite3")),
+                    ),
+                )
+            connection.commit()
+            connection.close()
+            with HostStorage(directory) as storage:
+                self.assertEqual(storage.journal.task_count(), 0)
+
+    def test_legacy_lineage_does_not_grant_partial_table_downgrade(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "host.sqlite3"
+            with HostStorage(directory):
+                pass
+            connection = sqlite3.connect(database)
+            for from_version, to_version, name in (
+                (2, 3, "cache-verified-object-file-identity"),
+                (3, 4, "bind-event-object-admission"),
+                (4, 5, "preserve-namespaced-extension-state"),
+                (5, 6, "add-host-message-board"),
+                (6, 7, "scope-object-reference-validation"),
+                (7, 8, "add-daily-news-projection"),
+            ):
+                connection.execute(
+                    "INSERT INTO schema_migrations("
+                    "from_version, to_version, name, backup_path"
+                    ") VALUES (?, ?, ?, ?)",
+                    (
+                        from_version,
+                        to_version,
+                        name,
+                        str(database.with_name(f"host.sqlite3.pre-schema-v{to_version}.sqlite3")),
+                    ),
+                )
+            connection.execute("PRAGMA foreign_keys = OFF")
+            connection.execute("DROP TABLE leases")
+            connection.execute(
+                "CREATE TABLE leases("
+                "task_id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, "
+                "revision INTEGER NOT NULL, expires_at_ms INTEGER NOT NULL)"
+            )
+            connection.commit()
+            connection.close()
+            with self.assertRaisesRegex(
+                JournalCorruption, r"schema shape differs: changed=.*table:leases"
+            ):
+                HostStorage(directory)
+
     def test_current_schema_validates_migration_history_before_legacy_shape(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "host.sqlite3"

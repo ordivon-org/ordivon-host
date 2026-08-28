@@ -133,7 +133,10 @@ def _dispatch(config: HostConfig, args: argparse.Namespace) -> dict[str, object]
 
 
 def _task(config: HostConfig, args: argparse.Namespace) -> dict[str, object]:
-    with HostStorage(config.state_root) as storage:
+    observation_only = args.task_command in {"list", "show", "handoff", "resume"}
+    with HostStorage(
+        config.state_root, update_validation_cache=not observation_only
+    ) as storage:
         if args.task_command == "list":
             state = TaskState(args.state) if args.state is not None else None
             tasks = list_tasks(storage, state=state, limit=args.limit)

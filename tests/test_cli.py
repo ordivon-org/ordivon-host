@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from ordivon_host import (
     EventKind,
@@ -144,6 +145,30 @@ class HostCliTests(unittest.TestCase):
                 item for item in result["checks"] if item["name"] == "journal.history"
             )
             self.assertEqual(history["status"], "ok")
+
+    def test_task_read_commands_disable_validation_cache_updates(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "state"
+            self.invoke("--state-root", str(state), "init")
+            real_storage = HostStorage
+            commands = (
+                ("list",),
+                ("show", "task:missing"),
+                ("handoff", "task:missing"),
+                ("resume", "task:missing"),
+            )
+            for command in commands:
+                seen: list[bool] = []
+
+                def open_storage(*args: object, **kwargs: object) -> HostStorage:
+                    seen.append(bool(kwargs.get("update_validation_cache", True)))
+                    return real_storage(*args, **kwargs)
+
+                with self.subTest(command=command), patch(
+                    "ordivon_host.cli.HostStorage", side_effect=open_storage
+                ):
+                    self.invoke("--state-root", str(state), "task", *command)
+                self.assertEqual(seen, [False])
 
     def test_task_list_and_missing_task(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

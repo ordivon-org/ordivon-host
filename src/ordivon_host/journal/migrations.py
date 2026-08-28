@@ -689,18 +689,28 @@ def _validated_migration_start_version(
     return start
 
 
-def _expected_schema_shape(
-    *, migration_start_version: int
-) -> dict[tuple[str, str], tuple[str, ...] | None]:
-    expected = dict(_canonical_schema_shape())
-    if migration_start_version in {1, 2}:
-        for table, sql in _LEGACY_V1_V2_FINAL_TABLE_SQL.items():
-            expected[("table", table)] = _schema_sql_tokens(sql)
-    if migration_start_version == 2:
-        expected[("table", "schema_migrations")] = _schema_sql_tokens(
-            _LEGACY_V2_SCHEMA_MIGRATIONS_SQL
-        )
-    return expected
+@cache
+def _legacy_compat_shape() -> dict[str, tuple[str, ...]]:
+    values = {
+        name: tokens
+        for name, sql in _LEGACY_V1_V2_FINAL_TABLE_SQL.items()
+        if (tokens := _schema_sql_tokens(sql)) is not None
+    }
+    schema_migrations = _schema_sql_tokens(_LEGACY_V2_SCHEMA_MIGRATIONS_SQL)
+    if schema_migrations is None:
+        raise AssertionError("legacy schema_migrations SQL must have tokens")
+    values["schema_migrations"] = schema_migrations
+    return values
+
+
+def _legacy_compat_keys(migration_start_version: int) -> frozenset[tuple[str, str]]:
+    if migration_start_version == 1:
+        names = frozenset(_LEGACY_V1_V2_FINAL_TABLE_SQL)
+    elif migration_start_version == 2:
+        names = frozenset({*_LEGACY_V1_V2_FINAL_TABLE_SQL, "schema_migrations"})
+    else:
+        names = frozenset()
+    return frozenset(("table", name) for name in names)
 
 
 def _validate_current_schema(connection: sqlite3.Connection, path: Path) -> None:
@@ -717,27 +727,39 @@ def _validate_current_schema(connection: sqlite3.Connection, path: Path) -> None
             f"missing={missing}; unexpected={unexpected}"
         )
     migration_start = _validated_migration_start_version(connection, path)
-    expected = _expected_schema_shape(migration_start_version=migration_start)
+    expected = _canonical_schema_shape()
     actual = _schema_shape(connection)
-    if actual == expected:
-        return
     expected_keys = set(expected)
     actual_keys = set(actual)
     missing = sorted(expected_keys - actual_keys)
     unexpected = sorted(actual_keys - expected_keys)
-    changed = sorted(
-        key for key in expected_keys & actual_keys if expected[key] != actual[key]
+    if missing or unexpected:
+        parts: list[str] = []
+        if missing:
+            parts.append("missing=" + ",".join(f"{kind}:{name}" for kind, name in missing))
+        if unexpected:
+            parts.append(
+                "unexpected="
+                + ",".join(f"{kind}:{name}" for kind, name in unexpected)
+            )
+        raise SchemaMigrationError("Host Journal schema shape differs: " + "; ".join(parts))
+
+    changed = {key for key in expected_keys if actual[key] != expected[key]}
+    if not changed:
+        return
+    legacy_keys = _legacy_compat_keys(migration_start)
+    legacy = _legacy_compat_shape()
+    exact_legacy_class = (
+        bool(legacy_keys)
+        and changed == legacy_keys
+        and all(actual[key] == legacy[key[1]] for key in legacy_keys)
     )
-    parts: list[str] = []
-    if missing:
-        parts.append("missing=" + ",".join(f"{kind}:{name}" for kind, name in missing))
-    if unexpected:
-        parts.append(
-            "unexpected=" + ",".join(f"{kind}:{name}" for kind, name in unexpected)
-        )
-    if changed:
-        parts.append("changed=" + ",".join(f"{kind}:{name}" for kind, name in changed))
-    raise SchemaMigrationError("Host Journal schema shape differs: " + "; ".join(parts))
+    if exact_legacy_class:
+        return
+    raise SchemaMigrationError(
+        "Host Journal schema shape differs: changed="
+        + ",".join(f"{kind}:{name}" for kind, name in sorted(changed))
+    )
 
 
 def _table_exists(connection: sqlite3.Connection, name: str) -> bool:
