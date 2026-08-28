@@ -13,6 +13,36 @@ class SchemaMigrationError(RuntimeError):
     pass
 
 
+_CURRENT_SCHEMA_TABLES = frozenset(
+    {
+        "host_metadata",
+        "schema_migrations",
+        "object_refs",
+        "object_validation",
+        "streams",
+        "events",
+        "legacy_object_refs",
+        "event_object_refs",
+        "task_projection",
+        "task_extension_state",
+        "leases",
+        "board_messages",
+        "news_editions",
+        "news_publications",
+    }
+)
+_CURRENT_SCHEMA_INDEXES = frozenset(
+    {
+        "idx_object_refs_validation_timing_digest",
+        "event_object_refs_one_payload",
+        "news_editions_date_id",
+    }
+)
+_CURRENT_SCHEMA_METADATA = frozenset(
+    {"schema_version", "event_object_refs_start_sequence"}
+)
+
+
 def initialize_schema(connection: sqlite3.Connection, path: Path) -> None:
     if not _table_exists(connection, "host_metadata"):
         existing = tuple(
@@ -29,30 +59,40 @@ def initialize_schema(connection: sqlite3.Connection, path: Path) -> None:
             )
         connection.executescript(_schema.SCHEMA)
         return
+    migrated = False
     while True:
         version = schema_version(connection)
         if version == _schema.SCHEMA_VERSION:
+            if not migrated and _current_schema_materialized(connection):
+                return
             break
         if version == 1:
             _migrate_v1_to_v2(connection, path)
+            migrated = True
             continue
         if version == 2:
             _migrate_v2_to_v3(connection, path)
+            migrated = True
             continue
         if version == 3:
             _migrate_v3_to_v4(connection, path)
+            migrated = True
             continue
         if version == 4:
             _migrate_v4_to_v5(connection, path)
+            migrated = True
             continue
         if version == 5:
             _migrate_v5_to_v6(connection, path)
+            migrated = True
             continue
         if version == 6:
             _migrate_v6_to_v7(connection, path)
+            migrated = True
             continue
         if version == 7:
             _migrate_v7_to_v8(connection, path)
+            migrated = True
             continue
         raise SchemaMigrationError(f"unsupported Host Journal schema version: {version}")
     connection.executescript(_schema.SCHEMA)
@@ -479,6 +519,28 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _current_schema_materialized(connection: sqlite3.Connection) -> bool:
+    objects = {
+        (str(row[0]), str(row[1]))
+        for row in connection.execute(
+            "SELECT type, name FROM sqlite_master "
+            "WHERE type IN ('table', 'index') AND name NOT LIKE 'sqlite_%'"
+        )
+    }
+    if not all(("table", name) in objects for name in _CURRENT_SCHEMA_TABLES):
+        return False
+    if not all(("index", name) in objects for name in _CURRENT_SCHEMA_INDEXES):
+        return False
+    metadata = {
+        str(row[0])
+        for row in connection.execute(
+            "SELECT key FROM host_metadata WHERE key IN (?, ?)",
+            tuple(sorted(_CURRENT_SCHEMA_METADATA)),
+        )
+    }
+    return metadata == _CURRENT_SCHEMA_METADATA
 
 
 def _table_exists(connection: sqlite3.Connection, name: str) -> bool:

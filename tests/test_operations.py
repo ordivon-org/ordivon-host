@@ -66,6 +66,45 @@ class HostOperationsTests(unittest.TestCase):
             self.assertEqual((root / "objects").stat().st_mode & 0o777, 0o700)
             self.assertEqual((root / "host.sqlite3").stat().st_mode & 0o777, 0o600)
 
+    def test_history_doctor_does_not_write_validation_cache_under_writer_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "state"
+            populate(root)
+            database = root / "host.sqlite3"
+            connection = sqlite3.connect(database)
+            connection.execute("DELETE FROM object_validation")
+            connection.commit()
+            connection.close()
+
+            blocker = sqlite3.connect(database, isolation_level=None)
+            blocker.execute("BEGIN IMMEDIATE")
+            try:
+                report = doctor_state(root, check_history=True)
+            finally:
+                blocker.execute("ROLLBACK")
+                blocker.close()
+
+            self.assertTrue(report["healthy"], report["checks"])
+            connection = sqlite3.connect(database)
+            try:
+                cached = int(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM object_validation"
+                    ).fetchone()[0]
+                )
+            finally:
+                connection.close()
+            self.assertEqual(cached, 0)
+            cas = next(
+                item for item in report["checks"] if item["name"] == "cas.references"
+            )
+            self.assertIn("full=True", cas["detail"])
+            self.assertRegex(cas["detail"], r"hashed=[1-9][0-9]*")
+            history = next(
+                item for item in report["checks"] if item["name"] == "journal.history"
+            )
+            self.assertEqual(history["status"], "ok")
+
     def test_inspect_doctor_and_gc_plan(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "state"

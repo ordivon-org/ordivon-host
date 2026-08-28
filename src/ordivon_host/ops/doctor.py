@@ -70,7 +70,9 @@ def doctor_state(
         if path.exists() and not path.is_symlink() and stat.S_IMODE(path.stat().st_mode) != expected:
             os.chmod(path, expected)
     try:
-        with HostStorage(state_root, validation_mode="full") as storage:
+        with HostStorage(
+            state_root, validation_mode="full", update_validation_cache=False
+        ) as storage:
             checks.append(
                 DoctorCheck(
                     "state.permissions",

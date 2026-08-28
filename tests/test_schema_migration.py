@@ -7,7 +7,12 @@ import unittest
 
 from ordivon_host import EventKind, HostKernel, HostStorage
 from ordivon_host.board import HostMessageBoard
-from ordivon_host.journal import JournalCorruption
+from ordivon_host.journal import JournalCorruption, _schema
+from ordivon_host.journal.migrations import (
+    _CURRENT_SCHEMA_INDEXES,
+    _CURRENT_SCHEMA_METADATA,
+    _CURRENT_SCHEMA_TABLES,
+)
 
 
 _V1 = """
@@ -105,6 +110,78 @@ class HostSchemaMigrationTests(unittest.TestCase):
             self._assert_backup_version(database, 6, "5")
             self._assert_backup_version(database, 7, "6")
             self._assert_backup_version(database, 8, "7")
+
+    def test_current_schema_fast_path_requirements_match_canonical_schema(self) -> None:
+        connection = sqlite3.connect(":memory:")
+        try:
+            connection.executescript(_schema.SCHEMA)
+            tables = {
+                str(row[0])
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                )
+            }
+            indexes = {
+                str(row[0])
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type='index' AND name NOT LIKE 'sqlite_%'"
+                )
+            }
+            metadata = {
+                str(row[0])
+                for row in connection.execute("SELECT key FROM host_metadata")
+            }
+        finally:
+            connection.close()
+        self.assertEqual(tables, _CURRENT_SCHEMA_TABLES)
+        self.assertEqual(indexes, _CURRENT_SCHEMA_INDEXES)
+        self.assertEqual(metadata, _CURRENT_SCHEMA_METADATA)
+
+    def test_current_schema_open_does_not_replay_ddl_under_writer_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = root / "host.sqlite3"
+            with HostStorage(root):
+                pass
+
+            blocker = sqlite3.connect(database, isolation_level=None)
+            blocker.execute("BEGIN IMMEDIATE")
+            try:
+                with HostStorage(
+                    root,
+                    validation_mode="targeted",
+                    update_validation_cache=False,
+                ) as storage:
+                    self.assertEqual(storage.journal.task_count(), 0)
+            finally:
+                blocker.execute("ROLLBACK")
+                blocker.close()
+
+    def test_current_schema_missing_named_index_still_replays_realization(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = root / "host.sqlite3"
+            with HostStorage(root):
+                pass
+            connection = sqlite3.connect(database)
+            connection.execute("DROP INDEX idx_object_refs_validation_timing_digest")
+            connection.commit()
+            connection.close()
+
+            with HostStorage(
+                root,
+                validation_mode="targeted",
+                update_validation_cache=False,
+            ) as storage:
+                indexes = {
+                    str(row[0])
+                    for row in storage.journal.connection.execute(
+                        "SELECT name FROM sqlite_master WHERE type='index'"
+                    )
+                }
+            self.assertIn("idx_object_refs_validation_timing_digest", indexes)
 
     def test_v2_migrates_through_v8_with_backups(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
