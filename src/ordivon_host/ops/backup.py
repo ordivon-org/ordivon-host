@@ -248,8 +248,6 @@ def _copy_regular_file_no_follow(source: Path, destination: Path, *, label: str)
             "xb"
         ) as target_file:
             shutil.copyfileobj(source_file, target_file)
-            target_file.flush()
-            os.fsync(target_file.fileno())
     finally:
         os.close(descriptor)
 

@@ -413,6 +413,26 @@ class HostOperationsTests(unittest.TestCase):
                 create_backup(source, backup)
             self.assertFalse(backup.exists())
 
+    def test_verify_rejects_expected_object_symlink_even_when_bytes_match(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = base / "source"
+            backup = base / "backup"
+            restored = base / "restored"
+            outside = base / "outside.json"
+            populate(source)
+            create_backup(source, backup, created_at_ms=1_000)
+            payload = next((backup / "objects").glob("*.json"))
+            outside.write_bytes(payload.read_bytes())
+            payload.unlink()
+            payload.symlink_to(outside)
+
+            with self.assertRaisesRegex(ValueError, "not a regular file"):
+                verify_backup(backup)
+            with self.assertRaisesRegex(ValueError, "not a regular file"):
+                restore_backup(backup, restored)
+            self.assertFalse(restored.exists())
+
     def test_verify_and_restore_reject_symlink_object_entries(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
