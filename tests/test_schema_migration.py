@@ -6,6 +6,7 @@ import tempfile
 import unittest
 
 from ordivon_host import EventKind, HostKernel, HostStorage
+from ordivon_host.board import HostMessageBoard
 from ordivon_host.journal import JournalCorruption
 
 
@@ -36,7 +37,7 @@ CREATE TABLE leases(task_id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, revision I
 
 
 class HostSchemaMigrationTests(unittest.TestCase):
-    def test_empty_v1_reserved_tables_migrate_through_v6_with_backups(self) -> None:
+    def test_empty_v1_reserved_tables_migrate_through_v7_with_backups(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "host.sqlite3"
             connection = sqlite3.connect(database)
@@ -46,7 +47,7 @@ class HostSchemaMigrationTests(unittest.TestCase):
                 version = storage.journal.connection.execute(
                     "SELECT value FROM host_metadata WHERE key='schema_version'"
                 ).fetchone()[0]
-                self.assertEqual(version, "6")
+                self.assertEqual(version, "7")
                 history = storage.journal.connection.execute(
                     "SELECT from_version, to_version, name FROM schema_migrations "
                     "ORDER BY sequence"
@@ -59,6 +60,7 @@ class HostSchemaMigrationTests(unittest.TestCase):
                         (3, 4, "bind-event-object-admission"),
                         (4, 5, "preserve-namespaced-extension-state"),
                         (5, 6, "add-host-message-board"),
+                        (6, 7, "scope-object-reference-validation"),
                     ],
                 )
                 names = {
@@ -75,6 +77,13 @@ class HostSchemaMigrationTests(unittest.TestCase):
                 self.assertIn("legacy_object_refs", names)
                 self.assertIn("task_extension_state", names)
                 self.assertIn("board_messages", names)
+                object_ref_columns = {
+                    row[1]
+                    for row in storage.journal.connection.execute(
+                        "PRAGMA table_info(object_refs)"
+                    )
+                }
+                self.assertIn("validation_timing", object_ref_columns)
                 self.assertEqual(storage.journal.legacy_object_refs(), ())
                 self.assertEqual(
                     storage.journal.event_object_refs_start_sequence(), 1
@@ -84,8 +93,9 @@ class HostSchemaMigrationTests(unittest.TestCase):
             self._assert_backup_version(database, 4, "3")
             self._assert_backup_version(database, 5, "4")
             self._assert_backup_version(database, 6, "5")
+            self._assert_backup_version(database, 7, "6")
 
-    def test_v2_migrates_through_v6_with_backups(self) -> None:
+    def test_v2_migrates_through_v7_with_backups(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "host.sqlite3"
             connection = sqlite3.connect(database)
@@ -96,7 +106,7 @@ class HostSchemaMigrationTests(unittest.TestCase):
                     storage.journal.connection.execute(
                         "SELECT value FROM host_metadata WHERE key='schema_version'"
                     ).fetchone()[0],
-                    "6",
+                    "7",
                 )
                 history = storage.journal.connection.execute(
                     "SELECT from_version, to_version, name FROM schema_migrations "
@@ -109,12 +119,56 @@ class HostSchemaMigrationTests(unittest.TestCase):
                         (3, 4, "bind-event-object-admission"),
                         (4, 5, "preserve-namespaced-extension-state"),
                         (5, 6, "add-host-message-board"),
+                        (6, 7, "scope-object-reference-validation"),
                     ],
                 )
             self._assert_backup_version(database, 3, "2")
             self._assert_backup_version(database, 4, "3")
             self._assert_backup_version(database, 5, "4")
             self._assert_backup_version(database, 6, "5")
+            self._assert_backup_version(database, 7, "6")
+
+    def test_v6_board_refs_migrate_to_on_access_without_reinterpreting_v6_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = root / "host.sqlite3"
+            with HostStorage(root) as storage:
+                receipt = HostMessageBoard(storage).post(
+                    client_message_id="msg:test:v6-migration",
+                    author_label="agent:test",
+                    message_kind="note",
+                    message="Preserve an already-materialized schema-v6 Board authority.",
+                    topic="migration",
+                    reply_to_client_message_id=None,
+                    recorded_at_ms=1,
+                )
+
+            connection = sqlite3.connect(database)
+            connection.execute("ALTER TABLE object_refs DROP COLUMN validation_timing")
+            connection.execute(
+                "UPDATE host_metadata SET value = '6' WHERE key = 'schema_version'"
+            )
+            connection.commit()
+            connection.close()
+
+            with HostStorage(root) as storage:
+                self.assertEqual(
+                    storage.journal.connection.execute(
+                        "SELECT value FROM host_metadata WHERE key='schema_version'"
+                    ).fetchone()[0],
+                    "7",
+                )
+                retained = storage.journal.object_ref(receipt.message.message_digest)
+                self.assertIsNotNone(retained)
+                self.assertEqual(retained[1], "on_access")
+                self.assertEqual(storage.validation_summary.object_refs, 0)
+                listing = HostMessageBoard(storage).list(limit=10)
+                self.assertEqual(listing["messageCount"], 1)
+                self.assertEqual(
+                    listing["messages"][0]["clientMessageId"],
+                    "msg:test:v6-migration",
+                )
+            self._assert_backup_version(database, 7, "6")
 
     def test_v3_history_is_legacy_and_new_events_use_exact_edges(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -134,6 +188,7 @@ class HostSchemaMigrationTests(unittest.TestCase):
             connection = sqlite3.connect(database)
             connection.execute("PRAGMA foreign_keys = OFF")
             connection.execute("DROP TABLE board_messages")
+            connection.execute("ALTER TABLE object_refs DROP COLUMN validation_timing")
             connection.execute("DROP TABLE task_extension_state")
             connection.execute("DROP TABLE event_object_refs")
             connection.execute("DROP TABLE legacy_object_refs")

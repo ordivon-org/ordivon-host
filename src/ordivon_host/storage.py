@@ -144,7 +144,9 @@ class HostStorage:
         hashed_objects = 0
         total_objects = 0
         pending: list[tuple[str, ObjectFileIdentity]] = []
-        for row in self.journal.object_reference_validation_rows():
+        for row in self.journal.object_reference_validation_rows(
+            include_on_access=full
+        ):
             total_objects += 1
             expected = StoredObject(
                 row["digest"], int(row["byte_length"]), row["kind"]

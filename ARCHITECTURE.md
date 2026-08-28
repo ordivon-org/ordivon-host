@@ -84,7 +84,7 @@ A stable package or service name may survive an ontology contraction. Compatibil
 
 The production implementation consists of:
 
-- one schema-v6 SQLite Host Journal, including durable collaboration-message pointers;
+- one schema-v7 SQLite Host Journal, including durable collaboration-message pointers;
 - one materialized `TaskProjection` checked against Event history;
 - immutable typed CAS objects;
 - a minimal `HostKernel` for lease/revision-fenced local admission;
@@ -191,7 +191,7 @@ A Host Task transition follows:
 7. consume the exact lease generation and commit.
 ```
 
-The materialized Task projection is a checked cache, not a second truth store. Full-history Doctor revalidates retained object bytes and semantic history.
+The materialized Task projection is a checked cache, not a second truth store. `object_refs` is the complete CAS **retention inventory**, not a declaration that every retained object belongs on every startup validation path. Schema v7 records `validation_timing = startup|on_access`: Task/Event/extension objects remain startup-critical, while collaboration-message CAS is retained as on-access history. Ordinary Host open therefore validates the Task-critical subset and current Task heads without scanning Board history; `board.list` validates each accessed Board reference/object, and explicit Doctor/backup performs whole-authority validation including on-access objects.
 
 Expected invariants include:
 
@@ -202,7 +202,9 @@ Expected invariants include:
 - history gaps, projection drift, missing objects, and object corruption fail closed;
 - successful non-creation transition consumes the exact lease generation;
 - terminal Task identity cannot be reopened;
-- board pointers must resolve to `host-board-message` CAS objects, and explicit Doctor integrity validates each stable-prefix row against immutable message identity/content metadata without imposing O(board-size) semantic decoding on every ordinary Host open.
+- Board admission is append-only; its high-water sequence is the cheap current count, while explicit Board Doctor proves sequence continuity, reply integrity, reference classification, and row ↔ immutable-message semantics;
+- Board pointers resolve to retained `host-board-message` CAS objects classified `on_access`; an accessed Board page fails closed on missing/corrupt/misclassified message state, while unrelated ordinary Host open remains independent from old collaboration payload bytes;
+- full Doctor and backup validate every retained CAS object regardless of validation timing, so deferred startup validation never becomes deferred integrity or retention.
 
 ## Minimal HostKernel
 

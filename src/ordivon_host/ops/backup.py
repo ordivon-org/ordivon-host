@@ -35,7 +35,9 @@ def create_backup(
         objects_root = temporary / "objects"
         objects_root.mkdir(mode=0o700)
         os.chmod(temporary, 0o700)
-        with HostStorage(source) as storage:
+        # Backup is an explicit whole-authority operation: unlike ordinary Host
+        # startup it must validate deferred/on-access CAS before copying it.
+        with HostStorage(source, validation_mode="full") as storage:
             _backup_database(storage, database)
             refs = storage.journal.object_refs()
             for ref in refs:

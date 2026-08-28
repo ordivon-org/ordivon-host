@@ -68,7 +68,7 @@ class HostOperationsTests(unittest.TestCase):
             root = Path(directory) / "state"
             populate(root)
             inspection = inspect_state(root)
-            self.assertEqual(inspection["schemaVersion"], 6)
+            self.assertEqual(inspection["schemaVersion"], 7)
             self.assertEqual(inspection["tasks"], 1)
             self.assertEqual(inspection["terminalTasks"], 0)
             report = doctor_state(root, now_ms=10)
@@ -87,7 +87,7 @@ class HostOperationsTests(unittest.TestCase):
             restored = base / "restored"
             populate(source)
             manifest = create_backup(source, backup, created_at_ms=1_000)
-            self.assertEqual(manifest["hostJournalSchemaVersion"], 6)
+            self.assertEqual(manifest["hostJournalSchemaVersion"], 7)
             verified = verify_backup(backup)
             self.assertEqual(verified["kind"], "ordivon.host-backup-manifest")
             result = restore_backup(backup, restored)

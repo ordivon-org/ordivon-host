@@ -453,7 +453,11 @@ class HostJournal:
                 ).fetchone()
                 if parent is None:
                     raise EventConflict("board reply target does not exist")
-            self._admit_object(message_object, recorded_at_ms)
+            self._admit_object(
+                message_object,
+                recorded_at_ms,
+                validation_timing="on_access",
+            )
             self.connection.execute(
                 "INSERT INTO board_messages("
                 "client_message_id, author_label, message_kind, topic, message_digest, "
@@ -472,10 +476,9 @@ class HostJournal:
         return EventAdmission.CREATED
 
     def board_message_count(self) -> int:
-        row = self.connection.execute(
-            "SELECT COUNT(*) AS count FROM board_messages"
-        ).fetchone()
-        return int(row["count"])
+        # Board is append-only and Doctor proves sequence continuity. The current
+        # high-water mark is therefore the count without scanning message history.
+        return self.board_last_sequence()
 
     def board_last_sequence(self) -> int:
         row = self.connection.execute(
@@ -524,6 +527,41 @@ class HostJournal:
             )
             for row in rows
         )
+
+    def validate_board_invariants(self) -> None:
+        sequence = self.connection.execute(
+            "SELECT COUNT(*) AS count, COALESCE(MIN(sequence), 0) AS first_sequence, "
+            "COALESCE(MAX(sequence), 0) AS last_sequence FROM board_messages"
+        ).fetchone()
+        count = int(sequence["count"])
+        first_sequence = int(sequence["first_sequence"])
+        last_sequence = int(sequence["last_sequence"])
+        if (
+            (count == 0 and (first_sequence != 0 or last_sequence != 0))
+            or (count > 0 and (first_sequence != 1 or last_sequence != count))
+        ):
+            raise JournalCorruption("Host board sequence history is not contiguous")
+        dangling_reply = self.connection.execute(
+            "SELECT child.client_message_id FROM board_messages child "
+            "LEFT JOIN board_messages parent "
+            "ON parent.client_message_id = child.reply_to_client_message_id "
+            "WHERE child.reply_to_client_message_id IS NOT NULL "
+            "AND parent.client_message_id IS NULL LIMIT 1"
+        ).fetchone()
+        if dangling_reply is not None:
+            raise JournalCorruption(
+                "Host board reply target is missing: "
+                f"{dangling_reply['client_message_id']}"
+            )
+        self_reply = self.connection.execute(
+            "SELECT client_message_id FROM board_messages "
+            "WHERE reply_to_client_message_id = client_message_id LIMIT 1"
+        ).fetchone()
+        if self_reply is not None:
+            raise JournalCorruption(
+                "Host board message replies to itself: "
+                f"{self_reply['client_message_id']}"
+            )
 
     def _validate_exact_lease(
         self,
@@ -589,8 +627,18 @@ class HostJournal:
             ).fetchone()
         return int(row["count"])
 
-    def object_ref_count(self) -> int:
-        row = self.connection.execute("SELECT COUNT(*) AS count FROM object_refs").fetchone()
+    def object_ref_count(self, *, validation_timing: str | None = None) -> int:
+        if validation_timing is None:
+            row = self.connection.execute(
+                "SELECT COUNT(*) AS count FROM object_refs"
+            ).fetchone()
+        else:
+            if validation_timing not in {"startup", "on_access"}:
+                raise ValueError("object reference validation timing is invalid")
+            row = self.connection.execute(
+                "SELECT COUNT(*) AS count FROM object_refs WHERE validation_timing = ?",
+                (validation_timing,),
+            ).fetchone()
         return int(row["count"])
 
     def object_refs(self) -> tuple[StoredObject, ...]:
@@ -600,6 +648,24 @@ class HostJournal:
         return tuple(
             StoredObject(row["digest"], int(row["byte_length"]), row["kind"])
             for row in rows
+        )
+
+    def object_ref(
+        self, digest: str
+    ) -> tuple[StoredObject, str] | None:
+        row = self.connection.execute(
+            "SELECT digest, byte_length, kind, validation_timing "
+            "FROM object_refs WHERE digest = ?",
+            (digest,),
+        ).fetchone()
+        if row is None:
+            return None
+        timing = str(row["validation_timing"])
+        if timing not in {"startup", "on_access"}:
+            raise JournalCorruption("object reference validation timing is invalid")
+        return (
+            StoredObject(row["digest"], int(row["byte_length"]), row["kind"]),
+            timing,
         )
 
     def legacy_object_refs(self) -> tuple[StoredObject, ...]:
@@ -643,13 +709,23 @@ class HostJournal:
             for row in rows
         )
 
-    def object_reference_validation_rows(self) -> sqlite3.Cursor:
+    def object_reference_validation_rows(
+        self, *, include_on_access: bool
+    ) -> sqlite3.Cursor:
+        if include_on_access:
+            return self.connection.execute(
+                "SELECT r.digest, r.byte_length, r.kind, r.validation_timing, "
+                "v.device, v.inode, v.byte_length AS validated_byte_length, "
+                "v.modified_at_ns, v.changed_at_ns, v.mode "
+                "FROM object_refs r LEFT JOIN object_validation v ON v.digest = r.digest "
+                "ORDER BY r.digest"
+            )
         return self.connection.execute(
-            "SELECT r.digest, r.byte_length, r.kind, "
+            "SELECT r.digest, r.byte_length, r.kind, r.validation_timing, "
             "v.device, v.inode, v.byte_length AS validated_byte_length, "
             "v.modified_at_ns, v.changed_at_ns, v.mode "
             "FROM object_refs r LEFT JOIN object_validation v ON v.digest = r.digest "
-            "ORDER BY r.digest"
+            "WHERE r.validation_timing = 'startup' ORDER BY r.digest"
         )
 
     def record_object_validations(
@@ -1085,17 +1161,6 @@ class HostJournal:
                     "legacy extension state requires a pre-0.5 Host client for owner recovery/export"
                 )
 
-        board_mismatch = self.connection.execute(
-            "SELECT b.client_message_id FROM board_messages b "
-            "LEFT JOIN object_refs o ON o.digest = b.message_digest "
-            "WHERE o.digest IS NULL OR o.kind != 'host-board-message' LIMIT 1"
-        ).fetchone()
-        if board_mismatch is not None:
-            raise JournalCorruption(
-                "Host board message object differs: "
-                f"{board_mismatch['client_message_id']}"
-            )
-
         for row in self.connection.execute(
             "SELECT task_id FROM task_projection ORDER BY task_id"
         ):
@@ -1116,9 +1181,18 @@ class HostJournal:
             edges.add(edge)
         return edges
 
-    def _admit_object(self, value: StoredObject, first_seen_at_ms: int) -> None:
+    def _admit_object(
+        self,
+        value: StoredObject,
+        first_seen_at_ms: int,
+        *,
+        validation_timing: str = "startup",
+    ) -> None:
+        if validation_timing not in {"startup", "on_access"}:
+            raise ValueError("object reference validation timing is invalid")
         existing = self.connection.execute(
-            "SELECT kind, byte_length FROM object_refs WHERE digest = ?", (value.digest,)
+            "SELECT kind, byte_length, validation_timing FROM object_refs WHERE digest = ?",
+            (value.digest,),
         ).fetchone()
         if existing is not None:
             if (existing["kind"], int(existing["byte_length"])) != (
@@ -1126,10 +1200,23 @@ class HostJournal:
                 value.byte_length,
             ):
                 raise JournalCorruption("object digest metadata differs")
+            if existing["validation_timing"] == "on_access" and validation_timing == "startup":
+                self.connection.execute(
+                    "UPDATE object_refs SET validation_timing = 'startup' WHERE digest = ?",
+                    (value.digest,),
+                )
             return
         self.connection.execute(
-            "INSERT INTO object_refs(digest, kind, byte_length, first_seen_at_ms) VALUES (?, ?, ?, ?)",
-            (value.digest, value.kind, value.byte_length, first_seen_at_ms),
+            "INSERT INTO object_refs("
+            "digest, kind, byte_length, first_seen_at_ms, validation_timing"
+            ") VALUES (?, ?, ?, ?, ?)",
+            (
+                value.digest,
+                value.kind,
+                value.byte_length,
+                first_seen_at_ms,
+                validation_timing,
+            ),
         )
 
     @contextmanager

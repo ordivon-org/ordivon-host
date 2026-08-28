@@ -7,6 +7,7 @@ import unittest
 
 from ordivon_host.board import HostMessageBoard
 from ordivon_host.ops import doctor_state
+from ordivon_host.ops.backup import create_backup
 from ordivon_host.storage import HostStorage
 
 
@@ -26,6 +27,11 @@ class HostMessageBoardTests(unittest.TestCase):
                 )
                 self.assertEqual(first.admission.value, "created")
                 self.assertEqual(first.message.sequence, 1)
+                validation_timing = storage.journal.connection.execute(
+                    "SELECT validation_timing FROM object_refs WHERE digest = ?",
+                    (first.message.message_digest,),
+                ).fetchone()[0]
+                self.assertEqual(validation_timing, "on_access")
 
                 replay = board.post(
                     client_message_id="msg:test:first",
@@ -98,6 +104,86 @@ class HostMessageBoardTests(unittest.TestCase):
                         reply_to_client_message_id="msg:does-not-exist",
                         recorded_at_ms=3,
                     )
+
+    def test_board_cas_is_deferred_from_startup_but_not_from_access_doctor_or_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "state"
+            backup = Path(directory) / "backup"
+            with HostStorage(root) as storage:
+                receipt = HostMessageBoard(storage).post(
+                    client_message_id="msg:test:deferred-cas",
+                    author_label="agent:test-a",
+                    message_kind="note",
+                    message="Board CAS should not tax unrelated Host startup.",
+                    topic="scaling",
+                    reply_to_client_message_id=None,
+                    recorded_at_ms=10,
+                )
+
+            with HostStorage(root) as storage:
+                self.assertEqual(storage.validation_summary.object_refs, 0)
+                retained = storage.journal.object_ref(receipt.message.message_digest)
+                self.assertIsNotNone(retained)
+                self.assertEqual(retained[1], "on_access")
+                self.assertEqual(storage.validation_summary.hashed_objects, 0)
+                self.assertEqual(storage.validation_summary.cached_objects, 0)
+
+            object_path = (
+                root
+                / "objects"
+                / f"{receipt.message.message_digest[7:]}.json"
+            )
+            object_path.write_bytes(b"corrupted-board-cas")
+
+            # Ordinary Host open is intentionally independent from old board payload bytes.
+            with HostStorage(root) as storage:
+                self.assertEqual(storage.validation_summary.object_refs, 0)
+                with self.assertRaises(Exception):
+                    HostMessageBoard(storage).list(limit=10)
+
+            report = doctor_state(root)
+            self.assertFalse(report["healthy"])
+            with self.assertRaises(Exception):
+                create_backup(root, backup)
+
+    def test_doctor_detects_board_sequence_gap_before_high_water_count_is_trusted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with HostStorage(root) as storage:
+                board = HostMessageBoard(storage)
+                for index in range(3):
+                    board.post(
+                        client_message_id=f"msg:test:gap:{index}",
+                        author_label="agent:test-a",
+                        message_kind="note",
+                        message=f"message-{index}",
+                        topic="integrity",
+                        reply_to_client_message_id=None,
+                        recorded_at_ms=index + 1,
+                    )
+                self.assertEqual(storage.journal.board_message_count(), 3)
+
+            connection = sqlite3.connect(root / "host.sqlite3")
+            try:
+                connection.execute("PRAGMA foreign_keys = OFF")
+                connection.execute(
+                    "DELETE FROM board_messages WHERE client_message_id = ?",
+                    ("msg:test:gap:1",),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            # High-water projection stays cheap; explicit Doctor owns historical gap proof.
+            with HostStorage(root) as storage:
+                self.assertEqual(storage.journal.board_message_count(), 3)
+            report = doctor_state(root)
+            self.assertFalse(report["healthy"])
+            check = next(
+                item for item in report["checks"] if item["name"] == "board.integrity"
+            )
+            self.assertEqual(check["status"], "error")
+            self.assertIn("sequence history is not contiguous", check["detail"])
 
     def test_doctor_detects_board_row_object_semantic_divergence(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

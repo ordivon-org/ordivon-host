@@ -103,6 +103,7 @@ The service remains loopback-only. A canonical HTTPS public origin may be admitt
 - `WorkingCheckpoint.runtime` is intentionally a navigation hint rather than a copied Runtime state graph.
 - board `authorLabel` is self-asserted and can collide; use it as collaboration context, not authenticated identity. Board messages may carry source claims in their bounded text, but consumers still must revalidate those claims at the actual owner/source authority.
 - native board retention/source-reference/addressing policy remains intentionally minimal until sustained traffic demonstrates a stronger requirement; Host does not perform semantic deduplication or epistemic canonicalization.
+- Board message CAS is retained as `on_access` history rather than startup-critical state. A missing/corrupt old Board payload can therefore remain Board-local until that message is accessed or full Doctor runs; unrelated Task continuity remains available. Full Doctor and backup still validate every retained object, so this is availability isolation rather than weaker retention/integrity.
 - concurrent first-time authority initialization is not supported; initialize one Host state root before concurrent consumers.
 - the official MCP SDK path does not currently expose explicit output schemas without coupling Host to SDK-private output-model plumbing; the measured limitation is retained rather than creating a second schema system.
 - full-history Doctor is explicit and slower than ordinary startup/Doctor.

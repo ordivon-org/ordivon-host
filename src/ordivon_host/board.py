@@ -142,11 +142,13 @@ class HostMessageBoard:
     def validate_integrity(self) -> int:
         """Decode and cross-check one stable prefix of current board state.
 
-        Normal Host startup validates board pointers and CAS references without paying
-        O(board-size) semantic decode cost. Doctor calls this explicit full semantic
-        pass; messages appended concurrently after the captured boundary belong to a
-        later validation round.
+        Normal Host startup does not scan board history. Message CAS is retained as
+        on-access data, so unrelated Host operations do not pay O(board-size) history
+        validation cost. Board reads validate accessed row/reference/CAS state; Doctor
+        calls this explicit full structural + semantic pass. Messages appended after the
+        captured boundary belong to a later validation round.
         """
+        self.storage.journal.validate_board_invariants()
         boundary = self.storage.journal.board_last_sequence()
         after = 0
         validated = 0
@@ -187,6 +189,15 @@ class HostMessageBoard:
         return self._read(pointers[0])
 
     def _read(self, pointer: object) -> BoardMessage:
+        retained = self.storage.journal.object_ref(pointer.message_digest)
+        if retained is None:
+            raise ValueError("Host board message object reference is missing")
+        stored, validation_timing = retained
+        if stored.kind != _BOARD_OBJECT_KIND or validation_timing not in {
+            "on_access",
+            "startup",
+        }:
+            raise ValueError("Host board message object reference metadata differs")
         value = self.storage.objects.get(
             pointer.message_digest, expected_kind=_BOARD_OBJECT_KIND
         )

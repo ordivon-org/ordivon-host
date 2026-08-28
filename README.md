@@ -132,7 +132,7 @@ Host 0.5.x is operational for owner-trusted local engineering work and remains p
 
 The current product includes:
 
-- schema-v6 SQLite Journal/CAS with migration, backup/restore, Doctor, full-history validation, and the durable Host-global coordination board;
+- schema-v7 SQLite Journal/CAS with migration, backup/restore, Doctor, full-history validation, and the durable Host-global coordination board;
 - semantic external continuity through `WorkingCheckpoint`, exact revision patching, deterministic handoff, and exact response-loss replay;
 - opaque extension-state durability with revision-fenced owner metadata;
 - the bounded context-selection surface consumed by Security;

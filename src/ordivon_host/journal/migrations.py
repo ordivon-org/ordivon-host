@@ -48,6 +48,9 @@ def initialize_schema(connection: sqlite3.Connection, path: Path) -> None:
         if version == 5:
             _migrate_v5_to_v6(connection, path)
             continue
+        if version == 6:
+            _migrate_v6_to_v7(connection, path)
+            continue
         raise SchemaMigrationError(f"unsupported Host Journal schema version: {version}")
     connection.executescript(_schema.SCHEMA)
     if schema_version(connection) != _schema.SCHEMA_VERSION:
@@ -262,6 +265,40 @@ def _migrate_v5_to_v6(connection: sqlite3.Connection, path: Path) -> None:
         connection.execute(
             "INSERT INTO schema_migrations(from_version, to_version, name, backup_path) "
             "VALUES (5, 6, 'add-host-message-board', ?)",
+            (str(backup_path),),
+        )
+    except BaseException:
+        connection.execute("ROLLBACK")
+        raise
+    else:
+        connection.execute("COMMIT")
+
+
+def _migrate_v6_to_v7(connection: sqlite3.Connection, path: Path) -> None:
+    backup_path = path.with_name(f"{path.name}.pre-schema-v7.sqlite3")
+    _ensure_backup(connection, backup_path, expected_version=6)
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        connection.execute(
+            "ALTER TABLE object_refs ADD COLUMN validation_timing TEXT NOT NULL "
+            "DEFAULT 'startup' CHECK(validation_timing IN ('startup', 'on_access'))"
+        )
+        # Existing v6 Board CAS can move off the startup-critical validation path only
+        # when Board is its sole durable use. Any Task/Event/extension reference keeps
+        # the stronger startup classification.
+        connection.execute(
+            "UPDATE object_refs SET validation_timing = 'on_access' "
+            "WHERE kind = 'host-board-message' "
+            "AND EXISTS (SELECT 1 FROM board_messages b WHERE b.message_digest = object_refs.digest) "
+            "AND NOT EXISTS (SELECT 1 FROM events e WHERE e.payload_digest = object_refs.digest) "
+            "AND NOT EXISTS (SELECT 1 FROM event_object_refs r WHERE r.digest = object_refs.digest) "
+            "AND NOT EXISTS (SELECT 1 FROM legacy_object_refs l WHERE l.digest = object_refs.digest) "
+            "AND NOT EXISTS (SELECT 1 FROM task_extension_state s WHERE s.state_digest = object_refs.digest)"
+        )
+        _advance_version(connection, 6, 7)
+        connection.execute(
+            "INSERT INTO schema_migrations(from_version, to_version, name, backup_path) "
+            "VALUES (6, 7, 'scope-object-reference-validation', ?)",
             (str(backup_path),),
         )
     except BaseException:

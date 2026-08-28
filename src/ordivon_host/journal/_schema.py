@@ -1,4 +1,4 @@
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 LEGACY_UNUSED_TABLES = ("wakeups", "runtime_links", "task_edges", "task_nodes")
 
 SCHEMA = """
@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS host_metadata(
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-INSERT OR IGNORE INTO host_metadata(key, value) VALUES ('schema_version', '6');
+INSERT OR IGNORE INTO host_metadata(key, value) VALUES ('schema_version', '7');
 INSERT OR IGNORE INTO host_metadata(key, value) VALUES ('event_object_refs_start_sequence', '1');
 
 CREATE TABLE IF NOT EXISTS schema_migrations(
@@ -21,7 +21,9 @@ CREATE TABLE IF NOT EXISTS object_refs(
     digest TEXT PRIMARY KEY,
     kind TEXT NOT NULL,
     byte_length INTEGER NOT NULL CHECK(byte_length >= 0),
-    first_seen_at_ms INTEGER NOT NULL CHECK(first_seen_at_ms >= 0)
+    first_seen_at_ms INTEGER NOT NULL CHECK(first_seen_at_ms >= 0),
+    validation_timing TEXT NOT NULL DEFAULT 'startup'
+        CHECK(validation_timing IN ('startup', 'on_access'))
 );
 
 CREATE TABLE IF NOT EXISTS object_validation(
