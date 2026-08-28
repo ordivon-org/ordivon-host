@@ -73,6 +73,116 @@ class HostMessageBoardTests(unittest.TestCase):
                     "msg:test:first",
                 )
 
+    def test_exact_topic_filter_uses_global_high_water_without_rescanning_other_topics(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with HostStorage(directory) as storage:
+                board = HostMessageBoard(storage)
+                for index, topic in enumerate(("a", "b", "a", "a", "b"), start=1):
+                    board.post(
+                        client_message_id=f"msg:topic:{index}",
+                        author_label="agent:test",
+                        message_kind="note",
+                        message=f"message {index}",
+                        topic=topic,
+                        reply_to_client_message_id=None,
+                        recorded_at_ms=index,
+                    )
+
+                latest = board.list(limit=2, topic="a")
+                self.assertEqual(
+                    [item["sequence"] for item in latest["messages"]], [3, 4]
+                )
+                self.assertEqual(latest["topic"], "a")
+                self.assertFalse(latest["hasMore"])
+                self.assertEqual(latest["nextAfterSequence"], 5)
+
+                first = board.list(after_sequence=0, limit=1, topic="a")
+                self.assertEqual([item["sequence"] for item in first["messages"]], [1])
+                self.assertTrue(first["hasMore"])
+                self.assertEqual(first["nextAfterSequence"], 1)
+
+                second = board.list(after_sequence=1, limit=1, topic="a")
+                self.assertEqual([item["sequence"] for item in second["messages"]], [3])
+                self.assertTrue(second["hasMore"])
+                self.assertEqual(second["nextAfterSequence"], 3)
+
+                exhausted = board.list(after_sequence=3, limit=2, topic="a")
+                self.assertEqual([item["sequence"] for item in exhausted["messages"]], [4])
+                self.assertFalse(exhausted["hasMore"])
+                self.assertEqual(exhausted["nextAfterSequence"], 5)
+
+                board.post(
+                    client_message_id="msg:topic:6",
+                    author_label="agent:test",
+                    message_kind="note",
+                    message="future matching message",
+                    topic="a",
+                    reply_to_client_message_id=None,
+                    recorded_at_ms=6,
+                )
+                future = board.list(
+                    after_sequence=exhausted["nextAfterSequence"], limit=2, topic="a"
+                )
+                self.assertEqual([item["sequence"] for item in future["messages"]], [6])
+                self.assertFalse(future["hasMore"])
+                self.assertEqual(future["nextAfterSequence"], 6)
+
+                empty = board.list(after_sequence=0, limit=2, topic="missing")
+                self.assertEqual(empty["messages"], [])
+                self.assertFalse(empty["hasMore"])
+                self.assertEqual(empty["nextAfterSequence"], 6)
+
+                with self.assertRaisesRegex(ValueError, "topic filter"):
+                    board.list(topic=" a")
+
+    def test_topic_filter_does_not_skip_matching_append_after_high_water_capture(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with HostStorage(directory) as storage:
+                board = HostMessageBoard(storage)
+                board.post(
+                    client_message_id="msg:race:unrelated",
+                    author_label="agent:test",
+                    message_kind="note",
+                    message="unrelated",
+                    topic="other",
+                    reply_to_client_message_id=None,
+                    recorded_at_ms=1,
+                )
+                original = storage.journal.board_messages
+                inserted = False
+
+                def racing_board_messages(**kwargs):
+                    nonlocal inserted
+                    if kwargs.get("topic") == "target" and not inserted:
+                        inserted = True
+                        board.post(
+                            client_message_id="msg:race:matching",
+                            author_label="agent:test",
+                            message_kind="note",
+                            message="arrived after the captured high-water",
+                            topic="target",
+                            reply_to_client_message_id=None,
+                            recorded_at_ms=2,
+                        )
+                    return original(**kwargs)
+
+                storage.journal.board_messages = racing_board_messages  # type: ignore[method-assign]
+                first = board.list(after_sequence=1, limit=10, topic="target")
+                self.assertEqual(first["messages"], [])
+                self.assertEqual(first["lastSequence"], 1)
+                self.assertEqual(first["nextAfterSequence"], 1)
+                self.assertFalse(first["hasMore"])
+
+                storage.journal.board_messages = original  # type: ignore[method-assign]
+                second = board.list(
+                    after_sequence=first["nextAfterSequence"], limit=10, topic="target"
+                )
+                self.assertEqual(
+                    [item["clientMessageId"] for item in second["messages"]],
+                    ["msg:race:matching"],
+                )
+                self.assertEqual(second["nextAfterSequence"], 2)
+
     def test_conflicting_replay_and_missing_reply_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             with HostStorage(directory) as storage:

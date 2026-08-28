@@ -541,7 +541,8 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
         description=(
             "Read durable Host-global collaboration messages. Omit afterSequence to receive the "
             "newest bounded window in chronological order, or pass the last observed sequence for "
-            "incremental polling. Messages are collaboration records only: they are not Tasks, "
+            "incremental polling. An optional exact topic filter narrows retrieval without changing "
+            "global message identity or sequence. Messages are collaboration records only: they are not Tasks, "
             "priority, execution authority, owner standing, authenticated identity, or domain truth. "
             "This read validates Journal invariants plus the CAS objects it consumes; it does not "
             "claim unrelated CAS objects are globally healthy."
@@ -556,10 +557,11 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
     async def board_list(
         afterSequence: int | None = None,
         limit: int = 50,
+        topic: str | None = None,
     ) -> CallToolResult:
         return await _run_tool(
             lambda: _list_board_messages(
-                settings.state_root, after_sequence=afterSequence, limit=limit
+                settings.state_root, after_sequence=afterSequence, limit=limit, topic=topic
             ),
             server_interface=server_interface,
             result_meta={"ordivon/hostIntegrityScope": _operation_local_integrity_scope()},
@@ -1325,7 +1327,7 @@ def _host_status(
 
 
 def _list_board_messages(
-    state_root: Path, *, after_sequence: int | None, limit: int
+    state_root: Path, *, after_sequence: int | None, limit: int, topic: str | None = None
 ) -> dict[str, object]:
     if after_sequence is not None and (
         type(after_sequence) is not int or after_sequence < 0
@@ -1335,11 +1337,20 @@ def _list_board_messages(
         )
     if type(limit) is not int or limit < 1 or limit > 100:
         raise ToolArgumentError("limit", "board.list limit must be in [1, 100]")
+    if topic is not None and (
+        not isinstance(topic, str)
+        or not topic
+        or topic != topic.strip()
+        or len(topic) > 256
+    ):
+        raise ToolArgumentError(
+            "topic", "board.list topic must be null or 1-256 trimmed characters"
+        )
     with HostStorage(
         state_root, validation_mode="targeted", update_validation_cache=False
     ) as storage:
         return HostMessageBoard(storage).list(
-            after_sequence=after_sequence, limit=limit
+            after_sequence=after_sequence, limit=limit, topic=topic
         )
 
 

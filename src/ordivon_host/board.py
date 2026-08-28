@@ -137,7 +137,8 @@ class HostMessageBoard:
         return BoardPostReceipt(admission=admission, message=row)
 
     def list(
-        self, *, after_sequence: int | None = None, limit: int = 50
+        self, *, after_sequence: int | None = None, limit: int = 50,
+        topic: str | None = None,
     ) -> dict[str, JsonValue]:
         if after_sequence is not None and (
             type(after_sequence) is not int or after_sequence < 0
@@ -145,16 +146,51 @@ class HostMessageBoard:
             raise ValueError("board afterSequence must be null or non-negative")
         if type(limit) is not int or limit < 1 or limit > 100:
             raise ValueError("board limit must be in [1, 100]")
-        pointers = self.storage.journal.board_messages(
-            after_sequence=after_sequence,
-            limit=limit,
-        )
-        messages = [self._read(pointer) for pointer in pointers]
-        last_sequence = self.storage.journal.board_last_sequence()
-        next_after = after_sequence or 0
-        if messages:
-            next_after = messages[-1].sequence
-        return {
+        if topic is not None and (
+            not isinstance(topic, str)
+            or not topic
+            or topic != topic.strip()
+            or len(topic) > 256
+        ):
+            raise ValueError("board topic filter must be null or 1-256 trimmed characters")
+
+        if topic is None:
+            pointers = self.storage.journal.board_messages(
+                after_sequence=after_sequence,
+                limit=limit,
+            )
+            messages = [self._read(pointer) for pointer in pointers]
+            last_sequence = self.storage.journal.board_last_sequence()
+            next_after = after_sequence or 0
+            if messages:
+                next_after = messages[-1].sequence
+            has_more = next_after < last_sequence
+        else:
+            # Freeze a global high-water before the filtered read. Once every matching
+            # row through this cut is consumed, advancing to the high-water avoids
+            # rescanning unrelated traffic without skipping a concurrent later append.
+            last_sequence = self.storage.journal.board_last_sequence()
+            requested_limit = limit if after_sequence is None else limit + 1
+            pointers = self.storage.journal.board_messages(
+                after_sequence=after_sequence,
+                limit=requested_limit,
+                topic=topic,
+                through_sequence=last_sequence,
+            )
+            if after_sequence is None:
+                visible = pointers
+                has_more = False
+                next_after = last_sequence
+            else:
+                has_more = len(pointers) > limit
+                visible = pointers[:limit]
+                if has_more and visible:
+                    next_after = visible[-1].sequence
+                else:
+                    next_after = max(after_sequence, last_sequence)
+            messages = [self._read(pointer) for pointer in visible]
+
+        result: dict[str, JsonValue] = {
             "schemaVersion": 1,
             "kind": "ordivon.host-board-list",
             "scope": "host-global-coordination-messages",
@@ -162,12 +198,15 @@ class HostMessageBoard:
             "messageCount": self.storage.journal.board_message_count(),
             "lastSequence": last_sequence,
             "nextAfterSequence": next_after,
-            "hasMore": next_after < last_sequence,
+            "hasMore": has_more,
             "truthBoundary": (
                 "board messages are durable collaboration records only; they are not Tasks, "
                 "priority, execution authority, owner standing, or domain truth"
             ),
         }
+        if topic is not None:
+            result["topic"] = topic
+        return result
 
     def validate_integrity(self) -> int:
         """Decode and cross-check one stable prefix of current board state.

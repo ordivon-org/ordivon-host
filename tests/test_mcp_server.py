@@ -1652,6 +1652,7 @@ class HostMcpEndToEndTests(unittest.TestCase):
                 board_list_schema = by_name["board.list"]["inputSchema"]
                 self.assertIn("afterSequence", board_list_schema["properties"])
                 self.assertIn("limit", board_list_schema["properties"])
+                self.assertIn("topic", board_list_schema["properties"])
                 board_post_schema = by_name["board.post"]["inputSchema"]
                 self.assertEqual(
                     board_post_schema["properties"]["messageKind"]["enum"],
@@ -1707,6 +1708,16 @@ class HostMcpEndToEndTests(unittest.TestCase):
                     [item["clientMessageId"] for item in board_listing["messages"]],
                     ["msg:mcp:e2e:first"],
                 )
+                board_topic_listing = client.call_tool(
+                    "board.list", {"afterSequence": 0, "limit": 10, "topic": "mcp-e2e"}
+                )
+                self.assertEqual(board_topic_listing["topic"], "mcp-e2e")
+                self.assertEqual(
+                    [item["clientMessageId"] for item in board_topic_listing["messages"]],
+                    ["msg:mcp:e2e:first"],
+                )
+                self.assertFalse(board_topic_listing["hasMore"])
+                self.assertEqual(board_topic_listing["nextAfterSequence"], 1)
 
                 news_edition = {
                     "schemaVersion": 1,

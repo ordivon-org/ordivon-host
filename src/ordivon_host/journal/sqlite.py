@@ -522,7 +522,8 @@ class HostJournal:
         return int(row["sequence"])
 
     def board_messages(
-        self, *, after_sequence: int | None, limit: int
+        self, *, after_sequence: int | None, limit: int,
+        topic: str | None = None, through_sequence: int | None = None,
     ) -> tuple[BoardMessagePointer, ...]:
         if after_sequence is not None and (
             type(after_sequence) is not int or after_sequence < 0
@@ -530,21 +531,39 @@ class HostJournal:
             raise ValueError("board after sequence must be null or non-negative")
         if type(limit) is not int or limit < 1:
             raise ValueError("board limit must be positive")
+        if topic is not None and (
+            not isinstance(topic, str)
+            or not topic
+            or topic != topic.strip()
+            or len(topic) > 256
+        ):
+            raise ValueError("board topic filter must be null or 1-256 trimmed characters")
+        if through_sequence is not None and (
+            type(through_sequence) is not int or through_sequence < 0
+        ):
+            raise ValueError("board through sequence must be null or non-negative")
+
+        clauses: list[str] = []
+        arguments: list[object] = []
+        if after_sequence is not None:
+            clauses.append("sequence > ?")
+            arguments.append(after_sequence)
+        if through_sequence is not None:
+            clauses.append("sequence <= ?")
+            arguments.append(through_sequence)
+        if topic is not None:
+            clauses.append("topic = ?")
+            arguments.append(topic)
+        where = "" if not clauses else " WHERE " + " AND ".join(clauses)
+        order = "DESC" if after_sequence is None else "ASC"
+        rows = self.connection.execute(
+            "SELECT sequence, client_message_id, author_label, message_kind, topic, "
+            "message_digest, reply_to_client_message_id, recorded_at_ms "
+            f"FROM board_messages{where} ORDER BY sequence {order} LIMIT ?",
+            (*arguments, limit),
+        ).fetchall()
         if after_sequence is None:
-            rows = self.connection.execute(
-                "SELECT sequence, client_message_id, author_label, message_kind, topic, "
-                "message_digest, reply_to_client_message_id, recorded_at_ms "
-                "FROM board_messages ORDER BY sequence DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
             rows = list(reversed(rows))
-        else:
-            rows = self.connection.execute(
-                "SELECT sequence, client_message_id, author_label, message_kind, topic, "
-                "message_digest, reply_to_client_message_id, recorded_at_ms "
-                "FROM board_messages WHERE sequence > ? ORDER BY sequence ASC LIMIT ?",
-                (after_sequence, limit),
-            ).fetchall()
         return tuple(
             BoardMessagePointer(
                 sequence=int(row["sequence"]),
