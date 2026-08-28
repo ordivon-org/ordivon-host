@@ -54,11 +54,11 @@ class HostStorage:
         self,
         root: str | Path,
         *,
-        validation_mode: Literal["cached", "full"] = "cached",
+        validation_mode: Literal["cached", "full", "targeted"] = "cached",
         update_validation_cache: bool = True,
     ) -> None:
-        if validation_mode not in {"cached", "full"}:
-            raise ValueError("Host validation mode must be cached or full")
+        if validation_mode not in {"cached", "full", "targeted"}:
+            raise ValueError("Host validation mode must be cached, full, or targeted")
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         if self.root.is_symlink():
@@ -67,10 +67,19 @@ class HostStorage:
         self.objects = ContentAddressedStore(self.root / "objects")
         self.journal = HostJournal(self.root / "host.sqlite3")
         try:
-            self.validation_summary = self.validate_references(
-                full=validation_mode == "full",
-                update_cache=update_validation_cache,
-            )
+            if validation_mode == "targeted":
+                self.validation_summary = ReferenceValidation(
+                    object_refs=0,
+                    cached_objects=0,
+                    hashed_objects=0,
+                    task_heads=0,
+                    full=False,
+                )
+            else:
+                self.validation_summary = self.validate_references(
+                    full=validation_mode == "full",
+                    update_cache=update_validation_cache,
+                )
         except BaseException:
             self.journal.close()
             raise

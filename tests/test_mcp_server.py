@@ -27,7 +27,9 @@ from ordivon_host.mcp_server import (
     HostMcpSettings,
     _checkpoint_task,
     _host_status,
+    _list_board_messages,
     _list_host_tasks,
+    _list_news,
     _observe_task,
     _tool_schema_identity,
     build_mcp_server,
@@ -35,6 +37,7 @@ from ordivon_host.mcp_server import (
 )
 from ordivon_host.testing.mcp_client import McpTestClient
 from ordivon_host.testing.mcp_errors import McpToolRejected, McpTransportError
+from ordivon_host.objects import ObjectMissing
 from ordivon_host.storage import HostStorage
 from starlette.requests import ClientDisconnect
 
@@ -1133,6 +1136,56 @@ class HostMcpAgentUxTests(unittest.TestCase):
                     event_limit=5,
                 )
 
+    def test_operation_local_reads_defer_unrelated_cas_failure_but_not_consumed_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / "state"
+            task_id = "task:mcp:operation-local-integrity"
+            now = [2_300]
+
+            def clock() -> int:
+                now[0] += 1
+                return now[0]
+
+            with HostStorage(state_root) as storage:
+                ExternalContinuityHost(storage, clock_ms=clock).adopt(
+                    task_id=task_id,
+                    goal_id="goal:mcp:operation-local-integrity",
+                    initial_checkpoint=WorkingCheckpoint(
+                        task_id=task_id,
+                        objective="separate local correctness from global health",
+                        frontier="falsify unrelated corruption coupling",
+                    ),
+                )
+                checkpoint_ref = next(
+                    ref
+                    for ref in storage.journal.object_refs()
+                    if ref.kind == "host-working-checkpoint"
+                )
+
+            checkpoint_path = (
+                state_root / "objects" / f"{checkpoint_ref.digest[7:]}.json"
+            )
+            checkpoint_path.unlink()
+
+            board = _list_board_messages(
+                state_root, after_sequence=None, limit=10
+            )
+            self.assertEqual(board["messageCount"], 0)
+            news = _list_news(
+                state_root, limit=10, cursor=None, from_date=None, to_date=None
+            )
+            self.assertEqual(news["editions"], [])
+
+            with self.assertRaises(ObjectMissing):
+                _host_status(state_root, detail="summary", recent_limit=0)
+            with self.assertRaises(ObjectMissing):
+                _observe_task(
+                    state_root,
+                    task_id=task_id,
+                    expected_revision=2,
+                    event_limit=1,
+                )
+
     def test_summary_and_task_reads_do_not_refresh_validation_cache(self) -> None:
         import sqlite3
 
@@ -1639,7 +1692,21 @@ class HostMcpEndToEndTests(unittest.TestCase):
                 self.assertEqual(news_read["edition"]["revision"], 1)
                 self.assertIsNone(news_read["edition"]["renderedBrief"])
                 self.assertEqual(news_read["edition"]["items"][0]["itemId"], "mcp-news-item")
-                news_listing = client.call_tool("news.list", {"limit": 10})
+                news_listing_result = client.request(
+                    "tools/call",
+                    {"name": "news.list", "arguments": {"limit": 10}},
+                )
+                news_listing_meta = news_listing_result.get("_meta")
+                self.assertIsInstance(news_listing_meta, dict)
+                assert isinstance(news_listing_meta, dict)
+                news_integrity_scope = news_listing_meta.get(
+                    "ordivon/hostIntegrityScope"
+                )
+                self.assertIsInstance(news_integrity_scope, dict)
+                assert isinstance(news_integrity_scope, dict)
+                self.assertEqual(news_integrity_scope["scope"], "operation-local")
+                self.assertFalse(news_integrity_scope["globalCasHealthClaimed"])
+                news_listing = news_listing_result["structuredContent"]
                 self.assertEqual(news_listing["editions"][0]["editionDate"], "2026-08-28")
 
                 with self.assertRaises(McpToolRejected) as invalid_checkpoint:
@@ -1814,9 +1881,22 @@ class HostMcpEndToEndTests(unittest.TestCase):
                     item["workloadId"], "ordivon.host.external-continuity.v1"
                 )
 
-                resumed = client.call_tool(
-                    "task.resume", {"taskId": task_id, "expectedRevision": 2}
+                resumed_result = client.request(
+                    "tools/call",
+                    {
+                        "name": "task.resume",
+                        "arguments": {"taskId": task_id, "expectedRevision": 2},
+                    },
                 )
+                resumed_meta = resumed_result.get("_meta")
+                self.assertIsInstance(resumed_meta, dict)
+                assert isinstance(resumed_meta, dict)
+                integrity_scope = resumed_meta.get("ordivon/hostIntegrityScope")
+                self.assertIsInstance(integrity_scope, dict)
+                assert isinstance(integrity_scope, dict)
+                self.assertEqual(integrity_scope["scope"], "operation-local")
+                self.assertFalse(integrity_scope["globalCasHealthClaimed"])
+                resumed = resumed_result["structuredContent"]
                 self.assertEqual(resumed, adopted)
 
                 updated = _checkpoint(task_id, "continue after revalidation")
