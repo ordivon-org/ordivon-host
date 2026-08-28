@@ -26,6 +26,7 @@ from ordivon_host.mcp_server import (
     BearerAuthApp,
     HostMcpSettings,
     _checkpoint_task,
+    _global_integrity_scope,
     _host_status,
     _list_board_messages,
     _list_host_tasks,
@@ -1059,17 +1060,32 @@ class HostMcpAgentUxTests(unittest.TestCase):
             self.assertIn(summary["deployment"]["status"], {"unbound", "unavailable"})
             self.assertIsNone(summary["doctor"])
             self.assertIn("Runtime remains independent", summary["truthBoundary"]["runtime"])
+            summary_scope = _global_integrity_scope("summary")
+            self.assertEqual(summary_scope["scope"], "startup-global")
+            self.assertEqual(summary_scope["cas"], "startup-critical-retained-objects")
+            self.assertIsNone(summary_scope["doctor"])
+            self.assertFalse(summary_scope["globalCasHealthClaimed"])
 
             integrity = _host_status(
                 state_root, detail="integrity", recent_limit=1
             )
             self.assertTrue(integrity["doctor"]["healthy"])
+            integrity_scope = _global_integrity_scope("integrity")
+            self.assertEqual(integrity_scope["scope"], "global")
+            self.assertEqual(integrity_scope["cas"], "all-retained-cas-objects")
+            self.assertEqual(integrity_scope["doctor"], "full-current")
+            self.assertTrue(integrity_scope["globalCasHealthClaimed"])
             self.assertNotIn(
                 "journal.history",
                 {check["name"] for check in integrity["doctor"]["checks"]},
             )
             history = _host_status(state_root, detail="history", recent_limit=0)
             self.assertTrue(history["doctor"]["healthy"])
+            history_scope = _global_integrity_scope("history")
+            self.assertEqual(history_scope["scope"], "global")
+            self.assertEqual(history_scope["cas"], "all-retained-cas-objects")
+            self.assertEqual(history_scope["doctor"], "full-history")
+            self.assertTrue(history_scope["globalCasHealthClaimed"])
             self.assertIn(
                 "journal.history",
                 {check["name"] for check in history["doctor"]["checks"]},
@@ -1135,6 +1151,34 @@ class HostMcpAgentUxTests(unittest.TestCase):
                     expected_revision=1,
                     event_limit=5,
                 )
+
+    def test_status_summary_does_not_claim_on_access_cas_health(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / "state"
+            with HostStorage(state_root) as storage:
+                missing_digest = "sha256:" + "e" * 64
+                storage.journal.connection.execute(
+                    "INSERT INTO object_refs("
+                    "digest, kind, byte_length, first_seen_at_ms, validation_timing"
+                    ") VALUES (?, ?, ?, ?, ?)",
+                    (missing_digest, "test-on-access", 1, 1, "on_access"),
+                )
+                storage.journal.connection.commit()
+
+            summary = _host_status(state_root, detail="summary", recent_limit=0)
+            self.assertEqual(summary["detail"], "summary")
+            scope = _global_integrity_scope("summary")
+            self.assertEqual(scope["scope"], "startup-global")
+            self.assertFalse(scope["globalCasHealthClaimed"])
+
+            integrity = _host_status(state_root, detail="integrity", recent_limit=0)
+            self.assertFalse(integrity["doctor"]["healthy"])
+            failed_checks = {
+                check["name"]
+                for check in integrity["doctor"]["checks"]
+                if check["status"] != "ok"
+            }
+            self.assertTrue(failed_checks & {"host.open", "cas.references"})
 
     def test_operation_local_reads_defer_unrelated_cas_failure_but_not_consumed_failure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1503,6 +1547,31 @@ class HostMcpEndToEndTests(unittest.TestCase):
                     status_schema["properties"]["detail"]["enum"],
                     ["summary", "integrity", "history"],
                 )
+                summary_status_result = client.request(
+                    "tools/call",
+                    {"name": "host.status", "arguments": {"detail": "summary", "recentLimit": 0}},
+                )
+                summary_status_meta = summary_status_result.get("_meta")
+                self.assertIsInstance(summary_status_meta, dict)
+                assert isinstance(summary_status_meta, dict)
+                summary_status_scope = summary_status_meta.get("ordivon/hostIntegrityScope")
+                self.assertIsInstance(summary_status_scope, dict)
+                assert isinstance(summary_status_scope, dict)
+                self.assertEqual(summary_status_scope["scope"], "startup-global")
+                self.assertFalse(summary_status_scope["globalCasHealthClaimed"])
+
+                integrity_status_result = client.request(
+                    "tools/call",
+                    {"name": "host.status", "arguments": {"detail": "integrity", "recentLimit": 0}},
+                )
+                integrity_status_meta = integrity_status_result.get("_meta")
+                self.assertIsInstance(integrity_status_meta, dict)
+                assert isinstance(integrity_status_meta, dict)
+                integrity_status_scope = integrity_status_meta.get("ordivon/hostIntegrityScope")
+                self.assertIsInstance(integrity_status_scope, dict)
+                assert isinstance(integrity_status_scope, dict)
+                self.assertEqual(integrity_status_scope["scope"], "global")
+                self.assertTrue(integrity_status_scope["globalCasHealthClaimed"])
                 observe_schema = by_name["task.observe"]["inputSchema"]
                 self.assertIn("eventLimit", observe_schema["properties"])
                 list_schema = by_name["task.list"]["inputSchema"]

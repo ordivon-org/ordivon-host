@@ -1160,17 +1160,19 @@ def _operation_local_integrity_scope() -> dict[str, object]:
 
 
 def _global_integrity_scope(detail: str) -> dict[str, object]:
+    if detail == "summary":
+        return {
+            "scope": "startup-global",
+            "journal": "global-schema-and-relational-invariants",
+            "cas": "startup-critical-retained-objects",
+            "doctor": None,
+            "globalCasHealthClaimed": False,
+        }
     return {
         "scope": "global",
         "journal": "global-schema-and-relational-invariants",
-        "cas": "cached-global-reference-validation",
-        "doctor": (
-            "full-history"
-            if detail == "history"
-            else "full-current"
-            if detail == "integrity"
-            else None
-        ),
+        "cas": "all-retained-cas-objects",
+        "doctor": "full-history" if detail == "history" else "full-current",
         "globalCasHealthClaimed": True,
     }
 
