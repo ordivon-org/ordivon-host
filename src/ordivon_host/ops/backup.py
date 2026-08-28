@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import shutil
 import sqlite3
+import stat
 import tempfile
 import time
 
@@ -55,7 +56,7 @@ def create_backup(
         # Validate the assembled snapshot, not a newer live authority. This catches a
         # missing/tampered CAS copied for a ref that entered the SQLite snapshot and
         # guarantees create_backup never publishes bytes that verify_backup would reject.
-        _verify_backup_semantics_without_mutation(temporary)
+        _verify_backup_semantics_without_mutation(temporary, refs)
         timestamp = int(time.time() * 1_000) if created_at_ms is None else created_at_ms
         manifest: dict[str, object] = {
             "schemaVersion": 1,
@@ -71,7 +72,7 @@ def create_backup(
                 {"digest": ref.digest, "kind": ref.kind, "byteLength": ref.byte_length}
                 for ref in refs
             ],
-            "files": _file_manifest(temporary),
+            "files": _file_manifest_for_refs(temporary, refs),
         }
         manifest_path = temporary / "manifest.json"
         manifest_path.write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
@@ -110,6 +111,7 @@ def _snapshot_inventory(
 
 def verify_backup(backup_root: str | Path) -> dict[str, object]:
     backup = Path(backup_root)
+    _validate_backup_root(backup)
     value = json.loads((backup / "manifest.json").read_text())
     if not isinstance(value, dict) or value.get("kind") != _BACKUP_KIND:
         raise ValueError("Host backup manifest kind is invalid")
@@ -120,16 +122,19 @@ def verify_backup(backup_root: str | Path) -> dict[str, object]:
     if not isinstance(value.get("sourceStateRoot"), str):
         raise ValueError("Host backup manifest source state root is invalid")
 
+    try:
+        refs, version, migrations = _snapshot_inventory(backup / "host.sqlite3")
+    except sqlite3.Error as error:
+        raise ValueError("Host backup Journal is invalid") from error
+    _validate_object_inventory(backup / "objects", refs)
+
     files = value.get("files")
     if not isinstance(files, list):
         raise ValueError("Host backup file manifest is invalid")
-    actual_files = [
-        item for item in _file_manifest(backup) if item["path"] != "manifest.json"
-    ]
+    actual_files = _file_manifest_for_refs(backup, refs)
     if files != actual_files:
         raise ValueError("Host backup file manifest differs from backup bytes")
 
-    refs, version, migrations = _snapshot_inventory(backup / "host.sqlite3")
     if value.get("hostJournalSchemaVersion") != version:
         raise ValueError("Host backup manifest Journal schema differs")
     expected_migrations = list(migrations)
@@ -142,25 +147,57 @@ def verify_backup(backup_root: str | Path) -> dict[str, object]:
     if value.get("objectRefs") != expected_refs:
         raise ValueError("Host backup manifest object references differ")
 
-    _verify_backup_semantics_without_mutation(backup)
+    _verify_backup_semantics_without_mutation(backup, refs)
     return value
 
 
-def _verify_backup_semantics_without_mutation(backup: Path) -> None:
+def _validate_backup_root(backup: Path) -> None:
+    if not backup.is_dir():
+        raise ValueError("Host backup root is not a directory")
+    expected = {"host.sqlite3", "manifest.json", "objects"}
+    actual = {entry.name for entry in os.scandir(backup)}
+    if actual != expected:
+        raise ValueError("Host backup root layout differs")
+    _require_regular_file(backup / "host.sqlite3", "Host backup Journal")
+    _require_regular_file(backup / "manifest.json", "Host backup manifest")
+    objects = backup / "objects"
+    mode = os.lstat(objects).st_mode
+    if not stat.S_ISDIR(mode):
+        raise ValueError("Host backup objects entry is not a real directory")
+
+
+def _validate_object_inventory(objects_root: Path, refs: tuple[StoredObject, ...]) -> None:
+    expected = {f"{ref.digest[7:]}.json" for ref in refs}
+    actual: set[str] = set()
+    with os.scandir(objects_root) as entries:
+        for entry in entries:
+            actual.add(entry.name)
+            if not stat.S_ISREG(entry.stat(follow_symlinks=False).st_mode):
+                raise ValueError(
+                    f"Host backup object entry is not a regular file: {entry.name}"
+                )
+    if actual != expected:
+        raise ValueError("Host backup object inventory differs from frozen Journal")
+
+
+def _require_regular_file(path: Path, label: str) -> None:
+    try:
+        mode = os.lstat(path).st_mode
+    except FileNotFoundError:
+        raise ValueError(f"{label} is missing") from None
+    if not stat.S_ISREG(mode):
+        raise ValueError(f"{label} is not a regular file")
+
+
+def _verify_backup_semantics_without_mutation(
+    backup: Path, refs: tuple[StoredObject, ...]
+) -> None:
     """Validate current semantics against a disposable copy, never the evidence."""
     with tempfile.TemporaryDirectory(
         prefix=f"ordivon-host-backup-{backup.name}.verify-"
     ) as directory:
         validation = Path(directory)
-        shutil.copyfile(backup / "host.sqlite3", validation / "host.sqlite3")
-        os.chmod(validation / "host.sqlite3", 0o600)
-        shutil.copytree(
-            backup / "objects",
-            validation / "objects",
-            copy_function=shutil.copyfile,
-        )
-        os.chmod(validation, 0o700)
-        os.chmod(validation / "objects", 0o700)
+        _copy_snapshot_authority(backup, validation, refs)
         with HostStorage(
             validation,
             validation_mode="full",
@@ -168,6 +205,20 @@ def _verify_backup_semantics_without_mutation(backup: Path) -> None:
         ):
             pass
 
+
+def _copy_snapshot_authority(
+    source: Path, destination: Path, refs: tuple[StoredObject, ...]
+) -> None:
+    shutil.copyfile(source / "host.sqlite3", destination / "host.sqlite3")
+    os.chmod(destination / "host.sqlite3", 0o600)
+    objects = destination / "objects"
+    objects.mkdir(mode=0o700)
+    os.chmod(destination, 0o700)
+    for ref in refs:
+        name = f"{ref.digest[7:]}.json"
+        target = objects / name
+        shutil.copyfile(source / "objects" / name, target)
+        os.chmod(target, 0o600)
 
 def restore_backup(
     backup_root: str | Path,
@@ -178,19 +229,14 @@ def restore_backup(
     backup = Path(backup_root)
     target = Path(target_root)
     manifest = verify_backup(backup)
+    refs, _, _ = _snapshot_inventory(backup / "host.sqlite3")
     if target.exists() and not replace:
         raise FileExistsError(target)
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = Path(tempfile.mkdtemp(prefix=f".{target.name}.restore-", dir=target.parent))
     previous: Path | None = None
     try:
-        shutil.copyfile(backup / "host.sqlite3", temporary / "host.sqlite3")
-        os.chmod(temporary / "host.sqlite3", 0o600)
-        shutil.copytree(backup / "objects", temporary / "objects")
-        os.chmod(temporary, 0o700)
-        os.chmod(temporary / "objects", 0o700)
-        for path in (temporary / "objects").glob("*.json"):
-            os.chmod(path, 0o600)
+        _copy_snapshot_authority(backup, temporary, refs)
         with HostStorage(temporary):
             pass
         if target.exists():
@@ -234,11 +280,15 @@ def _backup_database(storage: HostStorage, destination: Path) -> None:
     _fsync_file(destination)
 
 
-def _file_manifest(root: Path) -> list[dict[str, object]]:
+def _file_manifest_for_refs(
+    root: Path, refs: tuple[StoredObject, ...]
+) -> list[dict[str, object]]:
+    paths = [root / "host.sqlite3"] + [
+        root / "objects" / f"{ref.digest[7:]}.json" for ref in refs
+    ]
     result: list[dict[str, object]] = []
-    for path in sorted(root.rglob("*")):
-        if not path.is_file():
-            continue
+    for path in paths:
+        _require_regular_file(path, f"Host backup file {path.relative_to(root).as_posix()}")
         encoded = path.read_bytes()
         result.append(
             {

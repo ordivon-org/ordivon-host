@@ -384,6 +384,54 @@ class HostOperationsTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, message):
                         verify_backup(backup)
 
+    def test_verify_and_restore_reject_symlink_object_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = base / "source"
+            backup = base / "backup"
+            restored = base / "restored"
+            external = base / "external"
+            external.mkdir()
+            (external / "injected.txt").write_text("outside-backup-data")
+            populate(source)
+            create_backup(source, backup, created_at_ms=1_000)
+            (backup / "objects" / "extra-dir").symlink_to(
+                external, target_is_directory=True
+            )
+
+            with self.assertRaisesRegex(ValueError, "not a regular file"):
+                verify_backup(backup)
+            with self.assertRaisesRegex(ValueError, "not a regular file"):
+                restore_backup(backup, restored)
+            self.assertFalse(restored.exists())
+
+    def test_verify_rejects_manifested_orphan_object_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = base / "source"
+            backup = base / "backup"
+            populate(source)
+            create_backup(source, backup, created_at_ms=1_000)
+            orphan = backup / "objects" / ("f" * 64 + ".json")
+            orphan.write_text("{}")
+            encoded = orphan.read_bytes()
+            manifest_path = backup / "manifest.json"
+            manifest = json.loads(manifest_path.read_text())
+            manifest["files"].append(
+                {
+                    "path": f"objects/{orphan.name}",
+                    "digest": "sha256:" + hashlib.sha256(encoded).hexdigest(),
+                    "byteLength": len(encoded),
+                }
+            )
+            manifest["files"].sort(key=lambda item: str(item["path"]))
+            manifest_path.write_text(
+                json.dumps(manifest, sort_keys=True, indent=2) + "\n"
+            )
+
+            with self.assertRaisesRegex(ValueError, "object inventory differs"):
+                verify_backup(backup)
+
     def test_backup_tampering_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
