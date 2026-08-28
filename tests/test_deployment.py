@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import importlib.machinery
 import importlib.util
 import py_compile
@@ -138,6 +139,44 @@ class HostDeploymentOperatorTests(unittest.TestCase):
         self.assertIn('str(args.uv), "build", "--offline"', prepare)
         self.assertIn('str(args.uv), "pip", "install", "--offline"', prepare)
         self.assertIn('"UV_OFFLINE": "1"', prepare)
+        self.assertIn('"SOURCE_DATE_EPOCH": source_date_epoch', prepare)
+        self.assertIn('normalize_project_install_metadata(venv)', prepare)
+
+    def test_project_install_metadata_normalization_is_truthful(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            venv = Path(directory) / "venv"
+            dist_info = (
+                venv
+                / "lib"
+                / "python3.12"
+                / "site-packages"
+                / "ordivon_host-0.5.0.dist-info"
+            )
+            dist_info.mkdir(parents=True)
+            (dist_info / "direct_url.json").write_text(
+                "temporary-path\n", encoding="utf-8"
+            )
+            (dist_info / "uv_cache.json").write_text(
+                "install-time\n", encoding="utf-8"
+            )
+            record = dist_info / "RECORD"
+            rows = [
+                ["ordivon_host/__init__.py", "sha256=source", "1"],
+                [f"{dist_info.name}/direct_url.json", "sha256=path", "15"],
+                [f"{dist_info.name}/uv_cache.json", "sha256=time", "13"],
+                [f"{dist_info.name}/RECORD", "", ""],
+            ]
+            with record.open("w", encoding="utf-8", newline="") as handle:
+                csv.writer(handle, lineterminator="\n").writerows(rows)
+
+            self.assertEqual(
+                module.normalize_project_install_metadata(venv), dist_info
+            )
+            self.assertFalse((dist_info / "direct_url.json").exists())
+            self.assertFalse((dist_info / "uv_cache.json").exists())
+            with record.open("r", encoding="utf-8", newline="") as handle:
+                normalized = list(csv.reader(handle))
+            self.assertEqual(normalized, [rows[0], rows[3]])
 
     def test_tree_description_binds_bytes_modes_and_symlink_target(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
