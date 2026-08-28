@@ -386,6 +386,10 @@ class ExtensionPortTests(unittest.TestCase):
             database = Path(directory) / "host.sqlite3"
             connection = sqlite3.connect(database)
             connection.execute("PRAGMA foreign_keys = OFF")
+            # Reconstruct a genuine pre-v5 authority from the current schema.
+            # Newer tables must be removed before backdating schema metadata or
+            # later migrations would correctly reject the impossible mixed state.
+            connection.execute("DROP TABLE board_messages")
             connection.execute("DROP TABLE task_extension_state")
             connection.execute(
                 "UPDATE host_metadata SET value = '4' WHERE key = 'schema_version'"

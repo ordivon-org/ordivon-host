@@ -13,8 +13,8 @@ audience:
   - builder
   - operator
   - agent
-updated: 2026-08-18
-summary: Canonical architecture for durable semantic Task continuity, Host-owned Journal/CAS authority, bounded handoff/inspection, opaque extension durability, and local operational integrity.
+updated: 2026-08-28
+summary: Canonical architecture for durable semantic Task continuity, Host-owned Journal/CAS authority, bounded collaboration-message persistence, handoff/inspection, opaque extension durability, and local operational integrity.
 evidence_status: verified
 readiness: READY
 applies_to:
@@ -73,7 +73,7 @@ A stable package or service name may survive an ontology contraction. Compatibil
 
 | Component | Owns | Explicitly does not own |
 | --- | --- | --- |
-| Host | durable Task identity/projection, Journal/CAS admission, WorkingCheckpoint continuity, Host leases/revisions, opaque extension durability, bounded Host inspection, Host operations | model cognition, Runtime state, source currentness, domain truth, generic coordination, generic execution, global authority |
+| Host | durable Task identity/projection, Journal/CAS admission, WorkingCheckpoint continuity, bounded collaboration-message persistence/order, Host leases/revisions, opaque extension durability, bounded Host inspection, Host operations | model cognition, Runtime state, source currentness, domain truth, generic coordination/priority adjudication, generic execution, global authority |
 | Runtime | Workspace lifecycle, Jobs/Attempts, process trees, Artifacts, cancellation, physical reconciliation | Task semantics, Agent Run policy, domain completion |
 | Harness | Agent Runs, Provider adapters/calls, model–Tool execution, Run-local continuity/recovery, Trace/Receipt evidence | Host Task authority, Runtime supervision, domain authority |
 | Git/repository owner | repository history and source currentness | Host Task continuity |
@@ -84,7 +84,7 @@ A stable package or service name may survive an ontology contraction. Compatibil
 
 The production implementation consists of:
 
-- one schema-v5 SQLite Host Journal;
+- one schema-v6 SQLite Host Journal, including durable collaboration-message pointers;
 - one materialized `TaskProjection` checked against Event history;
 - immutable typed CAS objects;
 - a minimal `HostKernel` for lease/revision-fenced local admission;
@@ -93,7 +93,7 @@ The production implementation consists of:
 - bounded context-selection structures retained for the Security consumer;
 - a small set of typed compatibility value objects retained for real consumers;
 - Doctor, full-history validation, backup/restore, GC planning, and receipt-bound deployment;
-- one authenticated six-Tool MCP projection.
+- one authenticated eight-Tool MCP projection, with board and external-continuity responsibilities kept distinct.
 
 There is no product Runtime client, source-read engine, mutation engine, code-change engine, cognition execution host, foreign executor coordinator, automatic Task reconciler, shared Goal coordinator, or generic capability-policy module.
 
@@ -141,10 +141,12 @@ Host semantic checkpoint
 
 The MCP server is loopback-only, bearer-authenticated, stateless at the transport layer, and opens Host authority state per request.
 
-Exactly six Tools are public:
+Exactly eight Tools are public:
 
 ```text
 host.status
+board.list
+board.post
 task.observe
 task.list
 task.resume
@@ -152,9 +154,11 @@ task.adopt
 task.checkpoint
 ```
 
-Observation and mutation are separated:
+Observation and mutation are separated by responsibility:
 
 - `host.status` reports Host-owned operational/integrity state only;
+- `board.list` reads bounded durable collaboration messages; omitted `afterSequence` gives a newest window and an explicit sequence supports incremental polling;
+- `board.post` admits one replay-safe collaboration message; author labels remain self-asserted, and persistence/order does not create priority, authority, owner standing, authenticated identity, or domain truth;
 - `task.observe` is a bounded Host Task projection;
 - `task.list` discovers external-continuity Tasks with stable pagination; its `READY` projection is Host continuity lifecycle only, not current-work allocation, priority, owner standing, or domain currentness;
 - `task.resume` recovers one exact semantic continuation point; its frontier/next actions remain working claims until current owner facts are revalidated;
@@ -171,7 +175,8 @@ The Host state root has two durable mechanisms:
 objects/       typed immutable content-addressed JSON envelopes
 host.sqlite3   Event admission, stream heads, Task projection,
                object validation, schema migrations, short leases,
-               opaque extension namespace pointers
+               opaque extension namespace pointers,
+               durable collaboration-message pointers
 ```
 
 A Host Task transition follows:
@@ -196,7 +201,8 @@ Expected invariants include:
 - Event identity reuse with different bytes fails closed;
 - history gaps, projection drift, missing objects, and object corruption fail closed;
 - successful non-creation transition consumes the exact lease generation;
-- terminal Task identity cannot be reopened.
+- terminal Task identity cannot be reopened;
+- board pointers must resolve to `host-board-message` CAS objects, and explicit Doctor integrity validates each stable-prefix row against immutable message identity/content metadata without imposing O(board-size) semantic decoding on every ordinary Host open.
 
 ## Minimal HostKernel
 

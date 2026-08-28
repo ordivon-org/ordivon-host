@@ -24,6 +24,7 @@ from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema
 from starlette.requests import ClientDisconnect
 
+from .board import HostMessageBoard
 from .config import load_config, read_private_token_file
 from .continuity import ExternalContinuityHost
 from .continuity_models import EXTERNAL_CONTINUITY_WORKLOAD_ID, WorkingCheckpoint
@@ -47,9 +48,11 @@ DEFAULT_HOST_MCP_PORT = 8898
 DEFAULT_HOST_MCP_TOKEN_FILE = Path("/etc/ordivon/host-mcp.token")
 DEFAULT_HOST_MCP_BODY_LIMIT_BYTES = 1_048_576
 MIN_HOST_MCP_TOKEN_CHARACTERS = 32
-HOST_MCP_SURFACE_VERSION = 2
+HOST_MCP_SURFACE_VERSION = 3
 HOST_MCP_TOOL_NAMES = (
     "host.status",
+    "board.list",
+    "board.post",
     "task.observe",
     "task.list",
     "task.resume",
@@ -406,8 +409,10 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
             "cross-owner work ontology. host.status continuity counts and task.list/task.observe "
             "TaskProjection lifecycle states describe Host tracking only: READY/open continuity "
             "does not mean actionable NOW, priority, owner standing, or current domain truth. "
-            "Host does not compute a cross-owner current-work or priority portfolio. Use "
-            "task.list only to discover continuity, task.resume to recover one exact known "
+            "Host does not compute a cross-owner current-work or priority portfolio. board.* is "
+            "a durable collaboration surface only: messages are not Tasks, priority, authority, "
+            "owner standing, or domain truth. Use task.list only to discover continuity, "
+            "task.resume to recover one exact known "
             "continuation point, and revalidate current physical/domain facts at their owning "
             "authority. task.checkpoint changes continuity state only; exact retry after response "
             "loss is safe."
@@ -446,6 +451,72 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
             ),
             server_interface=server_interface,
             write=False,
+        )
+
+    @server.tool(
+        name="board.list",
+        title="Read Host message board",
+        description=(
+            "Read durable Host-global collaboration messages. Omit afterSequence to receive the "
+            "newest bounded window in chronological order, or pass the last observed sequence for "
+            "incremental polling. Messages are collaboration records only: they are not Tasks, "
+            "priority, execution authority, owner standing, authenticated identity, or domain truth."
+        ),
+        annotations=ToolAnnotations(
+            readOnlyHint=True,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=False,
+        ),
+    )
+    async def board_list(
+        afterSequence: int | None = None,
+        limit: int = 50,
+    ) -> CallToolResult:
+        return await _run_tool(
+            lambda: _list_board_messages(
+                settings.state_root, after_sequence=afterSequence, limit=limit
+            ),
+            server_interface=server_interface,
+            write=False,
+        )
+
+    @server.tool(
+        name="board.post",
+        title="Post to Host message board",
+        description=(
+            "Persist one Host-global collaboration message. clientMessageId is caller-chosen and "
+            "provides exact replay identity after response loss. authorLabel is explicitly "
+            "self-asserted, not authenticated identity. A message does not create a Task or grant "
+            "priority, execution authority, owner standing, or domain truth."
+        ),
+        annotations=ToolAnnotations(
+            readOnlyHint=False,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=False,
+        ),
+    )
+    async def board_post(
+        clientMessageId: str,
+        authorLabel: str,
+        message: str,
+        messageKind: Literal["note", "question", "proposal", "warning", "reply"] = "note",
+        topic: str | None = None,
+        replyToClientMessageId: str | None = None,
+    ) -> CallToolResult:
+        return await _run_tool(
+            lambda: _post_board_message(
+                settings.state_root,
+                client_message_id=clientMessageId,
+                author_label=authorLabel,
+                message=message,
+                message_kind=messageKind,
+                topic=topic,
+                reply_to_client_message_id=replyToClientMessageId,
+            ),
+            server_interface=server_interface,
+            write=True,
         )
 
     @server.tool(
@@ -944,6 +1015,11 @@ def _host_status(
             }
             for row in rows
         ]
+        board_summary = {
+            "messages": storage.journal.board_message_count(),
+            "lastSequence": storage.journal.board_last_sequence(),
+            "truthRole": "durable-collaboration-messages",
+        }
         continuity_counts = {"active": 0, "terminal": 0}
         for task_id in storage.journal.task_ids():
             descriptor = storage.read_task_descriptor(task_id)
@@ -971,11 +1047,18 @@ def _host_status(
             "surfaceVersion": HOST_MCP_SURFACE_VERSION,
             "toolCount": len(HOST_MCP_TOOL_NAMES),
             "toolNames": list(HOST_MCP_TOOL_NAMES),
-            "readTools": ["host.status", "task.observe", "task.list", "task.resume"],
-            "writeTools": ["task.adopt", "task.checkpoint"],
+            "readTools": [
+                "host.status",
+                "board.list",
+                "task.observe",
+                "task.list",
+                "task.resume",
+            ],
+            "writeTools": ["board.post", "task.adopt", "task.checkpoint"],
             "runtimeProxy": False,
         },
         "authority": authority,
+        "board": board_summary,
         "deployment": deployment,
         "continuity": continuity_counts,
         "recentActivity": recent,
@@ -986,6 +1069,53 @@ def _host_status(
             "runtime": "not checked; Runtime remains independent physical authority",
         },
     }
+
+
+def _list_board_messages(
+    state_root: Path, *, after_sequence: int | None, limit: int
+) -> dict[str, object]:
+    if after_sequence is not None and (
+        type(after_sequence) is not int or after_sequence < 0
+    ):
+        raise ToolArgumentError(
+            "afterSequence", "board.list afterSequence must be null or non-negative"
+        )
+    if type(limit) is not int or limit < 1 or limit > 100:
+        raise ToolArgumentError("limit", "board.list limit must be in [1, 100]")
+    with HostStorage(state_root, update_validation_cache=False) as storage:
+        return HostMessageBoard(storage).list(
+            after_sequence=after_sequence, limit=limit
+        )
+
+
+def _post_board_message(
+    state_root: Path,
+    *,
+    client_message_id: str,
+    author_label: str,
+    message: str,
+    message_kind: str,
+    topic: str | None,
+    reply_to_client_message_id: str | None,
+) -> dict[str, object]:
+    with HostStorage(state_root) as storage:
+        try:
+            return HostMessageBoard(storage).post(
+                client_message_id=client_message_id,
+                author_label=author_label,
+                message_kind=message_kind,
+                message=message,
+                topic=topic,
+                reply_to_client_message_id=reply_to_client_message_id,
+                recorded_at_ms=_wall_clock_ms(),
+            ).to_dict()
+        except EventConflict as error:
+            field = (
+                "replyToClientMessageId"
+                if "reply target" in str(error)
+                else "clientMessageId"
+            )
+            raise ToolArgumentError(field, str(error)) from error
 
 
 def _observe_task(

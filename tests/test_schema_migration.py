@@ -36,7 +36,7 @@ CREATE TABLE leases(task_id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, revision I
 
 
 class HostSchemaMigrationTests(unittest.TestCase):
-    def test_empty_v1_reserved_tables_migrate_through_v5_with_backups(self) -> None:
+    def test_empty_v1_reserved_tables_migrate_through_v6_with_backups(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "host.sqlite3"
             connection = sqlite3.connect(database)
@@ -46,7 +46,7 @@ class HostSchemaMigrationTests(unittest.TestCase):
                 version = storage.journal.connection.execute(
                     "SELECT value FROM host_metadata WHERE key='schema_version'"
                 ).fetchone()[0]
-                self.assertEqual(version, "5")
+                self.assertEqual(version, "6")
                 history = storage.journal.connection.execute(
                     "SELECT from_version, to_version, name FROM schema_migrations "
                     "ORDER BY sequence"
@@ -58,6 +58,7 @@ class HostSchemaMigrationTests(unittest.TestCase):
                         (2, 3, "cache-verified-object-file-identity"),
                         (3, 4, "bind-event-object-admission"),
                         (4, 5, "preserve-namespaced-extension-state"),
+                        (5, 6, "add-host-message-board"),
                     ],
                 )
                 names = {
@@ -73,6 +74,7 @@ class HostSchemaMigrationTests(unittest.TestCase):
                 self.assertIn("event_object_refs", names)
                 self.assertIn("legacy_object_refs", names)
                 self.assertIn("task_extension_state", names)
+                self.assertIn("board_messages", names)
                 self.assertEqual(storage.journal.legacy_object_refs(), ())
                 self.assertEqual(
                     storage.journal.event_object_refs_start_sequence(), 1
@@ -81,8 +83,9 @@ class HostSchemaMigrationTests(unittest.TestCase):
             self._assert_backup_version(database, 3, "2")
             self._assert_backup_version(database, 4, "3")
             self._assert_backup_version(database, 5, "4")
+            self._assert_backup_version(database, 6, "5")
 
-    def test_v2_migrates_through_v5_with_backups(self) -> None:
+    def test_v2_migrates_through_v6_with_backups(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "host.sqlite3"
             connection = sqlite3.connect(database)
@@ -93,7 +96,7 @@ class HostSchemaMigrationTests(unittest.TestCase):
                     storage.journal.connection.execute(
                         "SELECT value FROM host_metadata WHERE key='schema_version'"
                     ).fetchone()[0],
-                    "5",
+                    "6",
                 )
                 history = storage.journal.connection.execute(
                     "SELECT from_version, to_version, name FROM schema_migrations "
@@ -105,11 +108,13 @@ class HostSchemaMigrationTests(unittest.TestCase):
                         (2, 3, "cache-verified-object-file-identity"),
                         (3, 4, "bind-event-object-admission"),
                         (4, 5, "preserve-namespaced-extension-state"),
+                        (5, 6, "add-host-message-board"),
                     ],
                 )
             self._assert_backup_version(database, 3, "2")
             self._assert_backup_version(database, 4, "3")
             self._assert_backup_version(database, 5, "4")
+            self._assert_backup_version(database, 6, "5")
 
     def test_v3_history_is_legacy_and_new_events_use_exact_edges(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -128,6 +133,7 @@ class HostSchemaMigrationTests(unittest.TestCase):
 
             connection = sqlite3.connect(database)
             connection.execute("PRAGMA foreign_keys = OFF")
+            connection.execute("DROP TABLE board_messages")
             connection.execute("DROP TABLE task_extension_state")
             connection.execute("DROP TABLE event_object_refs")
             connection.execute("DROP TABLE legacy_object_refs")

@@ -874,18 +874,28 @@ class HostMcpAgentUxTests(unittest.TestCase):
             summary = _host_status(state_root, detail="summary", recent_limit=5)
             self.assertEqual(summary["kind"], "ordivon.host-status")
             self.assertEqual(summary["detail"], "summary")
-            self.assertEqual(summary["interface"]["surfaceVersion"], 2)
-            self.assertEqual(summary["interface"]["toolCount"], 6)
+            self.assertEqual(summary["interface"]["surfaceVersion"], 3)
+            self.assertEqual(summary["interface"]["toolCount"], 8)
             self.assertEqual(
                 summary["interface"]["toolNames"],
                 [
                     "host.status",
+                    "board.list",
+                    "board.post",
                     "task.observe",
                     "task.list",
                     "task.resume",
                     "task.adopt",
                     "task.checkpoint",
                 ],
+            )
+            self.assertEqual(
+                summary["board"],
+                {
+                    "messages": 0,
+                    "lastSequence": 0,
+                    "truthRole": "durable-collaboration-messages",
+                },
             )
             self.assertFalse(summary["interface"]["runtimeProxy"])
             self.assertEqual(summary["authority"]["tasks"], 1)
@@ -1212,6 +1222,8 @@ class HostMcpEndToEndTests(unittest.TestCase):
                     {tool["name"] for tool in legacy["tools"]},
                     {
                         "host.status",
+                        "board.list",
+                        "board.post",
                         "task.observe",
                         "task.list",
                         "task.resume",
@@ -1256,6 +1268,8 @@ class HostMcpEndToEndTests(unittest.TestCase):
                     {tool["name"] for tool in tools},
                     {
                         "host.status",
+                        "board.list",
+                        "board.post",
                         "task.observe",
                         "task.list",
                         "task.resume",
@@ -1330,6 +1344,59 @@ class HostMcpEndToEndTests(unittest.TestCase):
                         definition["properties"]["truthRole"]["const"],
                         "semantic-working-claim",
                     )
+
+                board_list_schema = by_name["board.list"]["inputSchema"]
+                self.assertIn("afterSequence", board_list_schema["properties"])
+                self.assertIn("limit", board_list_schema["properties"])
+                board_post_schema = by_name["board.post"]["inputSchema"]
+                self.assertEqual(
+                    board_post_schema["properties"]["messageKind"]["enum"],
+                    ["note", "question", "proposal", "warning", "reply"],
+                )
+                board_created = client.call_tool(
+                    "board.post",
+                    {
+                        "clientMessageId": "msg:mcp:e2e:first",
+                        "authorLabel": "agent:mcp-e2e",
+                        "messageKind": "proposal",
+                        "topic": "mcp-e2e",
+                        "message": "Exercise the durable collaboration surface over MCP.",
+                    },
+                )
+                self.assertEqual(board_created["admission"], "created")
+                self.assertEqual(board_created["message"]["sequence"], 1)
+                self.assertEqual(
+                    board_created["message"]["authorIdentityRole"],
+                    "self-asserted-label",
+                )
+                self.assertEqual(
+                    board_created["message"]["truthRole"],
+                    "coordination-message-not-domain-truth",
+                )
+                board_replay = client.call_tool(
+                    "board.post",
+                    {
+                        "clientMessageId": "msg:mcp:e2e:first",
+                        "authorLabel": "agent:mcp-e2e",
+                        "messageKind": "proposal",
+                        "topic": "mcp-e2e",
+                        "message": "Exercise the durable collaboration surface over MCP.",
+                    },
+                )
+                self.assertEqual(board_replay["admission"], "existing")
+                self.assertEqual(
+                    board_replay["message"]["messageDigest"],
+                    board_created["message"]["messageDigest"],
+                )
+                board_listing = client.call_tool(
+                    "board.list", {"afterSequence": 0, "limit": 10}
+                )
+                self.assertEqual(board_listing["messageCount"], 1)
+                self.assertEqual(board_listing["lastSequence"], 1)
+                self.assertEqual(
+                    [item["clientMessageId"] for item in board_listing["messages"]],
+                    ["msg:mcp:e2e:first"],
+                )
 
                 with self.assertRaises(McpToolRejected) as invalid_checkpoint:
                     client.call_tool(

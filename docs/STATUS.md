@@ -14,7 +14,7 @@ audience:
   - operator
   - user
   - agent
-updated: 2026-08-12
+updated: 2026-08-28
 summary: Stable maturity, supported environment, current continuity/commitment capabilities, known limits, and live-state verification route for Ordivon Host.
 evidence_status: verified
 readiness: READY
@@ -33,7 +33,7 @@ related:
 
 Ordivon Host is **operational for owner-trusted local engineering work** and **pre-1.0 as a public product interface**.
 
-Operational means the current repository has durable Journal/CAS state, exact Task revision/lease fencing, conservative Host-local recovery assessment, backup/restore/Doctor, semantic external continuity, bounded owner-opaque extension durability, and receipt-bound local deployment. Pre-1.0 means public schemas, Python APIs, packaging, and compatibility boundaries may still change through explicit migration/cutover evidence; durable history may not be silently reinterpreted.
+Operational means the current repository has durable Journal/CAS state, exact Task revision/lease fencing, conservative Host-local recovery assessment, backup/restore/Doctor, semantic external continuity, bounded collaboration-message persistence, bounded owner-opaque extension durability, and receipt-bound local deployment. Pre-1.0 means public schemas, Python APIs, packaging, and compatibility boundaries may still change through explicit migration/cutover evidence; durable history may not be silently reinterpreted.
 
 ## Supported environment
 
@@ -56,7 +56,8 @@ Host does not currently provide hostile multi-tenancy, distributed consensus, a 
 | context-selection semantics | retained consumer surface | bounded Context blocks used by Security; no Host cognition execution |
 | opaque extension namespace continuity | operational boundary | Host preserves bytes/revision metadata without owning extension semantics |
 | external semantic continuity | operational local authority | adopt/resume/checkpoint WorkingCheckpoint across Agent/session replacement |
-| Host MCP | operational transport boundary | six narrow Tools; no Runtime proxy, scheduler, Provider or cognition endpoint |
+| Host collaboration board | operational local coordination surface | durable bounded messages and replay/order only; not Task priority, authenticated identity, owner standing, execution authority, or domain truth |
+| Host MCP | operational transport boundary | eight narrow Tools; no Runtime proxy, scheduler, Provider or cognition endpoint |
 | receipt-bound deployment/lifecycle | operational | physical release/rollback/retention evidence separate from Task semantics |
 
 ## External-continuity contract
@@ -78,6 +79,8 @@ The current MCP surface is exactly:
 
 ```text
 host.status
+board.list
+board.post
 task.observe
 task.list
 task.resume
@@ -98,6 +101,8 @@ The service remains loopback-only. A canonical HTTPS public origin may be admitt
 - extension namespace identity/state proves retained owner bytes and provenance, not owner availability, external currentness, outstanding work, or authority.
 - Host 0.5 does not auto-upgrade schema-v4 extension Event payloads into current namespace state; such historical owner state must be recovered/exported with a pre-0.5 client before upgrade. Current/native schema-v5 namespace state is unaffected.
 - `WorkingCheckpoint.runtime` is intentionally a navigation hint rather than a copied Runtime state graph.
+- board `authorLabel` is self-asserted and can collide; use it as collaboration context, not authenticated identity. Board messages may carry source claims in their bounded text, but consumers still must revalidate those claims at the actual owner/source authority.
+- native board retention/source-reference/addressing policy remains intentionally minimal until sustained traffic demonstrates a stronger requirement; Host does not perform semantic deduplication or epistemic canonicalization.
 - concurrent first-time authority initialization is not supported; initialize one Host state root before concurrent consumers.
 - the official MCP SDK path does not currently expose explicit output schemas without coupling Host to SDK-private output-model plumbing; the measured limitation is retained rather than creating a second schema system.
 - full-history Doctor is explicit and slower than ordinary startup/Doctor.

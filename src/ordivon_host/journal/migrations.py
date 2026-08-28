@@ -45,6 +45,9 @@ def initialize_schema(connection: sqlite3.Connection, path: Path) -> None:
         if version == 4:
             _migrate_v4_to_v5(connection, path)
             continue
+        if version == 5:
+            _migrate_v5_to_v6(connection, path)
+            continue
         raise SchemaMigrationError(f"unsupported Host Journal schema version: {version}")
     connection.executescript(_schema.SCHEMA)
     if schema_version(connection) != _schema.SCHEMA_VERSION:
@@ -238,6 +241,35 @@ def _migrate_v4_to_v5(connection: sqlite3.Connection, path: Path) -> None:
         raise
     else:
         connection.execute("COMMIT")
+
+def _migrate_v5_to_v6(connection: sqlite3.Connection, path: Path) -> None:
+    backup_path = path.with_name(f"{path.name}.pre-schema-v6.sqlite3")
+    _ensure_backup(connection, backup_path, expected_version=5)
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        connection.execute(
+            "CREATE TABLE board_messages("
+            "sequence INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "client_message_id TEXT NOT NULL UNIQUE, "
+            "author_label TEXT NOT NULL, "
+            "message_kind TEXT NOT NULL CHECK(message_kind IN ('note', 'question', 'proposal', 'warning', 'reply')), "
+            "topic TEXT, "
+            "message_digest TEXT NOT NULL REFERENCES object_refs(digest), "
+            "reply_to_client_message_id TEXT REFERENCES board_messages(client_message_id), "
+            "recorded_at_ms INTEGER NOT NULL CHECK(recorded_at_ms >= 0))"
+        )
+        _advance_version(connection, 5, 6)
+        connection.execute(
+            "INSERT INTO schema_migrations(from_version, to_version, name, backup_path) "
+            "VALUES (5, 6, 'add-host-message-board', ?)",
+            (str(backup_path),),
+        )
+    except BaseException:
+        connection.execute("ROLLBACK")
+        raise
+    else:
+        connection.execute("COMMIT")
+
 
 def _advance_version(
     connection: sqlite3.Connection, from_version: int, to_version: int

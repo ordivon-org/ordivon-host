@@ -92,6 +92,18 @@ class TaskExtensionStatePointer:
     legacy: bool
 
 
+@dataclass(frozen=True, slots=True)
+class BoardMessagePointer:
+    sequence: int
+    client_message_id: str
+    author_label: str
+    message_kind: str
+    topic: str | None
+    message_digest: str
+    reply_to_client_message_id: str | None
+    recorded_at_ms: int
+
+
 class HostJournal:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
@@ -380,6 +392,138 @@ class HostJournal:
             if expected_lease is not None:
                 self._consume_exact_lease(expected_lease)
         return EventAdmission.CREATED
+
+    def append_board_message(
+        self,
+        *,
+        client_message_id: str,
+        author_label: str,
+        message_kind: str,
+        topic: str | None,
+        message_object: StoredObject,
+        reply_to_client_message_id: str | None,
+        recorded_at_ms: int,
+    ) -> EventAdmission:
+        if not client_message_id or client_message_id != client_message_id.strip():
+            raise ValueError("board client message identity must be non-empty and trimmed")
+        if not author_label or author_label != author_label.strip():
+            raise ValueError("board author label must be non-empty and trimmed")
+        if message_kind not in {"note", "question", "proposal", "warning", "reply"}:
+            raise ValueError("board message kind is invalid")
+        if topic is not None and (not topic or topic != topic.strip()):
+            raise ValueError("board topic must be null or non-empty and trimmed")
+        if reply_to_client_message_id == client_message_id:
+            raise ValueError("board message cannot reply to itself")
+        if message_object.kind != "host-board-message":
+            raise ValueError("board message has the wrong object kind")
+        if recorded_at_ms < 0:
+            raise ValueError("board message time is invalid")
+
+        with self._transaction():
+            existing = self.connection.execute(
+                "SELECT sequence, author_label, message_kind, topic, message_digest, "
+                "reply_to_client_message_id, recorded_at_ms FROM board_messages "
+                "WHERE client_message_id = ?",
+                (client_message_id,),
+            ).fetchone()
+            if existing is not None:
+                actual = (
+                    str(existing["author_label"]),
+                    str(existing["message_kind"]),
+                    existing["topic"],
+                    str(existing["message_digest"]),
+                    existing["reply_to_client_message_id"],
+                )
+                expected = (
+                    author_label,
+                    message_kind,
+                    topic,
+                    message_object.digest,
+                    reply_to_client_message_id,
+                )
+                if actual != expected:
+                    raise EventConflict(
+                        "board client message identity is already bound to different content"
+                    )
+                return EventAdmission.EXISTING
+            if reply_to_client_message_id is not None:
+                parent = self.connection.execute(
+                    "SELECT 1 FROM board_messages WHERE client_message_id = ?",
+                    (reply_to_client_message_id,),
+                ).fetchone()
+                if parent is None:
+                    raise EventConflict("board reply target does not exist")
+            self._admit_object(message_object, recorded_at_ms)
+            self.connection.execute(
+                "INSERT INTO board_messages("
+                "client_message_id, author_label, message_kind, topic, message_digest, "
+                "reply_to_client_message_id, recorded_at_ms"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    client_message_id,
+                    author_label,
+                    message_kind,
+                    topic,
+                    message_object.digest,
+                    reply_to_client_message_id,
+                    recorded_at_ms,
+                ),
+            )
+        return EventAdmission.CREATED
+
+    def board_message_count(self) -> int:
+        row = self.connection.execute(
+            "SELECT COUNT(*) AS count FROM board_messages"
+        ).fetchone()
+        return int(row["count"])
+
+    def board_last_sequence(self) -> int:
+        row = self.connection.execute(
+            "SELECT COALESCE(MAX(sequence), 0) AS sequence FROM board_messages"
+        ).fetchone()
+        return int(row["sequence"])
+
+    def board_messages(
+        self, *, after_sequence: int | None, limit: int
+    ) -> tuple[BoardMessagePointer, ...]:
+        if after_sequence is not None and (
+            type(after_sequence) is not int or after_sequence < 0
+        ):
+            raise ValueError("board after sequence must be null or non-negative")
+        if type(limit) is not int or limit < 1:
+            raise ValueError("board limit must be positive")
+        if after_sequence is None:
+            rows = self.connection.execute(
+                "SELECT sequence, client_message_id, author_label, message_kind, topic, "
+                "message_digest, reply_to_client_message_id, recorded_at_ms "
+                "FROM board_messages ORDER BY sequence DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            rows = list(reversed(rows))
+        else:
+            rows = self.connection.execute(
+                "SELECT sequence, client_message_id, author_label, message_kind, topic, "
+                "message_digest, reply_to_client_message_id, recorded_at_ms "
+                "FROM board_messages WHERE sequence > ? ORDER BY sequence ASC LIMIT ?",
+                (after_sequence, limit),
+            ).fetchall()
+        return tuple(
+            BoardMessagePointer(
+                sequence=int(row["sequence"]),
+                client_message_id=str(row["client_message_id"]),
+                author_label=str(row["author_label"]),
+                message_kind=str(row["message_kind"]),
+                topic=None if row["topic"] is None else str(row["topic"]),
+                message_digest=str(row["message_digest"]),
+                reply_to_client_message_id=(
+                    None
+                    if row["reply_to_client_message_id"] is None
+                    else str(row["reply_to_client_message_id"])
+                ),
+                recorded_at_ms=int(row["recorded_at_ms"]),
+            )
+            for row in rows
+        )
 
     def _validate_exact_lease(
         self,
@@ -940,6 +1084,17 @@ class HostJournal:
                 raise JournalCorruption(
                     "legacy extension state requires a pre-0.5 Host client for owner recovery/export"
                 )
+
+        board_mismatch = self.connection.execute(
+            "SELECT b.client_message_id FROM board_messages b "
+            "LEFT JOIN object_refs o ON o.digest = b.message_digest "
+            "WHERE o.digest IS NULL OR o.kind != 'host-board-message' LIMIT 1"
+        ).fetchone()
+        if board_mismatch is not None:
+            raise JournalCorruption(
+                "Host board message object differs: "
+                f"{board_mismatch['client_message_id']}"
+            )
 
         for row in self.connection.execute(
             "SELECT task_id FROM task_projection ORDER BY task_id"

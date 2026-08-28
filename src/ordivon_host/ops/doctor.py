@@ -7,6 +7,7 @@ import sqlite3
 import stat
 import time
 
+from ..board import HostMessageBoard
 from ..journal.migrations import schema_version
 from ..storage import HostStorage
 from .gc import plan_gc
@@ -85,6 +86,24 @@ def doctor_state(
             )
             storage.journal.validate_invariants()
             checks.append(DoctorCheck("journal.invariants", "ok", "valid"))
+            try:
+                board_messages = HostMessageBoard(storage).validate_integrity()
+            except BaseException as error:
+                checks.append(
+                    DoctorCheck(
+                        "board.integrity",
+                        "error",
+                        f"{type(error).__name__}: {error}",
+                    )
+                )
+            else:
+                checks.append(
+                    DoctorCheck(
+                        "board.integrity",
+                        "ok",
+                        f"validated={board_messages}",
+                    )
+                )
             validation = storage.validation_summary
             checks.append(
                 DoctorCheck(

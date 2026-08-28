@@ -21,7 +21,7 @@ from pathlib import Path
 SCHEMA_VERSION = 3
 LIFECYCLE_SCHEMA_VERSION = 1
 MODERN_PROTOCOL_VERSION = "2026-07-28"
-REQUIRED_TOOLS = ("host.status", "task.observe", "task.list", "task.resume", "task.adopt", "task.checkpoint")
+REQUIRED_TOOLS = ("host.status", "board.list", "board.post", "task.observe", "task.list", "task.resume", "task.adopt", "task.checkpoint")
 DEFAULT_RELEASE_ROOT = Path("/usr/local/libexec/ordivon/host")
 DEFAULT_CANDIDATE_ROOT = Path("/var/lib/ordivon/host/candidates")
 DEFAULT_RECEIPT_ROOT = Path("/var/lib/ordivon/host/deployments")

@@ -132,11 +132,11 @@ Host 0.5.x is operational for owner-trusted local engineering work and remains p
 
 The current product includes:
 
-- schema-v5 SQLite Journal/CAS with migration, backup/restore, Doctor, and full-history validation;
+- schema-v6 SQLite Journal/CAS with migration, backup/restore, Doctor, full-history validation, and the durable Host-global coordination board;
 - semantic external continuity through `WorkingCheckpoint`, exact revision patching, deterministic handoff, and exact response-loss replay;
 - opaque extension-state durability with revision-fenced owner metadata;
 - the bounded context-selection surface consumed by Security;
-- authenticated loopback MCP with exactly `host.status`, `task.observe`, `task.list`, `task.resume`, `task.adopt`, and `task.checkpoint`;
+- authenticated loopback MCP with `host.status`, durable collaboration `board.list` / `board.post`, and the external-continuity `task.observe`, `task.list`, `task.resume`, `task.adopt`, and `task.checkpoint` Tools;
 - receipt-bound local deployment with exact release-byte rollback support.
 
 Exact support claims and known limits live in [`docs/STATUS.md`](docs/STATUS.md).
@@ -174,11 +174,13 @@ Host Doctor and `host.status` therefore report Host-owned health only; an unrela
 
 ## Host MCP surface
 
-The default endpoint is loopback-bound and authenticated. Its six Tools are intentionally small:
+The default endpoint is loopback-bound and authenticated. Its eight Tools remain intentionally small and responsibility-separated:
 
 | Tool | Purpose |
 | --- | --- |
 | `host.status` | bounded Host authority/deployment observation |
+| `board.list` | bounded Host-global collaboration-message read/poll surface |
+| `board.post` | idempotent durable collaboration-message admission; self-asserted author labels are not authenticated identity |
 | `task.observe` | compact revision-fenced Host Task observation |
 | `task.list` | paginated external-continuity discovery |
 | `task.resume` | full revision-coherent WorkingCheckpoint recovery |

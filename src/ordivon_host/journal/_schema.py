@@ -1,4 +1,4 @@
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 LEGACY_UNUSED_TABLES = ("wakeups", "runtime_links", "task_edges", "task_nodes")
 
 SCHEMA = """
@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS host_metadata(
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-INSERT OR IGNORE INTO host_metadata(key, value) VALUES ('schema_version', '5');
+INSERT OR IGNORE INTO host_metadata(key, value) VALUES ('schema_version', '6');
 INSERT OR IGNORE INTO host_metadata(key, value) VALUES ('event_object_refs_start_sequence', '1');
 
 CREATE TABLE IF NOT EXISTS schema_migrations(
@@ -93,5 +93,16 @@ CREATE TABLE IF NOT EXISTS leases(
     owner_id TEXT NOT NULL,
     revision INTEGER NOT NULL CHECK(revision >= 1),
     expires_at_ms INTEGER NOT NULL CHECK(expires_at_ms >= 0)
+);
+
+CREATE TABLE IF NOT EXISTS board_messages(
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_message_id TEXT NOT NULL UNIQUE,
+    author_label TEXT NOT NULL,
+    message_kind TEXT NOT NULL CHECK(message_kind IN ('note', 'question', 'proposal', 'warning', 'reply')),
+    topic TEXT,
+    message_digest TEXT NOT NULL REFERENCES object_refs(digest),
+    reply_to_client_message_id TEXT REFERENCES board_messages(client_message_id),
+    recorded_at_ms INTEGER NOT NULL CHECK(recorded_at_ms >= 0)
 );
 """
