@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import http.client
 import json
 import socket
@@ -469,6 +470,73 @@ class HostMcpTaskDiscoveryTests(unittest.TestCase):
                 summaries["task:mcp:no-navigation-hint"]["runtimeNavigationHint"]
             )
 
+    def test_task_list_filters_exact_current_runtime_navigation_hint(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / "state"
+            now = [8_700]
+
+            def clock() -> int:
+                now[0] += 1
+                return now[0]
+
+            with HostStorage(state_root) as storage:
+                continuity = ExternalContinuityHost(storage, clock_ms=clock)
+                for task_id, goal_id, workspace_id in (
+                    ("task:mcp:claim-a", "goal:mcp:claim-a", "ws:shared"),
+                    ("task:mcp:claim-b", "goal:mcp:claim-b", "ws:shared"),
+                    ("task:mcp:claim-other", "goal:mcp:claim-a", "ws:other"),
+                ):
+                    continuity.adopt(
+                        task_id=task_id,
+                        goal_id=goal_id,
+                        initial_checkpoint=WorkingCheckpoint(
+                            task_id=task_id,
+                            objective="claim one navigation carrier",
+                            frontier="continue",
+                            runtime=WorkingCheckpointRuntime(
+                                workspace_id=workspace_id,
+                                relevant_job_ids=(),
+                                observed_head_revision=None,
+                            ),
+                        ),
+                    )
+
+            shared = _list_host_tasks(
+                state_root,
+                goal_id=None,
+                runtime_workspace_id="ws:shared",
+                limit=10,
+            )
+            self.assertEqual(
+                {item["projection"]["taskId"] for item in shared["tasks"]},
+                {"task:mcp:claim-a", "task:mcp:claim-b"},
+            )
+            scoped = _list_host_tasks(
+                state_root,
+                goal_id="goal:mcp:claim-a",
+                runtime_workspace_id="ws:shared",
+                limit=10,
+            )
+            self.assertEqual(
+                [item["projection"]["taskId"] for item in scoped["tasks"]],
+                ["task:mcp:claim-a"],
+            )
+            missing = _list_host_tasks(
+                state_root,
+                goal_id=None,
+                runtime_workspace_id="ws:missing",
+                limit=10,
+            )
+            self.assertEqual(missing["tasks"], [])
+            with self.assertRaisesRegex(ValueError, "runtimeWorkspaceId") as invalid:
+                _list_host_tasks(
+                    state_root,
+                    goal_id=None,
+                    runtime_workspace_id="  ",
+                    limit=10,
+                )
+            self.assertEqual(invalid.exception.field, "runtimeWorkspaceId")
+
     def test_task_list_hides_terminal_continuity_unless_requested(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             state_root = Path(directory) / "state"
@@ -801,6 +869,63 @@ class HostMcpTaskDiscoveryTests(unittest.TestCase):
                 )
             self.assertEqual(captured.exception.field, "cursor")
 
+    def test_task_list_accepts_legacy_cursor_only_without_workspace_filter(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / "state"
+            now = [11_900]
+
+            def clock() -> int:
+                now[0] += 1
+                return now[0]
+
+            task_ids = ["task:mcp:legacy-cursor-a", "task:mcp:legacy-cursor-b"]
+            with HostStorage(state_root) as storage:
+                continuity = ExternalContinuityHost(storage, clock_ms=clock)
+                for task_id in task_ids:
+                    continuity.adopt(
+                        task_id=task_id,
+                        goal_id="goal:mcp:legacy-cursor",
+                        initial_checkpoint=WorkingCheckpoint(
+                            task_id=task_id,
+                            objective="legacy cursor compatibility",
+                            frontier="continue",
+                        ),
+                    )
+                rows = storage.journal.connection.execute(
+                    "SELECT p.task_id, s.created_at_ms FROM task_projection p "
+                    "JOIN streams s ON s.stream_id = p.task_id "
+                    "ORDER BY s.created_at_ms DESC, p.task_id LIMIT 1"
+                ).fetchone()
+            payload = json.dumps(
+                {
+                    "v": 1,
+                    "createdAtMs": int(rows["created_at_ms"]),
+                    "taskId": str(rows["task_id"]),
+                    "goalId": "goal:mcp:legacy-cursor",
+                    "includeTerminal": False,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            cursor = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+            page = _list_host_tasks(
+                state_root,
+                goal_id="goal:mcp:legacy-cursor",
+                limit=10,
+                cursor=cursor,
+            )
+            self.assertEqual(len(page["tasks"]), 1)
+            with self.assertRaisesRegex(
+                ValueError, "does not match the current query scope"
+            ):
+                _list_host_tasks(
+                    state_root,
+                    goal_id="goal:mcp:legacy-cursor",
+                    runtime_workspace_id="ws:any",
+                    limit=10,
+                    cursor=cursor,
+                )
+
     def test_task_list_cursor_is_bound_to_query_scope(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             state_root = Path(directory) / "state"
@@ -847,6 +972,17 @@ class HostMcpTaskDiscoveryTests(unittest.TestCase):
                     include_terminal=True,
                 )
             self.assertEqual(wrong_terminal_scope.exception.field, "cursor")
+            with self.assertRaisesRegex(
+                ValueError, "does not match the current query scope"
+            ) as wrong_runtime_scope:
+                _list_host_tasks(
+                    state_root,
+                    goal_id="goal:mcp:scope-a",
+                    runtime_workspace_id="ws:different-scope",
+                    limit=1,
+                    cursor=cursor,
+                )
+            self.assertEqual(wrong_runtime_scope.exception.field, "cursor")
 
 
 class HostMcpAgentUxTests(unittest.TestCase):
@@ -1319,6 +1455,7 @@ class HostMcpEndToEndTests(unittest.TestCase):
                 list_schema = by_name["task.list"]["inputSchema"]
                 self.assertIn("cursor", list_schema["properties"])
                 self.assertIn("includeTerminal", list_schema["properties"])
+                self.assertIn("runtimeWorkspaceId", list_schema["properties"])
                 adopt_schema = by_name["task.adopt"]["inputSchema"]
                 checkpoint_schema = by_name["task.checkpoint"]["inputSchema"]
                 self.assertEqual(

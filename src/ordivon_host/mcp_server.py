@@ -700,7 +700,9 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
             "owner standing, or current domain truth. Each item includes the current Host projection, "
             "creation time, and bounded semantic checkpoint preview. When the exact current "
             "WorkingCheckpoint carries a Runtime workspaceId, semanticSummary.runtimeNavigationHint "
-            "exposes that Host-retained navigation hint only; it does not establish Runtime currentness, "
+            "exposes that Host-retained navigation hint only. runtimeWorkspaceId optionally filters "
+            "by exact current Host-retained workspace hint for structural claimant discovery; it does "
+            "not establish Runtime currentness, "
             "semantic claimant standing, or unclaimed status when absent. It also does not authorize "
             "physical Workspace retention or closure; revalidate exact Runtime state before any "
             "carrier disposition. Missing Runtime mechanics is not a Human decision requirement. "
@@ -716,6 +718,7 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
     )
     async def task_list(
         goalId: str | None = None,
+        runtimeWorkspaceId: str | None = None,
         limit: int = 50,
         cursor: str | None = None,
         includeTerminal: bool = False,
@@ -724,6 +727,7 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
             lambda: _list_host_tasks(
                 settings.state_root,
                 goal_id=goalId,
+                runtime_workspace_id=runtimeWorkspaceId,
                 limit=limit,
                 cursor=cursor,
                 include_terminal=includeTerminal,
@@ -1018,14 +1022,16 @@ def _task_cursor(
     task_id: str,
     *,
     goal_id: str | None,
+    runtime_workspace_id: str | None,
     include_terminal: bool,
 ) -> str:
     payload = json.dumps(
         {
-            "v": 1,
+            "v": 2,
             "createdAtMs": created_at_ms,
             "taskId": task_id,
             "goalId": goal_id,
+            "runtimeWorkspaceId": runtime_workspace_id,
             "includeTerminal": include_terminal,
         },
         sort_keys=True,
@@ -1038,6 +1044,7 @@ def _parse_task_cursor(
     value: str | None,
     *,
     goal_id: str | None,
+    runtime_workspace_id: str | None,
     include_terminal: bool,
 ) -> tuple[int, str] | None:
     if value is None:
@@ -1050,21 +1057,45 @@ def _parse_task_cursor(
         payload = json.loads(decoded)
     except (UnicodeEncodeError, ValueError, json.JSONDecodeError) as error:
         raise ToolArgumentError("cursor", "task.list cursor is invalid") from error
+    if not isinstance(payload, dict):
+        raise ToolArgumentError("cursor", "task.list cursor is invalid")
+    version = payload.get("v")
+    legacy = version == 1
+    expected_fields = (
+        {"v", "createdAtMs", "taskId", "goalId", "includeTerminal"}
+        if legacy
+        else {
+            "v",
+            "createdAtMs",
+            "taskId",
+            "goalId",
+            "runtimeWorkspaceId",
+            "includeTerminal",
+        }
+    )
     if (
-        not isinstance(payload, dict)
-        or set(payload)
-        != {"v", "createdAtMs", "taskId", "goalId", "includeTerminal"}
-        or payload.get("v") != 1
+        version not in {1, 2}
+        or set(payload) != expected_fields
         or type(payload.get("createdAtMs")) is not int
         or payload["createdAtMs"] < 0
         or not isinstance(payload.get("taskId"), str)
         or not payload["taskId"].startswith("task:")
         or payload["taskId"] != payload["taskId"].strip()
         or (payload.get("goalId") is not None and not isinstance(payload.get("goalId"), str))
+        or (
+            not legacy
+            and payload.get("runtimeWorkspaceId") is not None
+            and not isinstance(payload.get("runtimeWorkspaceId"), str)
+        )
         or type(payload.get("includeTerminal")) is not bool
     ):
         raise ToolArgumentError("cursor", "task.list cursor is invalid")
-    if payload["goalId"] != goal_id or payload["includeTerminal"] is not include_terminal:
+    cursor_workspace_id = None if legacy else payload["runtimeWorkspaceId"]
+    if (
+        payload["goalId"] != goal_id
+        or cursor_workspace_id != runtime_workspace_id
+        or payload["includeTerminal"] is not include_terminal
+    ):
         raise ToolArgumentError(
             "cursor", "task.list cursor does not match the current query scope"
         )
@@ -1409,6 +1440,7 @@ def _list_host_tasks(
     state_root: Path,
     *,
     goal_id: str | None,
+    runtime_workspace_id: str | None = None,
     limit: int,
     cursor: str | None = None,
     include_terminal: bool = False,
@@ -1419,8 +1451,20 @@ def _list_host_tasks(
         not goal_id.startswith("goal:") or goal_id != goal_id.strip()
     ):
         raise ToolArgumentError("goalId", "Goal identity must start with goal:")
+    if runtime_workspace_id is not None and (
+        not runtime_workspace_id
+        or runtime_workspace_id != runtime_workspace_id.strip()
+        or len(runtime_workspace_id) > 512
+    ):
+        raise ToolArgumentError(
+            "runtimeWorkspaceId",
+            "runtimeWorkspaceId must be null or 1-512 trimmed characters",
+        )
     after = _parse_task_cursor(
-        cursor, goal_id=goal_id, include_terminal=include_terminal
+        cursor,
+        goal_id=goal_id,
+        runtime_workspace_id=runtime_workspace_id,
+        include_terminal=include_terminal,
     )
     matches: list[tuple[int, dict[str, object]]] = []
     scan_after = after
@@ -1479,6 +1523,12 @@ def _list_host_tasks(
                     storage, clock_ms=_wall_clock_ms
                 ).checkpoint_at_revision(task_id, task.revision)
                 semantic_summary = None
+                if runtime_workspace_id is not None and (
+                    checkpoint is None
+                    or checkpoint.checkpoint.runtime is None
+                    or checkpoint.checkpoint.runtime.workspace_id != runtime_workspace_id
+                ):
+                    continue
                 if checkpoint is not None:
                     objective_preview, objective_truncated = _discovery_preview(
                         checkpoint.checkpoint.objective
@@ -1536,6 +1586,7 @@ def _list_host_tasks(
             created_at_ms,
             str(item["projection"]["taskId"]),
             goal_id=goal_id,
+            runtime_workspace_id=runtime_workspace_id,
             include_terminal=include_terminal,
         )
     return {
