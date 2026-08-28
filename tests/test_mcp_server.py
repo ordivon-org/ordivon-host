@@ -152,11 +152,15 @@ class HostMcpSettingsTests(unittest.TestCase):
         tools = {tool.name: tool for tool in server._tool_manager.list_tools()}
         self.assertIn("not active-work counts or priority", tools["host.status"].description)
         self.assertIn("Host lifecycle mechanics only", tools["task.observe"].description)
+        self.assertIn("bounded previews, not a semantic write base", tools["task.observe"].description)
         self.assertIn("continuity inventory, not a current-work or priority surface", tools["task.list"].description)
         self.assertIn("READY means only that Host continuity remains open", tools["task.list"].description)
         self.assertIn("Host semantic continuity only", tools["task.resume"].description)
+        self.assertIn("full semantic-base read", tools["task.resume"].description)
         self.assertIn("does not admit cross-owner work priority", tools["task.adopt"].description)
         self.assertIn("mutates Host continuity tracking only", tools["task.checkpoint"].description)
+        self.assertIn("whole-list replacements, not append/merge", tools["task.checkpoint"].description)
+        self.assertIn("does not prove semantic-base consumption", tools["task.checkpoint"].description)
 
 
 class BearerAuthDisconnectTests(unittest.IsolatedAsyncioTestCase):
