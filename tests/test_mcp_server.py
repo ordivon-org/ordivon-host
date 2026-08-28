@@ -1560,6 +1560,46 @@ class HostMcpEndToEndTests(unittest.TestCase):
                         "semantic-working-claim",
                     )
 
+                status_summary_result = client.request(
+                    "tools/call",
+                    {
+                        "name": "host.status",
+                        "arguments": {"detail": "summary", "recentLimit": 0},
+                    },
+                )
+                status_summary_meta = status_summary_result.get("_meta")
+                self.assertIsInstance(status_summary_meta, dict)
+                assert isinstance(status_summary_meta, dict)
+                summary_scope = status_summary_meta.get("ordivon/hostIntegrityScope")
+                self.assertIsInstance(summary_scope, dict)
+                assert isinstance(summary_scope, dict)
+                self.assertEqual(summary_scope["scope"], "startup-global")
+                self.assertEqual(
+                    summary_scope["cas"], "startup-critical-retained-references"
+                )
+                self.assertFalse(summary_scope["globalCasHealthClaimed"])
+                self.assertIsNone(summary_scope["doctor"])
+
+                status_integrity_result = client.request(
+                    "tools/call",
+                    {
+                        "name": "host.status",
+                        "arguments": {"detail": "integrity", "recentLimit": 0},
+                    },
+                )
+                status_integrity_meta = status_integrity_result.get("_meta")
+                self.assertIsInstance(status_integrity_meta, dict)
+                assert isinstance(status_integrity_meta, dict)
+                integrity_scope = status_integrity_meta.get(
+                    "ordivon/hostIntegrityScope"
+                )
+                self.assertIsInstance(integrity_scope, dict)
+                assert isinstance(integrity_scope, dict)
+                self.assertEqual(integrity_scope["scope"], "global")
+                self.assertEqual(integrity_scope["cas"], "all-retained-cas-via-doctor")
+                self.assertTrue(integrity_scope["globalCasHealthClaimed"])
+                self.assertEqual(integrity_scope["doctor"], "full-current")
+
                 board_list_schema = by_name["board.list"]["inputSchema"]
                 self.assertIn("afterSequence", board_list_schema["properties"])
                 self.assertIn("limit", board_list_schema["properties"])
