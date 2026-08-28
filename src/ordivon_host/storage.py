@@ -56,9 +56,14 @@ class HostStorage:
         *,
         validation_mode: Literal["cached", "full", "targeted"] = "cached",
         update_validation_cache: bool = True,
+        retain_validated_task_heads: bool = False,
     ) -> None:
         if validation_mode not in {"cached", "full", "targeted"}:
             raise ValueError("Host validation mode must be cached, full, or targeted")
+        if validation_mode == "targeted" and retain_validated_task_heads:
+            raise ValueError(
+                "targeted validation cannot retain globally validated Task heads"
+            )
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         if self.root.is_symlink():
@@ -66,6 +71,8 @@ class HostStorage:
         os.chmod(self.root, 0o700)
         self.objects = ContentAddressedStore(self.root / "objects")
         self.journal = HostJournal(self.root / "host.sqlite3")
+        self._retain_validated_task_heads = retain_validated_task_heads
+        self._validated_task_head_snapshots: tuple[TaskEventSnapshot, ...] | None = None
         try:
             if validation_mode == "targeted":
                 self.validation_summary = ReferenceValidation(
@@ -96,6 +103,13 @@ class HostStorage:
     def put_object(self, value: JsonValue, *, kind: str) -> StoredObject:
         return self.objects.put(value, kind=kind)
 
+    def validated_task_head_snapshots(self) -> tuple[TaskEventSnapshot, ...]:
+        if self._validated_task_head_snapshots is None:
+            raise RuntimeError(
+                "Task head snapshots were not retained by this HostStorage"
+            )
+        return self._validated_task_head_snapshots
+
     def task_descriptor_digest(self, task_id: str) -> str:
         snapshot = self.read_task_event(task_id)
         data = snapshot.data
@@ -119,13 +133,23 @@ class HostStorage:
             raise JournalCorruption(f"Task descriptor object kind differs: {task_id}")
         return digest
 
-    def read_task_descriptor(self, task_id: str) -> TaskDescriptor | None:
-        try:
-            semantic_digest = self.task_descriptor_digest(task_id)
-            object_digest = self.task_descriptor_object_digest(task_id)
-        except KeyError:
+    def task_descriptor_from_snapshot(
+        self, snapshot: TaskEventSnapshot
+    ) -> TaskDescriptor | None:
+        data = snapshot.data
+        if not isinstance(data, dict):
+            raise JournalCorruption(
+                f"Task event data is not an object: {snapshot.projection.task_id}"
+            )
+        semantic_digest = data.get("descriptorDigest")
+        object_digest = data.get("descriptorObjectDigest")
+        if not isinstance(semantic_digest, str) or not isinstance(object_digest, str):
             return None
-        value = self.objects.get(object_digest, expected_kind="task-descriptor")
+        value, stored = self.objects.get_with_metadata(object_digest)
+        if stored.kind != "task-descriptor":
+            raise JournalCorruption(
+                f"Task descriptor object kind differs: {snapshot.projection.task_id}"
+            )
         if not isinstance(value, dict):
             raise ObjectCorrupt("TaskDescriptor object must be an object")
         try:
@@ -134,14 +158,15 @@ class HostStorage:
             raise ObjectCorrupt("TaskDescriptor object is invalid") from error
         if canonical_digest(descriptor.to_dict()) != semantic_digest:
             raise JournalCorruption("TaskDescriptor semantic digest differs")
-        projection = self.journal.get_task(task_id)
         if (
-            projection is None
-            or descriptor.task_id != projection.task_id
-            or descriptor.goal_id != projection.goal_id
+            descriptor.task_id != snapshot.projection.task_id
+            or descriptor.goal_id != snapshot.projection.goal_id
         ):
             raise JournalCorruption("TaskDescriptor identity differs from projection")
         return descriptor
+
+    def read_task_descriptor(self, task_id: str) -> TaskDescriptor | None:
+        return self.task_descriptor_from_snapshot(self.read_task_event(task_id))
 
     def validate_references(
         self,
@@ -187,12 +212,20 @@ class HostStorage:
             self.journal.record_object_validations(tuple(pending))
 
         task_rows = self.journal.task_projection_validation_rows()
+        retained_heads: list[TaskEventSnapshot] | None = (
+            [] if self._retain_validated_task_heads else None
+        )
         for materialized, pointer in task_rows:
-            rebuilt = self._read_task_event_pointer(pointer).projection
-            if materialized != rebuilt:
+            snapshot = self._read_task_event_pointer(pointer)
+            if materialized != snapshot.projection:
                 raise JournalCorruption(
                     f"Task projection differs from event head: {materialized.task_id}"
                 )
+            if retained_heads is not None:
+                retained_heads.append(snapshot)
+        self._validated_task_head_snapshots = (
+            None if retained_heads is None else tuple(retained_heads)
+        )
         return ReferenceValidation(
             object_refs=total_objects,
             cached_objects=cached_objects,

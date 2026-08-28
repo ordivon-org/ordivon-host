@@ -1211,7 +1211,11 @@ def _host_status(
     observed_at_ms = _wall_clock_ms()
     deployment = _current_deployment_identity()
 
-    with HostStorage(state_root, update_validation_cache=False) as storage:
+    with HostStorage(
+        state_root,
+        update_validation_cache=False,
+        retain_validated_task_heads=True,
+    ) as storage:
         states = storage.journal.task_counts_by_state()
         task_count = storage.journal.task_count()
         terminal_count = sum(
@@ -1271,14 +1275,11 @@ def _host_status(
             "truthRole": "external-news-projection-not-world-truth",
         }
         continuity_counts = {"active": 0, "terminal": 0}
-        for task_id in storage.journal.task_ids():
-            descriptor = storage.read_task_descriptor(task_id)
+        for snapshot in storage.validated_task_head_snapshots():
+            descriptor = storage.task_descriptor_from_snapshot(snapshot)
             if descriptor is None or descriptor.workload_id != EXTERNAL_CONTINUITY_WORKLOAD_ID:
                 continue
-            projection = storage.journal.get_task(task_id)
-            if projection is None:
-                raise RuntimeError("Task disappeared during Host status projection")
-            key = "terminal" if projection.state.terminal else "active"
+            key = "terminal" if snapshot.projection.state.terminal else "active"
             continuity_counts[key] += 1
 
     doctor = None

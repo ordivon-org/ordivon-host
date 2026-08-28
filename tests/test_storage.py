@@ -435,6 +435,38 @@ class HostStorageTests(unittest.TestCase):
             with self.assertRaises(ObjectCorrupt):
                 HostStorage(directory)
 
+    def test_cached_validation_retains_exact_task_head_snapshots_but_targeted_does_not(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with HostStorage(directory) as storage:
+                storage.record_task_event(
+                    event_id="event:validated-head:r1",
+                    kind=EventKind.TASK_CREATED,
+                    payload={"revision": 1},
+                    projection=projection(1),
+                    expected_revision=0,
+                )
+
+            with HostStorage(directory, update_validation_cache=False) as ordinary:
+                with self.assertRaisesRegex(RuntimeError, "were not retained"):
+                    ordinary.validated_task_head_snapshots()
+
+            with HostStorage(
+                directory,
+                update_validation_cache=False,
+                retain_validated_task_heads=True,
+            ) as reopened:
+                snapshots = reopened.validated_task_head_snapshots()
+                self.assertEqual(len(snapshots), 1)
+                self.assertEqual(snapshots[0].projection, projection(1))
+                self.assertEqual(snapshots[0].data, {"revision": 1})
+
+            with self.assertRaisesRegex(ValueError, "targeted validation cannot retain"):
+                HostStorage(
+                    directory,
+                    validation_mode="targeted",
+                    retain_validated_task_heads=True,
+                )
+
     def test_targeted_validation_defers_unrelated_reference_failure_to_global_open(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             with HostStorage(directory) as storage:

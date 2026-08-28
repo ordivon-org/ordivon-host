@@ -13,6 +13,7 @@ import unittest
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 from unittest import mock
@@ -22,6 +23,7 @@ from ordivon_host.continuity import ExternalContinuityHost
 from ordivon_host.continuity_models import WorkingCheckpoint, WorkingCheckpointRuntime
 from ordivon_host.domain import EventKind, TaskState
 from ordivon_host.kernel import HostKernel
+from ordivon_host.journal import JournalCorruption
 from ordivon_host.mcp_server import (
     BearerAuthApp,
     HostMcpSettings,
@@ -1171,6 +1173,85 @@ class HostMcpAgentUxTests(unittest.TestCase):
                     expected_revision=1,
                     event_limit=5,
                 )
+
+    def test_status_summary_reuses_validated_current_heads_and_preserves_descriptor_corruption_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / "state"
+            task_id = "task:mcp:status-evidence-reuse"
+            goal_id = "goal:mcp:status-evidence-reuse"
+            now = [10_000]
+
+            def clock() -> int:
+                now[0] += 1
+                return now[0]
+
+            with HostStorage(state_root) as storage:
+                continuity = ExternalContinuityHost(storage, clock_ms=clock)
+                adopted = continuity.adopt(
+                    task_id=task_id,
+                    goal_id=goal_id,
+                    initial_checkpoint=WorkingCheckpoint(
+                        task_id=task_id, objective="reuse evidence", frontier="first"
+                    ),
+                )
+                continuity.checkpoint(
+                    task_id=task_id,
+                    expected_revision=adopted.projection.revision,
+                    checkpoint=WorkingCheckpoint(
+                        task_id=task_id, objective="reuse evidence", frontier="second"
+                    ),
+                )
+
+            with mock.patch.object(
+                HostStorage,
+                "read_task_descriptor",
+                side_effect=AssertionError("summary must reuse validated current heads"),
+            ):
+                summary = _host_status(state_root, detail="summary", recent_limit=0)
+            self.assertEqual(summary["continuity"], {"active": 1, "terminal": 0})
+
+            with HostStorage(state_root) as storage:
+                row = storage.journal.connection.execute(
+                    "SELECT event_id, payload_digest FROM events WHERE stream_id = ? "
+                    "ORDER BY stream_revision DESC LIMIT 1",
+                    (task_id,),
+                ).fetchone()
+                assert row is not None
+                event_id = str(row["event_id"])
+                raw = storage.objects.get(
+                    str(row["payload_digest"]), expected_kind="host-event-payload"
+                )
+                self.assertIsInstance(raw, dict)
+                assert isinstance(raw, dict)
+                tampered = deepcopy(raw)
+                self.assertIsInstance(tampered["data"], dict)
+                assert isinstance(tampered["data"], dict)
+                tampered["data"]["descriptorDigest"] = "sha256:" + "0" * 64
+                stored = storage.objects.put(tampered, kind="host-event-payload")
+                storage.journal.connection.execute(
+                    "INSERT OR IGNORE INTO object_refs("
+                    "digest, kind, byte_length, first_seen_at_ms, validation_timing"
+                    ") VALUES (?, ?, ?, ?, ?)",
+                    (stored.digest, stored.kind, stored.byte_length, 20_000, "startup"),
+                )
+                storage.journal.connection.execute(
+                    "UPDATE events SET payload_digest = ? WHERE event_id = ?",
+                    (stored.digest, event_id),
+                )
+                storage.journal.connection.execute(
+                    "DELETE FROM event_object_refs WHERE event_id = ? AND role = 'payload'",
+                    (event_id,),
+                )
+                storage.journal.connection.execute(
+                    "INSERT INTO event_object_refs(event_id, digest, role) VALUES (?, ?, 'payload')",
+                    (event_id, stored.digest),
+                )
+                storage.journal.connection.commit()
+
+            with self.assertRaisesRegex(
+                JournalCorruption, "TaskDescriptor semantic digest differs"
+            ):
+                _host_status(state_root, detail="summary", recent_limit=0)
 
     def test_status_summary_does_not_claim_on_access_cas_health(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

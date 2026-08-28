@@ -121,13 +121,17 @@ class ContentAddressedStore:
             temporary.unlink(missing_ok=True)
         return StoredObject(digest, len(encoded), kind)
 
-    def get(self, digest: str, *, expected_kind: str | None = None) -> JsonValue:
+    def get_with_metadata(self, digest: str) -> tuple[JsonValue, StoredObject]:
         envelope, stored, _ = self._load_with_identity(digest)
+        return envelope["payload"], stored
+
+    def get(self, digest: str, *, expected_kind: str | None = None) -> JsonValue:
+        value, stored = self.get_with_metadata(digest)
         if expected_kind is not None and stored.kind != expected_kind:
             raise ObjectCorrupt(
                 f"object kind is {stored.kind}, expected {expected_kind}"
             )
-        return envelope["payload"]
+        return value
 
     def inspect(self, digest: str) -> StoredObject:
         _, stored, _ = self._load_with_identity(digest)
