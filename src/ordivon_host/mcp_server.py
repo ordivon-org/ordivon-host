@@ -588,7 +588,9 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
         title="List Host daily news editions",
         description=(
             "List bounded daily external-news edition headers with stable query-bound cursor paging. "
-            "This is publication inventory only, not external-world truth or a priority surface."
+            "This is publication inventory only, not external-world truth or a priority surface. "
+            "This read validates Journal invariants for the visible inventory without claiming "
+            "unrelated CAS objects are globally healthy."
         ),
         annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
     )
@@ -602,7 +604,9 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
             lambda: _list_news(
                 settings.state_root, limit=limit, cursor=cursor, from_date=fromDate, to_date=toDate
             ),
-            server_interface=server_interface, write=False,
+            server_interface=server_interface,
+            result_meta={"ordivon/hostIntegrityScope": _operation_local_integrity_scope()},
+            write=False,
         )
 
     @server.tool(
@@ -611,7 +615,9 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
         description=(
             "Read the latest or one exact revision of a durable external-news edition, optionally "
             "filtered by section/category/thread key. The default omits the long rendered brief and "
-            "returns structured items. External claims remain source claims requiring revalidation."
+            "returns structured items. External claims remain source claims requiring revalidation. "
+            "This read fully validates the edition CAS it consumes while unrelated CAS health "
+            "remains a global status/Doctor concern."
         ),
         annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False),
     )
@@ -632,7 +638,9 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
                 thread_keys=() if threadKeys is None else tuple(threadKeys),
                 include_rendered_brief=includeRenderedBrief,
             ),
-            server_interface=server_interface, write=False,
+            server_interface=server_interface,
+            result_meta={"ordivon/hostIntegrityScope": _operation_local_integrity_scope()},
+            write=False,
         )
 
     @server.tool(
@@ -1308,7 +1316,9 @@ def _post_board_message(
 def _list_news(
     state_root: Path, *, limit: int, cursor: str | None, from_date: str | None, to_date: str | None
 ) -> dict[str, object]:
-    with HostStorage(state_root, update_validation_cache=False) as storage:
+    with HostStorage(
+        state_root, validation_mode="targeted", update_validation_cache=False
+    ) as storage:
         return HostDailyNews(storage).list(
             limit=limit, cursor=cursor, from_date=from_date, to_date=to_date
         )
@@ -1319,7 +1329,9 @@ def _read_news(
     sections: tuple[str, ...], categories: tuple[str, ...], thread_keys: tuple[str, ...],
     include_rendered_brief: bool,
 ) -> dict[str, object]:
-    with HostStorage(state_root, update_validation_cache=False) as storage:
+    with HostStorage(
+        state_root, validation_mode="targeted", update_validation_cache=False
+    ) as storage:
         return HostDailyNews(storage).read(
             edition_id=edition_id, revision=revision, sections=sections, categories=categories,
             thread_keys=thread_keys, include_rendered_brief=include_rendered_brief,

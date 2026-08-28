@@ -6,7 +6,9 @@ import tempfile
 import unittest
 
 from ordivon_host.journal import RevisionConflict
+from ordivon_host.mcp_server import _host_status, _list_news, _read_news
 from ordivon_host.news import HostDailyNews
+from ordivon_host.objects import ObjectMissing
 from ordivon_host.ops import doctor_state
 from ordivon_host.ops.backup import create_backup
 from ordivon_host.storage import HostStorage
@@ -146,6 +148,45 @@ class HostDailyNewsTests(unittest.TestCase):
                     sections=("anomaly",), thread_keys=("geopolitics:hormuz-shipping",)
                 )
                 self.assertEqual([item["itemId"] for item in filtered["edition"]["items"]], ["hormuz-flow"])
+
+    def test_mcp_news_reads_defer_unrelated_global_cas_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with HostStorage(root) as storage:
+                HostDailyNews(storage).publish(
+                    client_publish_id="news-publish:operation-local:v1",
+                    edition_id="news:daily:2026-08-28:Asia-Shanghai",
+                    expected_revision=0,
+                    edition=edition(),
+                    recorded_at_ms=1100,
+                )
+                missing_digest = "sha256:" + "f" * 64
+                storage.journal.connection.execute(
+                    "INSERT INTO object_refs("
+                    "digest, kind, byte_length, first_seen_at_ms, validation_timing"
+                    ") VALUES (?, ?, ?, ?, ?)",
+                    (missing_digest, "test-unrelated", 1, 1200, "startup"),
+                )
+                storage.journal.connection.commit()
+
+            listing = _list_news(
+                root, limit=10, cursor=None, from_date=None, to_date=None
+            )
+            self.assertEqual(listing["editions"][0]["editionDate"], "2026-08-28")
+            current = _read_news(
+                root,
+                edition_id="news:daily:2026-08-28:Asia-Shanghai",
+                revision=None,
+                sections=(),
+                categories=(),
+                thread_keys=(),
+                include_rendered_brief=False,
+            )
+            self.assertEqual(current["edition"]["revision"], 1)
+            self.assertIsNone(current["edition"]["renderedBrief"])
+
+            with self.assertRaises(ObjectMissing):
+                _host_status(root, detail="summary", recent_limit=0)
 
     def test_list_is_date_scoped_and_cursor_bound(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
