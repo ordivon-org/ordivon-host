@@ -22,6 +22,7 @@ from ordivon_host.continuity import ExternalContinuityHost
 from ordivon_host.continuity_models import WorkingCheckpoint, WorkingCheckpointRuntime
 from ordivon_host.domain import EventKind, TaskState
 from ordivon_host.kernel import HostKernel
+from ordivon_host.journal import HostJournal
 from ordivon_host.mcp_server import (
     BearerAuthApp,
     HostMcpSettings,
@@ -1111,6 +1112,60 @@ class HostMcpAgentUxTests(unittest.TestCase):
                 {check["name"] for check in history["doctor"]["checks"]},
             )
             self.assertEqual(history["recentActivity"], [])
+
+    def test_status_summary_does_not_reuse_stale_validated_task_heads(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / "state"
+            clock = iter(range(1_000, 2_000)).__next__
+            task_id = "task:mcp:status-standing-coherence"
+            goal_id = "goal:mcp:status-standing-coherence"
+            initial = WorkingCheckpoint(
+                task_id=task_id,
+                objective="keep one status response on current standing",
+                frontier="ready-r2",
+            )
+            final = WorkingCheckpoint(
+                task_id=task_id,
+                objective="keep one status response on current standing",
+                frontier="complete-r3",
+            )
+            with HostStorage(state_root) as storage:
+                ExternalContinuityHost(storage, clock_ms=clock).adopt(
+                    task_id=task_id,
+                    goal_id=goal_id,
+                    initial_checkpoint=initial,
+                )
+
+            original_counts = HostJournal.task_counts_by_state
+            advanced = False
+
+            def counts_after_concurrent_completion(journal: HostJournal) -> dict[str, int]:
+                nonlocal advanced
+                if not advanced:
+                    advanced = True
+                    with HostStorage(state_root) as writer:
+                        ExternalContinuityHost(writer, clock_ms=clock).checkpoint(
+                            task_id=task_id,
+                            expected_revision=2,
+                            checkpoint=final,
+                            disposition="complete",
+                            writer_label="test:concurrent-writer",
+                        )
+                return original_counts(journal)
+
+            with mock.patch.object(
+                HostJournal,
+                "task_counts_by_state",
+                counts_after_concurrent_completion,
+            ):
+                summary = _host_status(
+                    state_root, detail="summary", recent_limit=5
+                )
+
+            self.assertEqual(summary["authority"]["tasksByState"], {"completed": 1})
+            self.assertEqual(summary["continuity"], {"active": 0, "terminal": 1})
+            self.assertEqual(summary["recentActivity"][0]["revision"], 3)
+            self.assertEqual(summary["recentActivity"][0]["currentState"], "completed")
 
     def test_task_observe_is_revision_fenced_and_payload_bounded(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
