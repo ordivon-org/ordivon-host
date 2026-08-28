@@ -315,6 +315,49 @@ class ExternalContinuityTests(unittest.TestCase):
                 self.assertEqual(current.projection.revision, 4)
                 self.assertEqual(current.extension_namespaces, ("world",))
 
+    def test_writer_provenance_is_revision_metadata_not_checkpoint_semantics(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            task_id = "task:external-continuity:writer-provenance"
+            clock = FixedClock()
+            initial = checkpoint(task_id, "writer-initial")
+            semantic_digest = initial.digest
+            with HostStorage(directory) as storage:
+                host = ExternalContinuityHost(storage, clock_ms=clock)
+                adopted = host.adopt(
+                    task_id=task_id,
+                    goal_id="goal:external-continuity",
+                    initial_checkpoint=initial,
+                    writer_label="chat:writer-a",
+                )
+                assert adopted.checkpoint is not None
+                self.assertEqual(adopted.checkpoint.writer_label, "chat:writer-a")
+                self.assertEqual(initial.digest, semantic_digest)
+                self.assertNotIn("writerLabel", initial.to_dict())
+                seeded = host.checkpoint_at_revision(task_id, 1)
+                assert seeded is not None
+                self.assertEqual(seeded.writer_label, "chat:writer-a")
+
+                updated = checkpoint(task_id, "writer-updated")
+                receipt = host.checkpoint(
+                    task_id=task_id,
+                    expected_revision=2,
+                    checkpoint=updated,
+                    writer_label="chat:writer-b",
+                )
+                self.assertEqual(receipt.record.writer_label, "chat:writer-b")
+                previous = host.checkpoint_at_revision(task_id, 2)
+                assert previous is not None
+                self.assertEqual(previous.writer_label, "chat:writer-a")
+                validate_history(storage)
+
+                with self.assertRaisesRegex(ValueError, "writerLabel"):
+                    host.checkpoint(
+                        task_id=task_id,
+                        expected_revision=3,
+                        checkpoint=checkpoint(task_id, "invalid-writer"),
+                        writer_label="  ",
+                    )
+
     def test_checkpoint_response_loss_retry_returns_existing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             task_id = "task:external-continuity:response-loss"
@@ -331,15 +374,23 @@ class ExternalContinuityTests(unittest.TestCase):
                     task_id=task_id,
                     expected_revision=2,
                     checkpoint=update,
+                    writer_label="chat:writer-a",
                 )
                 retry = host.checkpoint(
                     task_id=task_id,
                     expected_revision=2,
                     checkpoint=update,
+                    writer_label="chat:writer-b",
                 )
                 self.assertEqual(first.admission, EventAdmission.CREATED)
                 self.assertEqual(retry.admission, EventAdmission.EXISTING)
                 self.assertEqual(first.record.checkpoint_digest, retry.record.checkpoint_digest)
+                self.assertEqual(first.record.writer_label, "chat:writer-a")
+                self.assertEqual(retry.record.writer_label, "chat:writer-a")
+                self.assertEqual(
+                    retry.record.to_dict()["writerIdentityRole"],
+                    "self-asserted-label",
+                )
                 self.assertEqual(storage.journal.event_count(task_id), 3)
                 with self.assertRaises(RevisionConflict):
                     host.checkpoint(

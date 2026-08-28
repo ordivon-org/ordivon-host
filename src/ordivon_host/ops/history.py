@@ -10,6 +10,7 @@ from ..continuity_models import (
     EXTERNAL_CONTINUITY_WORKLOAD_ID,
     WORKING_CHECKPOINT_OBJECT_KIND,
     WorkingCheckpoint,
+    validate_writer_label,
 )
 from ..domain import EventKind, TaskDescriptor, TaskProjection
 from ..journal import JournalCorruption
@@ -209,9 +210,20 @@ def _validate_core_semantic_links(
             "checkpointDigest",
             "checkpointObjectDigest",
         }
-        if set(data) != expected:
+        fields = set(data)
+        if fields not in {frozenset(expected), frozenset((*expected, "writerLabel"))}:
             raise JournalCorruption(
                 f"historical WorkingCheckpoint payload fields differ: {event_id}"
+            )
+        try:
+            writer_label = validate_writer_label(data.get("writerLabel"))
+        except ValueError as error:
+            raise JournalCorruption(
+                f"historical WorkingCheckpoint writerLabel is invalid: {event_id}"
+            ) from error
+        if "writerLabel" in data and writer_label is None:
+            raise JournalCorruption(
+                f"historical WorkingCheckpoint writerLabel cannot be null: {event_id}"
             )
         checkpoint_digest = data.get("checkpointDigest")
         checkpoint_object_digest = data.get("checkpointObjectDigest")

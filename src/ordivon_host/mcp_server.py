@@ -27,7 +27,11 @@ from starlette.requests import ClientDisconnect
 from .board import HostMessageBoard
 from .config import load_config, read_private_token_file
 from .continuity import ExternalContinuityHost
-from .continuity_models import EXTERNAL_CONTINUITY_WORKLOAD_ID, WorkingCheckpoint
+from .continuity_models import (
+    EXTERNAL_CONTINUITY_WORKLOAD_ID,
+    WorkingCheckpoint,
+    validate_writer_label,
+)
 from .domain import TaskState
 from .handoff import operator_handoff
 from .news import HostDailyNews
@@ -314,6 +318,23 @@ ContinuityDispositionInput = Annotated[
             "description": (
                 "Lifecycle of Host continuity tracking only; complete/abandon do not assert "
                 "an external domain outcome."
+            ),
+        }
+    ),
+]
+
+WriterLabelInput = Annotated[
+    str | None,
+    WithJsonSchema(
+        {
+            "anyOf": [
+                {"type": "string", "minLength": 1, "maxLength": 128},
+                {"type": "null"},
+            ],
+            "description": (
+                "Optional self-asserted writer provenance for this Host continuity write. "
+                "It is persisted with the admitted revision, not inside WorkingCheckpoint "
+                "semantic content, and is not authenticated identity or authority."
             ),
         }
     ),
@@ -661,8 +682,9 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
         description=(
             "Return a compact revision-fenced observation for any Host Task: projection, workload "
             "identity, current head metadata, handoff, recovery assessment when applicable, "
-            "external-continuity checkpoint preview, and a bounded recent Event timeline. The "
-            "TaskProjection is Host lifecycle mechanics only; READY does not establish actionable "
+            "external-continuity checkpoint preview, recorded self-asserted writer provenance when "
+            "present, and a bounded recent Event timeline. The TaskProjection is Host lifecycle "
+            "mechanics only; READY does not establish actionable "
             "NOW work, priority, owner standing, or current domain truth. This does not return raw "
             "Event payload data and never invokes Runtime, Harness, or a Provider."
         ),
@@ -776,9 +798,10 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
         description=(
             "Create or recover one explicit external-continuity Task and its initial "
             "WorkingCheckpoint. Adoption opens Host continuity only; it does not admit cross-owner "
-            "work priority, domain standing, or execution authority. Exact replay with the same "
-            "taskId, goalId, and checkpoint converges after response loss; a different initial "
-            "semantic claim fails closed."
+            "work priority, domain standing, or execution authority. Optional writerLabel is "
+            "self-asserted provenance for the admitted revision, not authenticated identity. Exact "
+            "replay with the same taskId, goalId, and checkpoint converges after response loss; a "
+            "different initial semantic claim fails closed."
         ),
         annotations=ToolAnnotations(
             readOnlyHint=False,
@@ -791,6 +814,7 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
         taskId: str,
         goalId: str,
         initialCheckpoint: WorkingCheckpointWireInput,
+        writerLabel: WriterLabelInput = None,
     ) -> CallToolResult:
         return await _run_tool(
             lambda: _adopt_task(
@@ -798,6 +822,7 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
                 task_id=taskId,
                 goal_id=goalId,
                 checkpoint_value=initialCheckpoint,
+                writer_label=writerLabel,
             ),
             server_interface=server_interface,
             write=True,
@@ -814,8 +839,10 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
             "admission=existing when that exact transition is already current. checkpoint accepts "
             "either a full WorkingCheckpoint or a revision-bound patch. Patches inherit omitted "
             "fields only for continuityDisposition=continue; a new complete/abandon transition "
-            "requires a full WorkingCheckpoint so no inherited field is frozen accidentally. Exact "
-            "replay after response loss remains supported, and different or stale claims fail closed."
+            "requires a full WorkingCheckpoint so no inherited field is frozen accidentally. "
+            "Optional writerLabel is self-asserted provenance stored outside WorkingCheckpoint and "
+            "is never inherited by a patch. Exact replay after response loss preserves the writer "
+            "already recorded by the committed revision; different or stale claims fail closed."
         ),
         annotations=ToolAnnotations(
             readOnlyHint=False,
@@ -829,6 +856,7 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
         expectedRevision: int,
         checkpoint: WorkingCheckpointUpdateInput,
         continuityDisposition: ContinuityDispositionInput = "continue",
+        writerLabel: WriterLabelInput = None,
     ) -> CallToolResult:
         return await _run_tool(
             lambda: _checkpoint_task(
@@ -837,6 +865,7 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
                 expected_revision=expectedRevision,
                 checkpoint_value=checkpoint,
                 disposition=continuityDisposition,
+                writer_label=writerLabel,
             ),
             server_interface=server_interface,
             write=True,
@@ -1386,10 +1415,26 @@ def _observe_task(
         external = workload_id == EXTERNAL_CONTINUITY_WORKLOAD_ID
         continuity = None
         recovery = None
-        if external:
-            record = ExternalContinuityHost(
-                storage, clock_ms=_wall_clock_ms
-            ).checkpoint_at_revision(task_id, projection.revision)
+        continuity_host = (
+            ExternalContinuityHost(storage, clock_ms=_wall_clock_ms)
+            if external
+            else None
+        )
+        if continuity_host is not None:
+            for item in timeline:
+                record_at_revision = continuity_host.checkpoint_at_revision(
+                    task_id, int(item["revision"])
+                )
+                if record_at_revision is not None:
+                    item["writerLabel"] = record_at_revision.writer_label
+                    item["writerIdentityRole"] = (
+                        "self-asserted-label"
+                        if record_at_revision.writer_label is not None
+                        else "unrecorded"
+                    )
+            record = continuity_host.checkpoint_at_revision(
+                task_id, projection.revision
+            )
             if record is not None:
                 objective_preview, objective_truncated = _discovery_preview(
                     record.checkpoint.objective
@@ -1400,6 +1445,12 @@ def _observe_task(
                 continuity = {
                     "checkpointRevision": record.task_revision,
                     "checkpointDigest": record.checkpoint_digest,
+                    "writerLabel": record.writer_label,
+                    "writerIdentityRole": (
+                        "self-asserted-label"
+                        if record.writer_label is not None
+                        else "unrecorded"
+                    ),
                     "objectivePreview": objective_preview,
                     "objectiveTruncated": objective_truncated,
                     "frontierPreview": frontier_preview,
@@ -1626,11 +1677,16 @@ def _adopt_task(
     task_id: str,
     goal_id: str,
     checkpoint_value: dict[str, Any],
+    writer_label: str | None = None,
 ) -> dict[str, object]:
     if not task_id.startswith("task:") or task_id != task_id.strip():
         raise ToolArgumentError("taskId", "Task identity must start with task:")
     if not goal_id.startswith("goal:") or goal_id != goal_id.strip():
         raise ToolArgumentError("goalId", "Goal identity must start with goal:")
+    try:
+        writer_label = validate_writer_label(writer_label)
+    except ValueError as error:
+        raise ToolArgumentError("writerLabel", str(error)) from error
     try:
         checkpoint = WorkingCheckpoint.from_dict(checkpoint_value)
     except (ValueError, TypeError) as error:
@@ -1645,6 +1701,7 @@ def _adopt_task(
             task_id=task_id,
             goal_id=goal_id,
             initial_checkpoint=checkpoint,
+            writer_label=writer_label,
         ).to_dict()
 
 
@@ -1655,6 +1712,7 @@ def _checkpoint_task(
     expected_revision: int,
     checkpoint_value: dict[str, Any],
     disposition: str = "continue",
+    writer_label: str | None = None,
 ) -> dict[str, object]:
     if not task_id.startswith("task:") or task_id != task_id.strip():
         raise ToolArgumentError("taskId", "Task identity must start with task:")
@@ -1662,6 +1720,10 @@ def _checkpoint_task(
         raise ToolArgumentError(
             "expectedRevision", "expectedRevision must be a positive integer"
         )
+    try:
+        writer_label = validate_writer_label(writer_label)
+    except ValueError as error:
+        raise ToolArgumentError("writerLabel", str(error)) from error
     if disposition not in {"continue", "complete", "abandon"}:
         raise ToolArgumentError(
             "continuityDisposition",
@@ -1727,6 +1789,7 @@ def _checkpoint_task(
             expected_revision=expected_revision,
             checkpoint=checkpoint,
             disposition=disposition,
+            writer_label=writer_label,
         ).to_dict()
 
 

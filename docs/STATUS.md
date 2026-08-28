@@ -57,7 +57,8 @@ Host does not currently provide hostile multi-tenancy, distributed consensus, a 
 | opaque extension namespace continuity | operational boundary | Host preserves bytes/revision metadata without owning extension semantics |
 | external semantic continuity | operational local authority | adopt/resume/checkpoint WorkingCheckpoint across Agent/session replacement |
 | Host collaboration board | operational local coordination surface | durable bounded messages and replay/order only; not Task priority, authenticated identity, owner standing, execution authority, or domain truth |
-| Host MCP | operational transport boundary | eight narrow Tools; no Runtime proxy, scheduler, Provider or cognition endpoint |
+| Host daily news projection | operational local publication surface | revision-fenced external-news editions/source pointers; not World truth or Task priority |
+| Host MCP | operational transport boundary | eleven narrow Tools; no Runtime proxy, scheduler, Provider or cognition endpoint |
 | receipt-bound deployment/lifecycle | operational | physical release/rollback/retention evidence separate from Task semantics |
 
 ## External-continuity contract
@@ -68,9 +69,10 @@ Important limits:
 
 - Runtime Workspace/Job/Git hints in the checkpoint are not current physical truth and must be revalidated with their owners;
 - `task.list` exposes bounded previews and revision/digest identity rather than raw checkpoint bodies;
-- `task.resume` returns one revision-coherent checkpoint;
+- `task.resume` returns one revision-coherent checkpoint plus the writer provenance recorded for that revision when available;
+- `task.adopt` / `task.checkpoint` may attach a bounded self-asserted `writerLabel` to the admitted Event. It is deliberately outside WorkingCheckpoint semantics and is not authenticated identity, ownership, or authority;
 - `task.checkpoint` supports complete replacement or exact-revision patching while continuity stays open; a new terminal transition requires a full checkpoint;
-- response-loss replay converges only for the exact original claim/revision;
+- response-loss replay converges only for the exact original semantic claim/revision and preserves the writer already recorded by that revision;
 - `complete`/`abandon` end Host tracking only and do not assert external domain outcomes.
 
 ## Host MCP contract
@@ -81,6 +83,9 @@ The current MCP surface is exactly:
 host.status
 board.list
 board.post
+news.list
+news.read
+news.publish
 task.observe
 task.list
 task.resume

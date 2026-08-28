@@ -10,6 +10,7 @@ from .continuity_models import (
     ExternalContinuityResume,
     WorkingCheckpoint,
     WorkingCheckpointRecord,
+    validate_writer_label,
 )
 from .domain import EventAdmission, EventKind, TaskDescriptor, TaskProjection, TaskState
 from .handoff import operator_handoff
@@ -50,7 +51,9 @@ class ExternalContinuityHost:
         task_id: str,
         goal_id: str,
         initial_checkpoint: WorkingCheckpoint,
+        writer_label: str | None = None,
     ) -> ExternalContinuityResume:
+        writer_label = validate_writer_label(writer_label)
         if initial_checkpoint.task_id != task_id:
             raise ValueError("initial WorkingCheckpoint Task identity differs")
         descriptor = self._descriptor(task_id, goal_id)
@@ -73,6 +76,7 @@ class ExternalContinuityHost:
                         "descriptorObjectDigest": descriptor_object.digest,
                         "checkpointDigest": initial_checkpoint.digest,
                         "checkpointObjectDigest": checkpoint_object.digest,
+                        **({"writerLabel": writer_label} if writer_label is not None else {}),
                     },
                     state=TaskState.READY,
                     frontier=(self._continue_node(task_id),),
@@ -101,6 +105,7 @@ class ExternalContinuityHost:
                     task_id=task_id,
                     expected_revision=1,
                     checkpoint=initial_checkpoint,
+                    writer_label=writer_label,
                 )
             except (LeaseHeld, RevisionConflict, TaskRevisionMismatch):
                 # If another adopter completed revision 2, identical adoption
@@ -133,7 +138,9 @@ class ExternalContinuityHost:
         expected_revision: int,
         checkpoint: WorkingCheckpoint,
         disposition: str = "continue",
+        writer_label: str | None = None,
     ) -> CheckpointReceipt:
+        writer_label = validate_writer_label(writer_label)
         if type(expected_revision) is not int or expected_revision < 1:
             raise ValueError("expected checkpoint revision must be a positive integer")
         if checkpoint.task_id != task_id:
@@ -183,20 +190,21 @@ class ExternalContinuityHost:
                     "descriptorObjectDigest": descriptor_object_digest,
                     "checkpointDigest": checkpoint.digest,
                     "checkpointObjectDigest": checkpoint_object.digest,
+                    **({"writerLabel": writer_label} if writer_label is not None else {}),
                 },
                 state=target_state,
                 frontier=() if terminal else expected_frontier,
                 referenced_objects=(checkpoint_object,),
             )
+        record = self._checkpoint_at_revision(
+            task_id, transition.projection.revision
+        )
+        if record is None:
+            raise JournalCorruption("WorkingCheckpoint disappeared after admission")
         return CheckpointReceipt(
             admission=transition.admission,
             projection=transition.projection,
-            record=WorkingCheckpointRecord(
-                checkpoint=checkpoint,
-                checkpoint_digest=checkpoint.digest,
-                checkpoint_object_digest=checkpoint_object.digest,
-                task_revision=transition.projection.revision,
-            ),
+            record=record,
         )
 
     def latest_checkpoint(self, task_id: str) -> WorkingCheckpointRecord | None:
@@ -272,8 +280,15 @@ class ExternalContinuityHost:
             "checkpointDigest",
             "checkpointObjectDigest",
         }
-        if set(snapshot.data) != expected:
+        fields = set(snapshot.data)
+        if fields not in {frozenset(expected), frozenset((*expected, "writerLabel"))}:
             raise JournalCorruption("WorkingCheckpoint Event payload fields differ")
+        try:
+            writer_label = validate_writer_label(snapshot.data.get("writerLabel"))
+        except ValueError as error:
+            raise JournalCorruption("WorkingCheckpoint writerLabel is invalid") from error
+        if "writerLabel" in snapshot.data and writer_label is None:
+            raise JournalCorruption("WorkingCheckpoint writerLabel cannot be null")
         checkpoint_digest = snapshot.data["checkpointDigest"]
         checkpoint_object_digest = snapshot.data["checkpointObjectDigest"]
         if not isinstance(checkpoint_digest, str) or not isinstance(
@@ -299,6 +314,7 @@ class ExternalContinuityHost:
             checkpoint_digest=checkpoint_digest,
             checkpoint_object_digest=checkpoint_object_digest,
             task_revision=snapshot.projection.revision,
+            writer_label=writer_label,
         )
 
     def _require_external_task(

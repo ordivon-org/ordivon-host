@@ -84,7 +84,7 @@ A stable package or service name may survive an ontology contraction. Compatibil
 
 The production implementation consists of:
 
-- one schema-v7 SQLite Host Journal, including durable collaboration-message pointers;
+- one schema-v8 SQLite Host Journal, including durable collaboration-message and daily-news publication pointers;
 - one materialized `TaskProjection` checked against Event history;
 - immutable typed CAS objects;
 - a minimal `HostKernel` for lease/revision-fenced local admission;
@@ -93,7 +93,7 @@ The production implementation consists of:
 - bounded context-selection structures retained for the Security consumer;
 - a small set of typed compatibility value objects retained for real consumers;
 - Doctor, full-history validation, backup/restore, GC planning, and receipt-bound deployment;
-- one authenticated eight-Tool MCP projection, with board and external-continuity responsibilities kept distinct.
+- one authenticated eleven-Tool MCP projection, with board, daily-news publication, and external-continuity responsibilities kept distinct.
 
 There is no product Runtime client, source-read engine, mutation engine, code-change engine, cognition execution host, foreign executor coordinator, automatic Task reconciler, shared Goal coordinator, or generic capability-policy module.
 
@@ -113,6 +113,8 @@ A `WorkingCheckpoint` stores:
 - optional Runtime/Git navigation hints.
 
 Its `truthRole = semantic-working-claim`. Navigation hints point a future Agent toward revalidation; they are not copied physical truth.
+
+Each admitted external-continuity checkpoint revision may also retain an optional `writerLabel` in the **Event payload**, separate from WorkingCheckpoint semantic content. The label is self-asserted provenance for who claims to have performed that Host write; it is not authenticated identity, ownership, priority, or execution authority. Keeping it outside WorkingCheckpoint prevents a writer change from changing the semantic checkpoint digest or being accidentally inherited by checkpoint patches. Historical revisions written before this provenance field remain explicitly `unrecorded` rather than being reconstructed from conversation history.
 
 ### Adoption and crash safety
 
@@ -141,12 +143,15 @@ Host semantic checkpoint
 
 The MCP server is loopback-only, bearer-authenticated, stateless at the transport layer, and opens Host authority state per request.
 
-Exactly eight Tools are public:
+Exactly eleven Tools are public:
 
 ```text
 host.status
 board.list
 board.post
+news.list
+news.read
+news.publish
 task.observe
 task.list
 task.resume
@@ -159,11 +164,12 @@ Observation and mutation are separated by responsibility:
 - `host.status` reports Host-owned operational/integrity state only;
 - `board.list` reads bounded durable collaboration messages; omitted `afterSequence` gives a newest window and an explicit sequence supports incremental polling;
 - `board.post` admits one replay-safe collaboration message; author labels remain self-asserted, and persistence/order does not create priority, authority, owner standing, authenticated identity, or domain truth;
-- `task.observe` is a bounded Host Task projection;
+- `news.list` / `news.read` expose durable daily-news publication revisions, and `news.publish` admits one revision-fenced external-news edition without making its claims World truth;
+- `task.observe` is a bounded Host Task projection and exposes recorded self-asserted checkpoint-writer provenance without exposing raw Event payloads;
 - `task.list` discovers external-continuity Tasks with stable pagination; its `READY` projection is Host continuity lifecycle only, not current-work allocation, priority, owner standing, or domain currentness;
 - `task.resume` recovers one exact semantic continuation point; its frontier/next actions remain working claims until current owner facts are revalidated;
-- `task.adopt` creates/replays one explicit continuity Task;
-- `task.checkpoint` admits one revision-bound semantic checkpoint.
+- `task.adopt` creates/replays one explicit continuity Task and may record a self-asserted writer label for the admitted revision;
+- `task.checkpoint` admits one revision-bound semantic checkpoint and may record the same bounded provenance separately from WorkingCheckpoint content.
 
 The server does not proxy Runtime/Harness, invoke Providers, execute model loops, schedule work, or infer foreign currentness.
 

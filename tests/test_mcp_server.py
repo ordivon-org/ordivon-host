@@ -1458,6 +1458,12 @@ class HostMcpEndToEndTests(unittest.TestCase):
                 self.assertIn("runtimeWorkspaceId", list_schema["properties"])
                 adopt_schema = by_name["task.adopt"]["inputSchema"]
                 checkpoint_schema = by_name["task.checkpoint"]["inputSchema"]
+                self.assertIn("writerLabel", adopt_schema["properties"])
+                self.assertIn("writerLabel", checkpoint_schema["properties"])
+                self.assertIn(
+                    "self-asserted writer provenance",
+                    adopt_schema["properties"]["writerLabel"]["description"],
+                )
                 self.assertEqual(
                     checkpoint_schema["properties"]["continuityDisposition"]["enum"],
                     ["continue", "complete", "abandon"],
@@ -1768,9 +1774,17 @@ class HostMcpEndToEndTests(unittest.TestCase):
                         "taskId": task_id,
                         "goalId": "goal:mcp:continuity",
                         "initialCheckpoint": initial,
+                        "writerLabel": "chat:mcp-writer-a",
                     },
                 )
                 self.assertEqual(adopted["projection"]["revision"], 2)
+                self.assertEqual(
+                    adopted["checkpoint"]["writerLabel"], "chat:mcp-writer-a"
+                )
+                self.assertEqual(
+                    adopted["checkpoint"]["writerIdentityRole"],
+                    "self-asserted-label",
+                )
                 self.assertEqual(
                     adopted["checkpoint"]["checkpoint"]["truthRole"],
                     "semantic-working-claim",
@@ -1812,10 +1826,12 @@ class HostMcpEndToEndTests(unittest.TestCase):
                         "taskId": task_id,
                         "expectedRevision": 2,
                         "checkpoint": updated,
+                        "writerLabel": "chat:mcp-writer-b",
                     },
                 )
                 self.assertEqual(created["admission"], "created")
                 self.assertEqual(created["projection"]["revision"], 3)
+                self.assertEqual(created["writerLabel"], "chat:mcp-writer-b")
 
                 replay = client.call_tool(
                     "task.checkpoint",
@@ -1823,10 +1839,25 @@ class HostMcpEndToEndTests(unittest.TestCase):
                         "taskId": task_id,
                         "expectedRevision": 2,
                         "checkpoint": updated,
+                        "writerLabel": "chat:mcp-writer-c",
                     },
                 )
                 self.assertEqual(replay["admission"], "existing")
                 self.assertEqual(replay["projection"]["revision"], 3)
+                self.assertEqual(replay["writerLabel"], "chat:mcp-writer-b")
+
+                observed_writer = client.call_tool(
+                    "task.observe",
+                    {"taskId": task_id, "expectedRevision": 3, "eventLimit": 3},
+                )
+                self.assertEqual(
+                    observed_writer["continuity"]["writerLabel"],
+                    "chat:mcp-writer-b",
+                )
+                self.assertEqual(
+                    [event.get("writerLabel") for event in observed_writer["recentEvents"]],
+                    ["chat:mcp-writer-b", "chat:mcp-writer-a", "chat:mcp-writer-a"],
+                )
 
                 with self.assertRaises(McpToolRejected) as captured:
                     client.call_tool(

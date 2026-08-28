@@ -14,6 +14,7 @@ WORKING_CHECKPOINT_WIRE_KIND = "ordivon.host-working-checkpoint"
 MAX_CHECKPOINT_BYTES = 65_536
 MAX_CHECKPOINT_ITEMS = 64
 MAX_CHECKPOINT_ITEM_BYTES = 4_096
+MAX_WRITER_LABEL_BYTES = 128
 
 
 def _text(value: object, label: str, *, max_bytes: int = MAX_CHECKPOINT_ITEM_BYTES) -> str:
@@ -33,6 +34,12 @@ def _items(value: object, label: str) -> tuple[str, ...]:
     if len(set(items)) != len(items):
         raise ValueError(f"{label} items must be unique")
     return items
+
+
+def validate_writer_label(value: object) -> str | None:
+    if value is None:
+        return None
+    return _text(value, "writerLabel", max_bytes=MAX_WRITER_LABEL_BYTES)
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,6 +212,10 @@ class WorkingCheckpointRecord:
     checkpoint_digest: str
     checkpoint_object_digest: str
     task_revision: int
+    writer_label: str | None = None
+
+    def __post_init__(self) -> None:
+        validate_writer_label(self.writer_label)
 
     def to_dict(self) -> dict[str, JsonValue]:
         return {
@@ -212,6 +223,10 @@ class WorkingCheckpointRecord:
             "checkpointDigest": self.checkpoint_digest,
             "checkpointObjectDigest": self.checkpoint_object_digest,
             "taskRevision": self.task_revision,
+            "writerLabel": self.writer_label,
+            "writerIdentityRole": (
+                "self-asserted-label" if self.writer_label is not None else "unrecorded"
+            ),
         }
 
 
