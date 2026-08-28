@@ -413,6 +413,40 @@ class HostOperationsTests(unittest.TestCase):
             self.assertEqual((target / "late-marker.txt").read_text(), "late-owner")
             self.assertFalse(any(base.glob("target.previous-*")))
 
+    def test_restore_replace_false_atomic_publish_rejects_last_moment_target(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = base / "source"
+            backup = base / "backup"
+            target = base / "target"
+            populate(source)
+            create_backup(source, backup, created_at_ms=1_000)
+
+            original_publish = backup_mod._rename_directory_no_replace
+            injected = False
+
+            def publish_after_target_appears(source_root: Path, target_root: Path) -> None:
+                nonlocal injected
+                if not injected:
+                    target.mkdir()
+                    (target / "last-moment.txt").write_text("late-owner")
+                    injected = True
+                original_publish(source_root, target_root)
+
+            with (
+                patch.object(
+                    backup_mod,
+                    "_rename_directory_no_replace",
+                    side_effect=publish_after_target_appears,
+                ),
+                self.assertRaises(FileExistsError),
+            ):
+                restore_backup(backup, target, replace=False)
+
+            self.assertTrue(injected)
+            self.assertEqual((target / "last-moment.txt").read_text(), "late-owner")
+            self.assertFalse(any(base.glob("target.previous-*")))
+
     def test_replace_restore_preserves_previous_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)

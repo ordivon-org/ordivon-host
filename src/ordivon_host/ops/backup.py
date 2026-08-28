@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import ctypes
+import errno
 import hashlib
 import json
 import os
@@ -289,14 +291,15 @@ def restore_backup(
         _fsync_directory(temporary / "objects")
         _fsync_directory(temporary)
 
-        if target.exists():
-            if not replace:
-                raise FileExistsError(target)
-            previous = target.with_name(
-                f"{target.name}.previous-{int(time.time() * 1_000)}"
-            )
-            os.replace(target, previous)
-        os.replace(temporary, target)
+        if replace:
+            if target.exists():
+                previous = target.with_name(
+                    f"{target.name}.previous-{int(time.time() * 1_000)}"
+                )
+                os.replace(target, previous)
+            os.replace(temporary, target)
+        else:
+            _rename_directory_no_replace(temporary, target)
         _fsync_directory(target.parent)
     except BaseException:
         shutil.rmtree(temporary, ignore_errors=True)
@@ -354,6 +357,39 @@ def _stage_backup_evidence(source: Path, destination: Path) -> None:
     _fsync_file(manifest)
     _fsync_directory(objects)
     _fsync_directory(destination)
+
+
+def _rename_directory_no_replace(source: Path, target: Path) -> None:
+    """Atomically publish a directory only if the target path is still absent."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    renameat2 = getattr(libc, "renameat2", None)
+    if renameat2 is None:
+        raise RuntimeError("Host restore requires Linux renameat2 for replace=False")
+    renameat2.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
+    renameat2.restype = ctypes.c_int
+    at_fdcwd = -100
+    rename_noreplace = 1
+    if (
+        renameat2(
+            at_fdcwd,
+            os.fsencode(source),
+            at_fdcwd,
+            os.fsencode(target),
+            rename_noreplace,
+        )
+        == 0
+    ):
+        return
+    error_number = ctypes.get_errno()
+    if error_number == errno.EEXIST:
+        raise FileExistsError(error_number, os.strerror(error_number), target)
+    raise OSError(error_number, os.strerror(error_number), target)
 
 
 def _backup_database(storage: HostStorage, destination: Path) -> None:
