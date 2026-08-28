@@ -1557,6 +1557,29 @@ class HostMcpAgentUxTests(unittest.TestCase):
                 ["board.list"],
             )
 
+            descriptors = [
+                {
+                    "name": tool.name,
+                    "inputSchema": tool.input_schema,
+                    "outputSchema": tool.output_schema,
+                }
+                for tool in tools
+            ]
+            baseline_identity = _tool_schema_identity(descriptors)
+            changed_descriptors = [dict(item) for item in descriptors]
+            board_descriptor = next(
+                item for item in changed_descriptors if item["name"] == "board.list"
+            )
+            changed_board_schema = json.loads(json.dumps(board_descriptor["outputSchema"]))
+            changed_board_schema["$defs"]["BoardListSuccessOutput"]["properties"][
+                "messageCount"
+            ]["type"] = "string"
+            board_descriptor["outputSchema"] = changed_board_schema
+            self.assertNotEqual(
+                baseline_identity["schemaDigest"],
+                _tool_schema_identity(changed_descriptors)["schemaDigest"],
+            )
+
             success = asyncio.run(server.call_tool("board.list", {"limit": 10}))
             self.assertFalse(success.is_error)
             assert success.structured_content is not None
@@ -1587,6 +1610,17 @@ class HostMcpAgentUxTests(unittest.TestCase):
                     return_value=malformed,
                 ),
                 self.assertRaisesRegex(Exception, "Extra inputs are not permitted"),
+            ):
+                asyncio.run(server.call_tool("board.list", {"limit": 10}))
+
+            missing_critical = {key: value for key, value in malformed.items() if key != "messageCount"}
+            missing_critical.pop("unexpected")
+            with (
+                mock.patch(
+                    "ordivon_host.mcp_server._list_board_messages",
+                    return_value=missing_critical,
+                ),
+                self.assertRaisesRegex(Exception, "messageCount"),
             ):
                 asyncio.run(server.call_tool("board.list", {"limit": 10}))
 
