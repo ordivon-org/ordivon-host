@@ -4,6 +4,8 @@ from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
 from pathlib import Path
+import shutil
+import subprocess
 import tempfile
 import unittest
 
@@ -47,6 +49,48 @@ class HostCliTests(unittest.TestCase):
             )
             self.assertEqual(code, 0)
             self.assertTrue(result["restored"])
+
+    def test_local_acceptance_rejects_dirty_source_before_bootstrap(self) -> None:
+        source = Path(__file__).resolve().parents[1] / "scripts" / "local-acceptance"
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / "repo"
+            scripts = repo / "scripts"
+            scripts.mkdir(parents=True)
+            target = scripts / "local-acceptance"
+            shutil.copy2(source, target)
+            marker = repo / "marker.txt"
+            marker.write_text("clean\n", encoding="utf-8")
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.name=Host Test",
+                    "-c",
+                    "user.email=host-test@example.invalid",
+                    "commit",
+                    "-q",
+                    "-m",
+                    "seed",
+                ],
+                cwd=repo,
+                check=True,
+            )
+            (repo / "dirty-untracked.txt").write_text("dirty\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [str(target), "run"],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 3)
+            self.assertIn("requires clean Git source", result.stderr)
+            self.assertIn("dirty-untracked.txt", result.stderr)
+            self.assertNotIn("owner-environment", result.stderr)
 
     def test_deployment_projects_release_commit_without_git_inference(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

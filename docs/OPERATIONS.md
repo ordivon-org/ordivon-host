@@ -316,7 +316,7 @@ Tool failures use MCP `isError=true` plus a structured error object carrying `co
 
 ## Release acceptance
 
-`scripts/local-acceptance run` executes the portable Host-owned checks plus an isolated local state init/Doctor/history smoke test. It does not contact Runtime or another owner. Major-class cutovers additionally require named real-consumer suites and `ordivon-host-deploy prepare` + `plan` against the exact candidate commit before activation.
+`scripts/local-acceptance run` first requires a clean Git source tree (tracked changes and non-ignored untracked files are both refused), then executes the portable Host-owned checks plus an isolated local state init/Doctor/history smoke test. This clean-source fence is what makes the emitted `hostRevision` an exact binding to the bytes under test rather than merely the current `HEAD` label. Ignored owner-environment/build caches such as `.venv/` do not dirty that source identity. It does not contact Runtime or another owner. Major-class cutovers additionally require named real-consumer suites and `ordivon-host-deploy prepare` + `plan` against the exact candidate commit before activation.
 
 ## Backup and restore
 

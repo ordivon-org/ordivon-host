@@ -20,6 +20,20 @@ env_dir=${ORDIVON_OWNER_ENV_DIR:-"$repo/.venv"}
 python_bin="$env_dir/bin/python"
 owner_environment="$repo/scripts/owner-environment"
 
+require_clean_source() {
+  local dirty
+  if ! git -C "$repo" rev-parse --verify HEAD >/dev/null 2>&1; then
+    printf '%s\n' 'local acceptance requires a Git HEAD revision' >&2
+    exit 3
+  fi
+  dirty=$(git -C "$repo" status --porcelain=v1 --untracked-files=all)
+  if [[ -n "$dirty" ]]; then
+    printf '%s\n' 'local acceptance requires clean Git source before binding evidence to HEAD' >&2
+    printf '%s\n' "$dirty" >&2
+    exit 3
+  fi
+}
+
 case "$mode" in
   check)
     test -n "$python_bin"
@@ -37,6 +51,7 @@ case "$mode" in
     printf '%s\n' 'local acceptance contract: present' 'run with: scripts/local-acceptance run'
     ;;
   run)
+    require_clean_source
     ORDIVON_OWNER_ENV_DIR="$env_dir" "$owner_environment" bootstrap
     ORDIVON_OWNER_ENV_DIR="$env_dir" "$owner_environment" doctor
     protocol_source=${ORDIVON_PROTOCOL_SOURCE:-/root/projects/ordivon-computing/packages/ordivon-protocol/src}
