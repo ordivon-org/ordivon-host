@@ -85,7 +85,7 @@ def create_backup(
         manifest_path.write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
         _fsync_file(manifest_path)
         _fsync_directory(temporary)
-        os.replace(temporary, target)
+        _rename_directory_no_replace(temporary, target)
         _fsync_directory(target.parent)
         return manifest
     except BaseException:
@@ -368,7 +368,7 @@ def _rename_directory_no_replace(source: Path, target: Path) -> None:
     libc = ctypes.CDLL(None, use_errno=True)
     renameat2 = getattr(libc, "renameat2", None)
     if renameat2 is None:
-        raise RuntimeError("Host restore requires Linux renameat2 for replace=False")
+        raise RuntimeError("Host publication requires Linux renameat2(RENAME_NOREPLACE)")
     renameat2.argtypes = [
         ctypes.c_int,
         ctypes.c_char_p,

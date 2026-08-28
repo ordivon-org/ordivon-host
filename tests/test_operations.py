@@ -170,6 +170,36 @@ class HostOperationsTests(unittest.TestCase):
             self.assertTrue(result["restored"])
             self.assertEqual(inspect_state(restored)["tasks"], 1)
 
+    def test_create_backup_atomic_publish_rejects_last_moment_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = base / "source"
+            backup = base / "backup"
+            populate(source)
+            original_publish = backup_mod._rename_directory_no_replace
+            late_inode: list[int] = []
+
+            def publish_after_destination_appears(source_root: Path, target_root: Path) -> None:
+                backup.mkdir()
+                late_inode.append(backup.stat().st_ino)
+                original_publish(source_root, target_root)
+
+            with (
+                patch.object(
+                    backup_mod,
+                    "_rename_directory_no_replace",
+                    side_effect=publish_after_destination_appears,
+                ),
+                self.assertRaises(FileExistsError),
+            ):
+                create_backup(source, backup)
+
+            self.assertEqual(len(late_inode), 1)
+            self.assertTrue(backup.is_dir())
+            self.assertEqual(backup.stat().st_ino, late_inode[0])
+            self.assertEqual(list(backup.iterdir()), [])
+            self.assertEqual(list(base.glob(".backup.tmp-*")), [])
+
     def test_backup_rejects_corrupt_ref_committed_before_sqlite_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
@@ -446,6 +476,11 @@ class HostOperationsTests(unittest.TestCase):
             self.assertTrue(injected)
             self.assertEqual((target / "last-moment.txt").read_text(), "late-owner")
             self.assertFalse(any(base.glob("target.previous-*")))
+
+    def test_atomic_no_replace_fails_closed_without_renameat2(self) -> None:
+        with patch.object(backup_mod.ctypes, "CDLL", return_value=object()):
+            with self.assertRaisesRegex(RuntimeError, "renameat2"):
+                backup_mod._rename_directory_no_replace(Path("source"), Path("target"))
 
     def test_replace_restore_preserves_previous_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
