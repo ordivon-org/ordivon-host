@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from ordivon_host import EventKind, HostKernel, HostStorage, TaskProjection, TaskState
+from ordivon_host.board import HostMessageBoard
 import ordivon_host.ops.backup as backup_mod
 from ordivon_host.objects import ObjectCorrupt
 from ordivon_host.ops import (
@@ -383,6 +384,34 @@ class HostOperationsTests(unittest.TestCase):
                     )
                     with self.assertRaisesRegex(ValueError, message):
                         verify_backup(backup)
+
+    def test_backup_rejects_on_access_source_cas_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = base / "source"
+            backup = base / "backup"
+            external = base / "external"
+            external.mkdir()
+            with HostStorage(source) as storage:
+                receipt = HostMessageBoard(storage).post(
+                    client_message_id="msg:backup-source-symlink",
+                    author_label="test",
+                    message_kind="note",
+                    message="source-cas",
+                    topic="backup",
+                    reply_to_client_message_id=None,
+                    recorded_at_ms=1,
+                )
+                digest = receipt.message.message_digest
+            source_object = source / "objects" / f"{digest[7:]}.json"
+            external_object = external / source_object.name
+            external_object.write_bytes(source_object.read_bytes())
+            source_object.unlink()
+            source_object.symlink_to(external_object)
+
+            with self.assertRaisesRegex(ValueError, "Host source CAS"):
+                create_backup(source, backup)
+            self.assertFalse(backup.exists())
 
     def test_verify_and_restore_reject_symlink_object_entries(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

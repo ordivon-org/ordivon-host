@@ -49,9 +49,14 @@ def create_backup(
             for ref in refs:
                 source_path = storage.objects.root / f"{ref.digest[7:]}.json"
                 target_path = objects_root / source_path.name
-                shutil.copyfile(source_path, target_path)
+                _copy_regular_file_no_follow(
+                    source_path, target_path, label=f"Host source CAS {ref.digest}"
+                )
                 os.chmod(target_path, 0o600)
                 _fsync_file(target_path)
+
+        _validate_backup_root(temporary, require_manifest=False)
+        _validate_object_inventory(objects_root, refs)
 
         # Validate the assembled snapshot, not a newer live authority. This catches a
         # missing/tampered CAS copied for a ref that entered the SQLite snapshot and
@@ -151,15 +156,18 @@ def verify_backup(backup_root: str | Path) -> dict[str, object]:
     return value
 
 
-def _validate_backup_root(backup: Path) -> None:
+def _validate_backup_root(backup: Path, *, require_manifest: bool = True) -> None:
     if not backup.is_dir():
         raise ValueError("Host backup root is not a directory")
-    expected = {"host.sqlite3", "manifest.json", "objects"}
+    expected = {"host.sqlite3", "objects"}
+    if require_manifest:
+        expected.add("manifest.json")
     actual = {entry.name for entry in os.scandir(backup)}
     if actual != expected:
         raise ValueError("Host backup root layout differs")
     _require_regular_file(backup / "host.sqlite3", "Host backup Journal")
-    _require_regular_file(backup / "manifest.json", "Host backup manifest")
+    if require_manifest:
+        _require_regular_file(backup / "manifest.json", "Host backup manifest")
     objects = backup / "objects"
     mode = os.lstat(objects).st_mode
     if not stat.S_ISDIR(mode):
@@ -209,7 +217,11 @@ def _verify_backup_semantics_without_mutation(
 def _copy_snapshot_authority(
     source: Path, destination: Path, refs: tuple[StoredObject, ...]
 ) -> None:
-    shutil.copyfile(source / "host.sqlite3", destination / "host.sqlite3")
+    _copy_regular_file_no_follow(
+        source / "host.sqlite3",
+        destination / "host.sqlite3",
+        label="Host backup Journal",
+    )
     os.chmod(destination / "host.sqlite3", 0o600)
     objects = destination / "objects"
     objects.mkdir(mode=0o700)
@@ -217,8 +229,29 @@ def _copy_snapshot_authority(
     for ref in refs:
         name = f"{ref.digest[7:]}.json"
         target = objects / name
-        shutil.copyfile(source / "objects" / name, target)
+        _copy_regular_file_no_follow(
+            source / "objects" / name, target, label=f"Host backup CAS {ref.digest}"
+        )
         os.chmod(target, 0o600)
+
+
+def _copy_regular_file_no_follow(source: Path, destination: Path, *, label: str) -> None:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(source, flags)
+    except OSError as error:
+        raise ValueError(f"{label} is not a readable regular file") from error
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError(f"{label} is not a regular file")
+        with os.fdopen(os.dup(descriptor), "rb") as source_file, destination.open(
+            "xb"
+        ) as target_file:
+            shutil.copyfileobj(source_file, target_file)
+            target_file.flush()
+            os.fsync(target_file.fileno())
+    finally:
+        os.close(descriptor)
 
 def restore_backup(
     backup_root: str | Path,
