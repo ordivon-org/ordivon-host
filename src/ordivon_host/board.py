@@ -138,7 +138,7 @@ class HostMessageBoard:
 
     def list(
         self, *, after_sequence: int | None = None, limit: int = 50,
-        topic: str | None = None,
+        topic: str | None = None, reply_to_client_message_id: str | None = None,
     ) -> dict[str, JsonValue]:
         if after_sequence is not None and (
             type(after_sequence) is not int or after_sequence < 0
@@ -153,8 +153,17 @@ class HostMessageBoard:
             or len(topic) > 256
         ):
             raise ValueError("board topic filter must be null or 1-256 trimmed characters")
+        if reply_to_client_message_id is not None and (
+            not isinstance(reply_to_client_message_id, str)
+            or not reply_to_client_message_id
+            or reply_to_client_message_id != reply_to_client_message_id.strip()
+            or len(reply_to_client_message_id) > 256
+        ):
+            raise ValueError(
+                "board reply target filter must be null or 1-256 trimmed characters"
+            )
 
-        if topic is None:
+        if topic is None and reply_to_client_message_id is None:
             pointers = self.storage.journal.board_messages(
                 after_sequence=after_sequence,
                 limit=limit,
@@ -175,6 +184,7 @@ class HostMessageBoard:
                 after_sequence=after_sequence,
                 limit=requested_limit,
                 topic=topic,
+                reply_to_client_message_id=reply_to_client_message_id,
                 through_sequence=last_sequence,
             )
             if after_sequence is None:
@@ -210,6 +220,8 @@ class HostMessageBoard:
         }
         if topic is not None:
             result["topic"] = topic
+        if reply_to_client_message_id is not None:
+            result["replyToClientMessageId"] = reply_to_client_message_id
         return result
 
     def validate_integrity(self) -> int:

@@ -206,7 +206,7 @@ class BoardListSuccessOutput(BaseModel):
     messageCount: int = Field(
         ge=0,
         description=(
-            "Size of the captured global Board prefix. With a topic filter this is not "
+            "Size of the captured global Board prefix. With an exact filter this is not "
             "the number of matching or returned messages."
         ),
     )
@@ -217,7 +217,7 @@ class BoardListSuccessOutput(BaseModel):
     nextAfterSequence: int = Field(
         ge=0,
         description=(
-            "Global sequence cursor for the next incremental read; topic-filtered reads "
+            "Global sequence cursor for the next incremental read; filtered reads "
             "advance only within the captured high-water so concurrent matching appends "
             "are not skipped."
         ),
@@ -235,6 +235,12 @@ class BoardListSuccessOutput(BaseModel):
     topic: str | None = Field(
         default=None,
         description="Exact topic filter when one was requested; absent/null otherwise.",
+    )
+    replyToClientMessageId: str | None = Field(
+        default=None,
+        description=(
+            "Exact direct-reply target filter when one was requested; absent/null otherwise."
+        ),
     )
     serverInterface: ServerInterfaceOutput
 
@@ -663,7 +669,7 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
         description=(
             "Read durable Host-global collaboration messages. Omit afterSequence to receive the "
             "newest bounded window in chronological order, or pass the last observed sequence for "
-            "incremental polling. An optional exact topic filter narrows retrieval without changing "
+            "incremental polling. Optional exact topic and direct-reply filters narrow retrieval without changing "
             "global message identity or sequence. Messages are collaboration records only: they are not Tasks, "
             "priority, execution authority, owner standing, authenticated identity, or domain truth. "
             "This read validates Journal invariants plus the CAS objects it consumes; it does not "
@@ -680,10 +686,15 @@ def build_mcp_server(settings: HostMcpSettings) -> MCPServer:
         afterSequence: int | None = None,
         limit: int = 50,
         topic: str | None = None,
+        replyToClientMessageId: str | None = None,
     ) -> Annotated[CallToolResult, BoardListToolOutput]:
         return await _run_tool(
             lambda: _list_board_messages(
-                settings.state_root, after_sequence=afterSequence, limit=limit, topic=topic
+                settings.state_root,
+                after_sequence=afterSequence,
+                limit=limit,
+                topic=topic,
+                reply_to_client_message_id=replyToClientMessageId,
             ),
             server_interface=server_interface,
             result_meta={"ordivon/hostIntegrityScope": _operation_local_integrity_scope()},
@@ -1457,7 +1468,8 @@ def _host_status(
 
 
 def _list_board_messages(
-    state_root: Path, *, after_sequence: int | None, limit: int, topic: str | None = None
+    state_root: Path, *, after_sequence: int | None, limit: int, topic: str | None = None,
+    reply_to_client_message_id: str | None = None,
 ) -> dict[str, object]:
     if after_sequence is not None and (
         type(after_sequence) is not int or after_sequence < 0
@@ -1476,11 +1488,24 @@ def _list_board_messages(
         raise ToolArgumentError(
             "topic", "board.list topic must be null or 1-256 trimmed characters"
         )
+    if reply_to_client_message_id is not None and (
+        not isinstance(reply_to_client_message_id, str)
+        or not reply_to_client_message_id
+        or reply_to_client_message_id != reply_to_client_message_id.strip()
+        or len(reply_to_client_message_id) > 256
+    ):
+        raise ToolArgumentError(
+            "replyToClientMessageId",
+            "board.list replyToClientMessageId must be null or 1-256 trimmed characters",
+        )
     with HostStorage(
         state_root, validation_mode="targeted", update_validation_cache=False
     ) as storage:
         return HostMessageBoard(storage).list(
-            after_sequence=after_sequence, limit=limit, topic=topic
+            after_sequence=after_sequence,
+            limit=limit,
+            topic=topic,
+            reply_to_client_message_id=reply_to_client_message_id,
         )
 
 
