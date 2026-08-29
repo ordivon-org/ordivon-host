@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -50,6 +51,29 @@ class HostCliTests(unittest.TestCase):
             )
             self.assertEqual(code, 0)
             self.assertTrue(result["restored"])
+
+    def test_local_acceptance_check_does_not_require_owner_environment(self) -> None:
+        repo = Path(__file__).resolve().parents[1]
+        python = shutil.which("python3")
+        self.assertIsNotNone(python)
+        with tempfile.TemporaryDirectory() as directory:
+            owner_env = Path(directory) / "absent-owner-env"
+            env = dict(os.environ)
+            env["ORDIVON_OWNER_ENV_DIR"] = str(owner_env)
+            env["PYTHON_BIN"] = str(python)
+
+            result = subprocess.run(
+                [str(repo / "scripts" / "local-acceptance"), "check"],
+                cwd=repo,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("local acceptance contract: present", result.stdout)
+            self.assertFalse(owner_env.exists())
 
     def test_local_acceptance_rejects_dirty_source_before_bootstrap(self) -> None:
         source = Path(__file__).resolve().parents[1] / "scripts" / "local-acceptance"

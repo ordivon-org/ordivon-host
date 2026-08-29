@@ -9,8 +9,10 @@ check  validate that the Host-owned portable acceptance contract is present
 run    execute Host-owned portable checks plus isolated state/Doctor/history smoke
 
 Environment:
-  ORDIVON_PROTOCOL_SOURCE         optional local ordivon-protocol source directory
-  ORDIVON_HOST_ACCEPTANCE_OUTPUT  optional JSON receipt output path
+  PYTHON_BIN                     optional Python interpreter for check mode
+  ORDIVON_OWNER_ENV_DIR          optional owner environment directory for run mode
+  ORDIVON_PROTOCOL_SOURCE        optional local ordivon-protocol source directory
+  ORDIVON_HOST_ACCEPTANCE_OUTPUT optional JSON receipt output path
 TXT
 }
 
@@ -18,6 +20,7 @@ repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 mode=${1:-}
 env_dir=${ORDIVON_OWNER_ENV_DIR:-"$repo/.venv"}
 python_bin="$env_dir/bin/python"
+check_python=${PYTHON_BIN:-$(command -v python3 || command -v python || true)}
 owner_environment="$repo/scripts/owner-environment"
 
 require_clean_source() {
@@ -36,7 +39,10 @@ require_clean_source() {
 
 case "$mode" in
   check)
-    test -n "$python_bin"
+    [[ -n "$check_python" && -x "$check_python" ]] || {
+      printf '%s\n' 'local acceptance check requires a Python interpreter' >&2
+      exit 1
+    }
     for path in \
       pyproject.toml uv.lock requirements-audit.txt \
       scripts/check_docs.py scripts/check_dependencies.py scripts/owner-environment scripts/ordivon-host-deploy \
@@ -47,7 +53,7 @@ case "$mode" in
     done
     grep -q 'ordivon-host-mcp = "ordivon_host.mcp_server:entrypoint"' "$repo/pyproject.toml"
     grep -q 'stateless_http=True' "$repo/src/ordivon_host/mcp_server.py"
-    "$python_bin" "$repo/scripts/check_docs.py"
+    "$check_python" "$repo/scripts/check_docs.py"
     printf '%s\n' 'local acceptance contract: present' 'run with: scripts/local-acceptance run'
     ;;
   run)
