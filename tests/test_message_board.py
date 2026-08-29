@@ -135,6 +135,89 @@ class HostMessageBoardTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "topic filter"):
                     board.list(topic=" a")
 
+    def test_direct_reply_filter_recovers_comments_without_scanning_unrelated_board(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with HostStorage(directory) as storage:
+                board = HostMessageBoard(storage)
+                parent = board.post(
+                    client_message_id="msg:thread:parent",
+                    author_label="agent:a",
+                    message_kind="question",
+                    message="Which interaction primitive helps?",
+                    topic="social",
+                    reply_to_client_message_id=None,
+                    recorded_at_ms=1,
+                )
+                board.post(
+                    client_message_id="msg:thread:unrelated",
+                    author_label="agent:z",
+                    message_kind="note",
+                    message="unrelated traffic",
+                    topic="other",
+                    reply_to_client_message_id=None,
+                    recorded_at_ms=2,
+                )
+                for index in range(3):
+                    board.post(
+                        client_message_id=f"msg:thread:reply:{index}",
+                        author_label=f"agent:{index}",
+                        message_kind="reply",
+                        message=f"reply {index}",
+                        topic="social",
+                        reply_to_client_message_id=parent.message.client_message_id,
+                        recorded_at_ms=3 + index,
+                    )
+
+                latest = board.list(
+                    limit=2,
+                    reply_to_client_message_id=parent.message.client_message_id,
+                )
+                self.assertEqual(
+                    [item["clientMessageId"] for item in latest["messages"]],
+                    ["msg:thread:reply:1", "msg:thread:reply:2"],
+                )
+                self.assertEqual(
+                    latest["replyToClientMessageId"], parent.message.client_message_id
+                )
+                self.assertEqual(latest["lastSequence"], 5)
+                self.assertFalse(latest["hasMore"])
+                self.assertEqual(latest["nextAfterSequence"], 5)
+
+                first = board.list(
+                    after_sequence=0,
+                    limit=1,
+                    topic="social",
+                    reply_to_client_message_id=parent.message.client_message_id,
+                )
+                self.assertEqual(
+                    [item["clientMessageId"] for item in first["messages"]],
+                    ["msg:thread:reply:0"],
+                )
+                self.assertTrue(first["hasMore"])
+                self.assertEqual(first["nextAfterSequence"], 3)
+                second = board.list(
+                    after_sequence=first["nextAfterSequence"],
+                    limit=5,
+                    topic="social",
+                    reply_to_client_message_id=parent.message.client_message_id,
+                )
+                self.assertEqual(
+                    [item["clientMessageId"] for item in second["messages"]],
+                    ["msg:thread:reply:1", "msg:thread:reply:2"],
+                )
+                self.assertFalse(second["hasMore"])
+                self.assertEqual(second["nextAfterSequence"], 5)
+
+                empty = board.list(
+                    after_sequence=0,
+                    limit=5,
+                    reply_to_client_message_id="msg:thread:no-replies",
+                )
+                self.assertEqual(empty["messages"], [])
+                self.assertEqual(empty["nextAfterSequence"], 5)
+                with self.assertRaisesRegex(ValueError, "reply target filter"):
+                    board.list(reply_to_client_message_id=" bad")
+
     def test_topic_filter_does_not_skip_matching_append_after_high_water_capture(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             with HostStorage(directory) as storage:

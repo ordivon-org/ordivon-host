@@ -1546,6 +1546,7 @@ class HostMcpAgentUxTests(unittest.TestCase):
                 "not the number of matching or returned messages",
                 success_schema["properties"]["messageCount"]["description"],
             )
+            self.assertIn("replyToClientMessageId", success_schema["properties"])
             interface_schema = defs["ServerInterfaceOutput"]
             self.assertEqual(interface_schema["properties"]["toolCount"]["const"], 11)
             self.assertEqual(
@@ -1832,6 +1833,7 @@ class HostMcpEndToEndTests(unittest.TestCase):
                 self.assertIn("afterSequence", board_list_schema["properties"])
                 self.assertIn("limit", board_list_schema["properties"])
                 self.assertIn("topic", board_list_schema["properties"])
+                self.assertIn("replyToClientMessageId", board_list_schema["properties"])
                 board_post_schema = by_name["board.post"]["inputSchema"]
                 self.assertEqual(
                     board_post_schema["properties"]["messageKind"]["enum"],
