@@ -8,6 +8,7 @@ from typing import Sequence
 
 from .config import HostConfig, load_config
 from .continuity import ExternalContinuityHost
+from .continuity_lens import build_continuity_lens
 from .continuity_models import WorkingCheckpoint
 from .domain import TaskState
 from .handoff import operator_handoff
@@ -41,6 +42,15 @@ def build_parser() -> argparse.ArgumentParser:
     task_list = task_commands.add_parser("list")
     task_list.add_argument("--state", choices=tuple(state.value for state in TaskState))
     task_list.add_argument("--limit", type=int, default=100)
+    task_lens = task_commands.add_parser("lens")
+    task_lens.add_argument("--goal-id")
+    task_lens.add_argument("--attention")
+    task_lens.add_argument(
+        "--carrier",
+        choices=("CLOSE_CLEAN", "RETAIN", "DIRTY_HANDOFF", "UNSPECIFIED"),
+    )
+    task_lens.add_argument("--limit", type=int, default=20)
+    task_lens.add_argument("--summary-only", action="store_true")
     task_show = task_commands.add_parser("show")
     task_show.add_argument("task_id")
     task_handoff = task_commands.add_parser("handoff")
@@ -133,7 +143,13 @@ def _dispatch(config: HostConfig, args: argparse.Namespace) -> dict[str, object]
 
 
 def _task(config: HostConfig, args: argparse.Namespace) -> dict[str, object]:
-    observation_only = args.task_command in {"list", "show", "handoff", "resume"}
+    observation_only = args.task_command in {
+        "list",
+        "lens",
+        "show",
+        "handoff",
+        "resume",
+    }
     with HostStorage(
         config.state_root, update_validation_cache=not observation_only
     ) as storage:
@@ -141,6 +157,14 @@ def _task(config: HostConfig, args: argparse.Namespace) -> dict[str, object]:
             state = TaskState(args.state) if args.state is not None else None
             tasks = list_tasks(storage, state=state, limit=args.limit)
             return {"tasks": [task.to_dict() for task in tasks]}
+        if args.task_command == "lens":
+            return build_continuity_lens(
+                storage,
+                goal_id=args.goal_id,
+                attention=args.attention,
+                carrier=args.carrier,
+                item_limit=0 if args.summary_only else args.limit,
+            )
         if args.task_command == "show":
             task = storage.journal.get_task(args.task_id)
             if task is None:

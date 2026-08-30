@@ -56,6 +56,7 @@ Host does not currently provide hostile multi-tenancy, distributed consensus, a 
 | context-selection semantics | retained consumer surface | bounded Context blocks used by Security; no Host cognition execution |
 | opaque extension namespace continuity | operational boundary | Host preserves bytes/revision metadata without owning extension semantics |
 | external semantic continuity | operational local authority | adopt/resume/checkpoint WorkingCheckpoint across Agent/session replacement |
+| compact continuity lens | local read-model pilot | checkpoint-fenced Goal/ATTENTION/CARRIER navigation; no global snapshot, priority, admission, Runtime currentness, or close authority |
 | Host collaboration board | operational local coordination surface | durable bounded messages and replay/order only; not Task priority, authenticated identity, owner standing, execution authority, or domain truth |
 | Host daily news projection | operational local publication surface | revision-fenced external-news editions/source pointers; not World truth or Task priority |
 | Host MCP | operational transport boundary | eleven narrow Tools; no Runtime proxy, scheduler, Provider or cognition endpoint |

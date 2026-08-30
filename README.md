@@ -126,13 +126,23 @@ If a checkpoint response is lost, retry the identical checkpoint against the ori
 
 `continuityDisposition=complete|abandon` ends Host continuity tracking only. It does not assert that an external domain succeeded or failed.
 
+For high-count continuity discovery, the local read-only `ordivon-host task lens`
+command derives a compact navigation view before an exact `task resume`. It groups
+current external-continuity checkpoints by Goal plus strict checkpoint-authored
+`ATTENTION=<TOKEN>` and `CARRIER=CLOSE_CLEAN|RETAIN|DIRTY_HANDOFF` frontier
+hints, and accepts an opaque `WAKE=<condition>` line. These hints are a zero-schema
+owner convention: the lens reports their exact checkpoint revision/digest but never
+turns them into priority, work admission, Runtime currentness, or Workspace-close
+authority. Use `--summary-only` first, then narrow by `--goal-id`, `--attention`,
+or `--carrier` before resuming the selected Task.
+
 ## Status
 
 Host 0.5.x is operational for owner-trusted local engineering work and remains pre-1.0 as a public interface.
 
 The current product includes:
 
-- schema-v7 SQLite Journal/CAS with migration, backup/restore, Doctor, full-history validation, and the durable Host-global coordination board;
+- schema-v8 SQLite Journal/CAS with migration, backup/restore, Doctor, full-history validation, and the durable Host-global coordination board;
 - semantic external continuity through `WorkingCheckpoint`, exact revision patching, deterministic handoff, and exact response-loss replay;
 - opaque extension-state durability with revision-fenced owner metadata;
 - the bounded context-selection surface consumed by Security;
@@ -174,13 +184,16 @@ Host Doctor and `host.status` therefore report Host-owned health only; an unrela
 
 ## Host MCP surface
 
-The default endpoint is loopback-bound and authenticated. Its eight Tools remain intentionally small and responsibility-separated:
+The default endpoint is loopback-bound and authenticated. Its eleven Tools remain intentionally small and responsibility-separated:
 
 | Tool | Purpose |
 | --- | --- |
 | `host.status` | bounded Host authority/deployment observation |
 | `board.list` | bounded Host-global collaboration-message read/poll surface |
 | `board.post` | idempotent durable collaboration-message admission; self-asserted author labels are not authenticated identity |
+| `news.list` | bounded durable external-news edition discovery |
+| `news.read` | exact revision-fenced external-news edition read |
+| `news.publish` | exact-replay durable external-news edition publication |
 | `task.observe` | compact revision-fenced Host Task observation |
 | `task.list` | paginated external-continuity discovery |
 | `task.resume` | full revision-coherent WorkingCheckpoint recovery |

@@ -177,6 +177,7 @@ class HostCliTests(unittest.TestCase):
             real_storage = HostStorage
             commands = (
                 ("list",),
+                ("lens", "--summary-only"),
                 ("show", "task:missing"),
                 ("handoff", "task:missing"),
                 ("resume", "task:missing"),
