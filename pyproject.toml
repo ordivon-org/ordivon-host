@@ -24,7 +24,7 @@ dependencies = [
 mcp = ["mcp==2.0.0"]
 
 [dependency-groups]
-dev = ["ruff==0.15.17"]
+dev = ["ruff==0.16.5"]
 
 [project.scripts]
 ordivon-host = "ordivon_host.cli:entrypoint"
