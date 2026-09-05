@@ -1,0 +1,16 @@
+schemaVersion: 1
+kind: ordivon.repository-rights
+repository: ordivon-org/ordivon-host
+sourceLicense: Apache-2.0
+copyright:
+  defaultOwnership: contributor-retained-unless-explicitly-assigned
+contributions:
+  defaultPolicy: DCO-1.1
+  policy: https://github.com/ordivon-org/.github/blob/main/CONTRIBUTING.md
+trademark:
+  sourceLicenseGrant: none
+  policy: https://github.com/ordivon-org/.github/blob/main/TRADEMARKS.md
+rightsDistinctions:
+  - repository-visibility-does-not-transfer-copyright
+  - source-license-does-not-grant-general-trademark-rights
+  - publication-does-not-grant-external-system-authority
