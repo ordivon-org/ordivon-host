@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT = ROOT / "pyproject.toml"
 AUDIT_REQUIREMENTS = ROOT / "requirements-audit.txt"
-EXPECTED_BUILD_REQUIRES = ["setuptools==83.0.0"]
+EXPECTED_BUILD_REQUIRES = ["setuptools==84.0.0"]
 PROTOCOL = re.compile(
     r"^ordivon-protocol @ git\+https://github\.com/zycxfyh/"
     r"ordivon-computing\.git@([0-9a-f]{40})"
